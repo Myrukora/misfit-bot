@@ -50,7 +50,7 @@ go build -o bot ./cmd/bot/
 
 ### First run
 
-Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, prefix, and bot name. The default prefix is `?`.
+Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, prefix, and bot name. The default prefix is `[p]`.
 
 ## Configuration
 
@@ -69,7 +69,7 @@ Config values can be changed at runtime with `[p]set <key> <value>` (validated, 
 
 ## Commands
 
-All commands work with the prefix (`?ping`) and as slash commands (`/ping`).
+All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping`). In this documentation `[p]` is a placeholder for your configured prefix (default: `[p]`) — with a `!` or `?` prefix, the same command is `!ping` or `?ping`.
 
 | Command | Description | Access |
 |---|---|---|
@@ -118,8 +118,8 @@ The GitHub token lives **only** in the gitignored `config.yml` and never appears
 The web dashboard runs in-process as a module. Setup:
 
 1. Create a Discord application and note the OAuth2 **client secret** (Dev Portal → OAuth2 → General).
-2. `?dashboard set client_secret <secret>` (owner-only; also sets `oauth.client_secret` in `config.yml`).
-3. `?dashboard url` prints the redirect URI — register it in the Dev Portal.
+2. `[p]dashboard set client_secret <secret>` (owner-only; also sets `oauth.client_secret` in `config.yml`).
+3. `[p]dashboard url` prints the redirect URI — register it in the Dev Portal.
 4. Open `http://127.0.0.1:8080` (the default bind; expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
 
 Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `[p]help`).
