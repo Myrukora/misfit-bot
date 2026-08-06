@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"sync"
@@ -169,6 +170,164 @@ func TestTruncate(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "…") {
 		t.Errorf("truncated string should end with an ellipsis")
+	}
+}
+
+// TestFailedPRSendRetriesNextPoll verifies at-least-once delivery: a PR whose
+// embed fails to send (e.g. "discord rest client unavailable" at startup) must
+// NOT be marked seen, so the next poll retries it — and the state file never
+// records it as delivered.
+func TestFailedPRSendRetriesNextPoll(t *testing.T) {
+	gh := &fakeGH{
+		head: "cccccc1",
+		prs:  []ghPR{{Number: 10, Title: "old pr", User: ghUser{Login: "u1"}}},
+	}
+	m, sent := newTestManager(t, gh)
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("seed poll: %v", err)
+	}
+
+	// PR #12 arrives; the send fails (transient — e.g. REST not ready).
+	gh.mu.Lock()
+	gh.prs = []ghPR{
+		{Number: 10, Title: "old pr", User: ghUser{Login: "u1"}},
+		{Number: 12, Title: "new feature", User: ghUser{Login: "u2"}},
+	}
+	gh.mu.Unlock()
+	sendErr := errors.New("discord rest client unavailable")
+	m.send = func(channelID string, e discord.Embed) error {
+		if channelID != "1234567890" {
+			t.Errorf("send to unexpected channel %q", channelID)
+		}
+		*sent = append(*sent, e)
+		return sendErr
+	}
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("poll with failing send: %v", err)
+	}
+	if m.loadState().SeenPRs[12] {
+		t.Fatal("failed PR #12 must NOT be marked seen")
+	}
+
+	// Next poll: the send works — #12 is delivered exactly once and marked seen.
+	delivered := 0
+	m.send = func(channelID string, e discord.Embed) error {
+		*sent = append(*sent, e)
+		if e.Title == "Pull request opened: #12 new feature" {
+			delivered++
+		}
+		return nil
+	}
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("poll with working send: %v", err)
+	}
+	if !m.loadState().SeenPRs[12] {
+		t.Fatal("delivered PR #12 must be marked seen")
+	}
+	if delivered != 1 {
+		t.Errorf("PR #12 delivered %d times, want exactly 1", delivered)
+	}
+}
+
+// TestFailedCommitSendRetriesWithoutDuplicates verifies the commit retry
+// semantics: the last-seen SHA only advances past commits that were actually
+// sent, so a failed commit is retried next poll while already-sent ones are
+// NOT re-sent.
+func TestFailedCommitSendRetriesWithoutDuplicates(t *testing.T) {
+	gh := &fakeGH{
+		head: "cccccc1",
+		prs:  []ghPR{},
+	}
+	m, sent := newTestManager(t, gh)
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("seed poll: %v", err)
+	}
+
+	// Two new commits; the newest (ddddddd) sends fine, the older (cccccc2) fails.
+	gh.mu.Lock()
+	gh.head = "eeeeeee"
+	gh.commits = []ghCommit{
+		{SHA: "ddddddd", Commit: ghCommitDetails{Message: "newest", Author: ghCommitAuthor{Name: "u1"}}, Author: &ghUser{Login: "u1"}},
+		{SHA: "cccccc2", Commit: ghCommitDetails{Message: "older", Author: ghCommitAuthor{Name: "u1"}}, Author: &ghUser{Login: "u1"}},
+	}
+	gh.mu.Unlock()
+	failNext := true
+	m.send = func(channelID string, e discord.Embed) error {
+		*sent = append(*sent, e)
+		if failNext && e.Title == "1 new commit #cccccc2" {
+			failNext = false
+			return errors.New("discord rest client unavailable")
+		}
+		return nil
+	}
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("poll with partial failure: %v", err)
+	}
+	st := m.loadState()
+	if st.LastCommitSHA != "ddddddd" {
+		t.Fatalf("last seen SHA = %s, want ddddddd (newest sent, failed one NOT advanced past)", st.LastCommitSHA)
+	}
+
+	// Next poll: compare(base=ddddddd) yields only cccccc2 — retried, no dupes.
+	gh.mu.Lock()
+	gh.commits = []ghCommit{
+		{SHA: "cccccc2", Commit: ghCommitDetails{Message: "older", Author: ghCommitAuthor{Name: "u1"}}, Author: &ghUser{Login: "u1"}},
+	}
+	gh.mu.Unlock()
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("retry poll: %v", err)
+	}
+	if st2 := m.loadState(); st2.LastCommitSHA != "eeeeeee" {
+		t.Errorf("last seen SHA = %s, want head eeeeeee", st2.LastCommitSHA)
+	}
+	dddCount := 0
+	for _, e := range *sent {
+		if e.Title == "1 new commit #ddddddd" {
+			dddCount++
+		}
+	}
+	if dddCount != 1 {
+		t.Errorf("commit ddddddd sent %d times, want exactly 1 (no duplicates)", dddCount)
+	}
+}
+
+// TestFailedSendThenRecoveredWithoutRestart verifies that a poll with a
+// permanent-looking send failure leaves the PR unseen even after several polls.
+func TestFailedSendThenRecoveredWithoutRestart(t *testing.T) {
+	gh := &fakeGH{
+		head: "cccccc1",
+		prs:  []ghPR{{Number: 10, Title: "old pr", User: ghUser{Login: "u1"}}},
+	}
+	m, sent := newTestManager(t, gh)
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("seed poll: %v", err)
+	}
+	gh.mu.Lock()
+	gh.prs = []ghPR{
+		{Number: 10, Title: "old pr", User: ghUser{Login: "u1"}},
+		{Number: 42, Title: "stuck", User: ghUser{Login: "u2"}},
+	}
+	gh.mu.Unlock()
+
+	m.send = func(channelID string, e discord.Embed) error { return errors.New("rest unavailable") }
+	for i := 0; i < 3; i++ {
+		if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+			t.Fatalf("poll %d: %v", i, err)
+		}
+	}
+	if m.loadState().SeenPRs[42] {
+		t.Fatal("PR #42 marked seen despite never being delivered")
+	}
+	// Recovery: the next successful poll delivers it.
+	m.send = func(channelID string, e discord.Embed) error {
+		*sent = append(*sent, e)
+		return nil
+	}
+	if err := m.checkNotifications(context.Background(), testCfg()); err != nil {
+		t.Fatalf("recovery poll: %v", err)
+	}
+	if !m.loadState().SeenPRs[42] {
+		t.Fatal("PR #42 should be seen after successful delivery")
 	}
 }
 

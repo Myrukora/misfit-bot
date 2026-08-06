@@ -66,24 +66,32 @@ type Manager struct {
 	applyMu        sync.Mutex  // serializes Apply (and its build steps)
 	applyRequested atomic.Bool // set when a new binary is installed and a restart is pending
 	onApplied      func()      // invoked after a successful Apply (main wires it to the restart channel)
+
+	restReady chan struct{} // closed on the first SetRest; Run waits for it so the first
+	restOnce  sync.Once     // poll never fires with a nil REST client
 }
 
 // New creates the updater manager. getCfg returns the live updater config
 // (main passes a closure over Cfg.Updater).
 func New(dir string, logger Logger, getCfg func() *config.UpdaterConfig) *Manager {
 	m := &Manager{
-		Dir:    dir,
-		Logger: logger,
-		getCfg: getCfg,
-		gh:     newGitHubClient(),
+		Dir:       dir,
+		Logger:    logger,
+		getCfg:    getCfg,
+		gh:        newGitHubClient(),
+		restReady: make(chan struct{}),
 	}
 	m.send = m.sendEmbed
 	return m
 }
 
 // SetRest attaches the current Discord REST client. Called on every bot run()
-// because the disgo client is recreated on restart.
-func (m *Manager) SetRest(r rest.Rest) { m.rest = r }
+// because the disgo client is recreated on restart. The first call also
+// releases the poll loop (see restReady).
+func (m *Manager) SetRest(r rest.Rest) {
+	m.rest = r
+	m.restOnce.Do(func() { close(m.restReady) })
+}
 
 // OnApplied registers the callback invoked after a successful Apply (before
 // the process re-executes itself).
@@ -108,6 +116,18 @@ func (m *Manager) Run(ctx context.Context) {
 		return
 	}
 	m.Logger.Info("Updater running: watching %s @ %s (every %ds, auto_pull=%v)", cfg.Repo, cfg.Branch, cfg.CheckInterval, cfg.AutoPull)
+
+	// The Discord REST client is attached shortly after the gateway connects —
+	// wait for it so the first poll (and its notifications) can't fire with a
+	// nil client. Failures that still slip through are retried on the next
+	// poll (state only advances on successful delivery).
+	select {
+	case <-m.restReady:
+	case <-time.After(30 * time.Second):
+		m.Logger.Warn("Updater: timed out waiting for the Discord REST client — notification failures will retry on the next poll")
+	case <-ctx.Done():
+		return
+	}
 
 	m.poll(ctx) // seed tick: silent
 
@@ -171,6 +191,11 @@ func (m *Manager) syncClient(cfg *config.UpdaterConfig) {
 
 // checkNotifications diffs GitHub state against the persisted state and posts
 // embeds for newly opened PRs and new commits. First run seeds silently.
+//
+// Delivery is at-least-once: a PR is only marked seen (and the last-seen
+// commit SHA only advances) AFTER its embed was actually sent, so a failed
+// send (e.g. REST client not ready at startup) is retried on the next poll —
+// and survives restarts, since the state file never records it as delivered.
 func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterConfig) error {
 	if cfg.NotifyChannel == "" {
 		return nil // notifications disabled
@@ -186,28 +211,25 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	for _, pr := range prs {
 		open[pr.Number] = true
 	}
+	// Prune seen numbers that are no longer open: a PR that is closed and
+	// later reopened will notify again.
+	for n := range st.SeenPRs {
+		if !open[n] {
+			delete(st.SeenPRs, n)
+		}
+	}
 	if st.Seeded {
 		for _, pr := range prs {
 			if st.SeenPRs[pr.Number] {
 				continue
 			}
 			if err := m.send(cfg.NotifyChannel, buildPREmbed(cfg, pr)); err != nil {
-				m.Logger.Warn("Updater: failed to post PR notification #%d: %v", pr.Number, err)
+				m.Logger.Warn("Updater: failed to post PR notification #%d (%v) — will retry on the next poll", pr.Number, err)
+				continue // NOT marked seen → retried next poll
 			}
+			st.SeenPRs[pr.Number] = true
 		}
 	}
-	// Prune seen numbers that are no longer open, then re-mark all open ones:
-	// a PR that is closed and later reopened will notify again.
-	seen := make(map[int]bool, len(open))
-	for n := range st.SeenPRs {
-		if open[n] {
-			seen[n] = true
-		}
-	}
-	for _, pr := range prs {
-		seen[pr.Number] = true
-	}
-	st.SeenPRs = seen
 
 	// ── Commits ──
 	head, err := m.gh.fetchRemoteHead(ctx)
@@ -219,18 +241,41 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 		if err != nil {
 			// History was likely rewritten (force push) — resync silently.
 			m.Logger.Warn("Updater: commit compare failed (%v) — resyncing last seen SHA to %s", err, shortSHA(head))
+			st.LastCommitSHA = head
 		} else {
+			// Newest first; stop at the first failed send and keep the state at
+			// the newest successfully-sent commit, so the failed one (and any
+			// older) are retried on the next poll without re-sending the ones
+			// that already went out.
+			lastSent := st.LastCommitSHA
+			allSent := true
 			for _, c := range commits {
 				if isMergeCommit(c.Commit.Message) {
 					continue
 				}
 				if err := m.send(cfg.NotifyChannel, buildCommitEmbed(cfg, c)); err != nil {
-					m.Logger.Warn("Updater: failed to post commit notification %s: %v", shortSHA(c.SHA), err)
+					m.Logger.Warn("Updater: failed to post commit notification %s (%v) — will retry on the next poll", shortSHA(c.SHA), err)
+					allSent = false
+					break
 				}
+				lastSent = c.SHA
+			}
+			if allSent {
+				st.LastCommitSHA = head
+			} else {
+				st.LastCommitSHA = lastSent
 			}
 		}
 	}
-	st.LastCommitSHA = head
+	// ── record state ──
+	if !st.Seeded {
+		// First run: record the current state silently — the install poll must
+		// not spam every already-open PR and commit.
+		for _, pr := range prs {
+			st.SeenPRs[pr.Number] = true
+		}
+		st.LastCommitSHA = head
+	}
 	st.Seeded = true
 	if err := m.saveState(); err != nil {
 		m.Logger.Warn("Updater: failed to save state: %v", err)
