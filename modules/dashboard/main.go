@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -216,9 +217,12 @@ func (m *DashboardModule) effectiveClientSecret() string {
 	return ""
 }
 
-// configured reports whether OAuth login is possible (public URL + client_id +
-// client_secret all set), using the effective public URL and the effective
-// client secret (core config oauth.client_secret, else module config).
+// configured reports whether OAuth login is possible (client_id + client_secret
+// set, using the effective client secret: core config oauth.client_secret,
+// else module config). public_url is NOT required: when it's unset the OAuth
+// redirect URI is derived per request from the browser's own origin (scheme +
+// Host — see redirectBaseURL), so direct LAN/localhost access works out of the
+// box; public_url only overrides the base for tunnel/reverse-proxy setups.
 func (m *DashboardModule) configured() bool {
 	m.mu.Lock()
 	c := m.cfg
@@ -226,7 +230,107 @@ func (m *DashboardModule) configured() bool {
 	if c == nil || c.ClientID == "" {
 		return false
 	}
-	return m.effectiveClientSecret() != "" && m.effectivePublicURL() != ""
+	return m.effectiveClientSecret() != ""
+}
+
+// ── URL resolution ─────────────────────────────────────────────────────────
+
+// effectiveBaseURL returns the base URL the dashboard is reachable at: the
+// configured public_url when set, else the auto-detected LAN URL. Used for
+// reporting ([p]dashboard url/status, the /setup page).
+func (m *DashboardModule) effectiveBaseURL() string {
+	if u := m.effectivePublicURL(); u != "" {
+		return u
+	}
+	return m.lanURL()
+}
+
+// redirectBaseURL returns the base URL for the OAuth redirect URI, derived per
+// request: the configured public_url when set (tunnel / reverse proxy), else
+// the request's own origin (scheme://host) so direct LAN/localhost access
+// works from whatever address the user opened. The result matches exactly what
+// the owner must register in the Developer Portal.
+func (m *DashboardModule) redirectBaseURL(r *http.Request) string {
+	if u := m.effectivePublicURL(); u != "" {
+		return u
+	}
+	if host := strings.TrimSpace(r.Host); host != "" {
+		return m.requestScheme(r) + "://" + host
+	}
+	return m.lanURL()
+}
+
+// requestScheme reports whether the client connection is HTTPS, honouring the
+// X-Forwarded-Proto header set by TLS-terminating reverse proxies/tunnels.
+func (m *DashboardModule) requestScheme(r *http.Request) string {
+	if r.TLS != nil {
+		return "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); strings.EqualFold(p, "https") {
+		return "https"
+	}
+	return "http"
+}
+
+// lanURL returns the dashboard's LAN-reachable base URL ("http://<lan-ip>:<port>")
+// auto-detected from the host's interfaces, using the effective listen port.
+// Only used for reporting when no public_url is configured.
+func (m *DashboardModule) lanURL() string {
+	return "http://" + m.lanIP() + ":" + m.listenPort()
+}
+
+// lanIP picks a private IPv4 address of this machine (preferring RFC1918
+// ranges), falling back to any non-loopback IPv4, then 127.0.0.1.
+func (m *DashboardModule) lanIP() string {
+	var firstNonLoopback string
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			ipn, ok := a.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipn.IP.To4()
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			if firstNonLoopback == "" {
+				firstNonLoopback = ip.String()
+			}
+			if ip.IsPrivate() {
+				return ip.String()
+			}
+		}
+	}
+	if firstNonLoopback != "" {
+		return firstNonLoopback
+	}
+	return "127.0.0.1"
+}
+
+// listenPort extracts the port from the effective listen address; defaults to
+// 8080 when the address has no usable port.
+func (m *DashboardModule) listenPort() string {
+	_, port, err := net.SplitHostPort(m.effectiveListen())
+	if err != nil || port == "" || port == "0" {
+		return "8080"
+	}
+	return port
+}
+
+// loopbackOnlyListen reports whether the effective listen address binds the
+// loopback interface only (127.0.0.1/::1/localhost). ":8080" and "0.0.0.0:8080"
+// bind all interfaces and are NOT loopback-only.
+func (m *DashboardModule) loopbackOnlyListen() bool {
+	host, _, err := net.SplitHostPort(m.effectiveListen())
+	if err != nil {
+		return true // unparseable listen address: assume localhost-only
+	}
+	return isLoopbackHost(host)
+}
+
+func isLoopbackHost(host string) bool {
+	h := strings.ToLower(strings.Trim(host, "[]"))
+	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
 
 func (m *DashboardModule) startServer() error {
@@ -317,7 +421,7 @@ func (m *DashboardModule) isRunning() bool {
 
 func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 	return []modules.ConfigField{
-		{Key: "listen", Label: "Listen Address", Help: "Address the dashboard HTTP server binds to. Default 127.0.0.1:8080 (localhost only).", Type: modules.FieldTypeText, Scope: "global", Placeholder: "127.0.0.1:8080"},
+		{Key: "listen", Label: "Listen Address", Help: "Address the dashboard HTTP server binds to. Default 127.0.0.1:8080 (localhost only); use 0.0.0.0:8080 to accept LAN connections.", Type: modules.FieldTypeText, Scope: "global", Placeholder: "127.0.0.1:8080"},
 		{Key: "public_url", Label: "Public URL", Help: "Public base URL where the dashboard is reachable (used to build the OAuth redirect URI).", Type: modules.FieldTypeText, Scope: "global", Placeholder: "https://dashboard.example.com"},
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
 		{Key: "client_secret", Label: "OAuth Client Secret", Help: "Discord application client secret (from the Developer Portal OAuth2 page).", Type: modules.FieldTypeSecret, Scope: "global"},
@@ -434,6 +538,8 @@ func (m *DashboardModule) Commands() []commands.Command {
 					return m.cmdDashboardURL(ctx)
 				case "set":
 					return m.cmdDashboardSet(ctx, ctx.Args[1:])
+				case "lan":
+					return m.cmdDashboardLAN(ctx)
 				case "restart":
 					return m.cmdDashboardRestart(ctx)
 				default:
@@ -446,7 +552,7 @@ func (m *DashboardModule) Commands() []commands.Command {
 
 func (m *DashboardModule) cmdDashboardUsage(ctx *commands.Context) error {
 	p := m.ctx.Bot.GetPrefix()
-	return ctx.Respond(embed.Info("📊 Dashboard", "Usage:\n`"+p+"dashboard status` — show status\n`"+p+"dashboard url` — show login URL & redirect URI\n`"+p+"dashboard set <key> <value>` — set config\n`"+p+"dashboard restart` — restart the HTTP server\n\nKeys: `listen, public_url, client_id, client_secret, session_secret, allowed_guilds`"))
+	return ctx.Respond(embed.Info("📊 Dashboard", "Usage:\n`"+p+"dashboard status` — show status\n`"+p+"dashboard url` — show login URL & redirect URI\n`"+p+"dashboard lan` — bind all interfaces + show LAN URL\n`"+p+"dashboard set <key> <value>` — set config\n`"+p+"dashboard restart` — restart the HTTP server\n\nKeys: `listen, public_url, client_id, client_secret, session_secret, allowed_guilds`"))
 }
 
 func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
@@ -456,14 +562,11 @@ func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
 	running := m.isRunning()
 	listen := m.effectiveListen()
 	publicURL := m.effectivePublicURL()
-	var redirect string
-	if publicURL != "" {
-		redirect = publicURL + "/callback"
-	}
 	fields := []discord.EmbedField{
 		{Name: "Listen", Value: "`" + listen + "`", Inline: nil},
 		{Name: "Public URL", Value: "`" + publicURL + "`", Inline: nil},
-		{Name: "Redirect URI", Value: "`" + redirect + "`", Inline: nil},
+		{Name: "LAN URL", Value: "`" + m.lanURL() + "`", Inline: nil},
+		{Name: "Redirect URI", Value: "`" + m.effectiveBaseURL() + "/callback`", Inline: nil},
 		{Name: "Configured", Value: boolEmoji(m.configured()), Inline: nil},
 		{Name: "Running", Value: boolEmoji(running), Inline: nil},
 	}
@@ -475,13 +578,24 @@ func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
 }
 
 func (m *DashboardModule) cmdDashboardURL(ctx *commands.Context) error {
-	publicURL := m.effectivePublicURL()
-	if publicURL == "" {
-		return ctx.Respond(embed.Warning("⚠️ Not configured", "Set `public_url` first — either in config.yml under `dashboard:` or:\n`"+m.ctx.Bot.GetPrefix()+"dashboard set public_url https://your.host`"))
+	prefix := m.ctx.Bot.GetPrefix()
+	if publicURL := m.effectivePublicURL(); publicURL != "" {
+		login := publicURL + "/login"
+		redirect := publicURL + "/callback"
+		// A localhost-only public_url is only reachable from the server itself
+		// — point the owner at the LAN path instead of leaving them confused.
+		hint := ""
+		if u, err := url.Parse(publicURL); err == nil && isLoopbackHost(u.Hostname()) {
+			hint = "\n\n⚠️ `" + publicURL + "` is localhost-only — it is only reachable from this machine. For LAN access run `" + prefix + "dashboard lan`, or set `public_url` to an address other devices can reach."
+		}
+		return ctx.Respond(embed.Info("📊 Dashboard URLs", "Login: "+login+"\nOAuth redirect URI to register in the Developer Portal:\n`"+redirect+"`"+hint+"\n\n1) Add that redirect URI under OAuth2 → Redirects.\n2) Create a client secret and run:\n`"+prefix+"dashboard set client_secret <secret>`\n3) Restart: `"+prefix+"dashboard restart`"))
 	}
-	login := publicURL + "/login"
-	redirect := publicURL + "/callback"
-	return ctx.Respond(embed.Info("📊 Dashboard URLs", "Login: "+login+"\nOAuth redirect URI to register in the Developer Portal:\n`"+redirect+"`\n\n1) Add that redirect URI under OAuth2 → Redirects.\n2) Create a client secret and run:\n`"+m.ctx.Bot.GetPrefix()+"dashboard set client_secret <secret>`\n3) Restart: `"+m.ctx.Bot.GetPrefix()+"dashboard restart`"))
+	base := m.lanURL()
+	note := ""
+	if m.loopbackOnlyListen() {
+		note = "\n\n⚠️ The server currently listens on `" + m.effectiveListen() + "` (this machine only). Run `" + prefix + "dashboard lan` to bind all interfaces so other LAN devices can reach it."
+	}
+	return ctx.Respond(embed.Info("📊 Dashboard URLs (LAN)", "LAN URL: "+base+"\nOAuth redirect URI to register in the Developer Portal:\n`"+base+"/callback`"+note+"\n\n⚠️ Discord requires HTTPS redirect URIs outside localhost. If the Developer Portal rejects this `http://` URI, expose the dashboard through a tunnel (cloudflared) and run:\n`"+prefix+"dashboard set public_url https://your.host`\nThen register `https://your.host/callback` and log in from anywhere."))
 }
 
 func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) error {
@@ -529,6 +643,27 @@ func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) 
 		m.sessions.clear()
 	}
 	return ctx.Respond(embed.Success("✅ Set", "`"+key+"` updated. Restart the dashboard if you changed OAuth config."))
+}
+
+// cmdDashboardLAN switches the dashboard to LAN mode in one step: bind all
+// interfaces (0.0.0.0:<port>), drop a stale localhost-only public_url so the
+// reported URL is the LAN URL, rebind the listener, and print where to go.
+func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
+	prefix := m.ctx.Bot.GetPrefix()
+	target := "0.0.0.0:" + m.listenPort()
+	if err := m.ctx.Bot.SetConfig("dashboard_listen", target); err != nil {
+		return ctx.Respond(embed.Error("❌ Error", err.Error()))
+	}
+	// A localhost-only public_url would keep url/status reporting a URL that
+	// only works on this machine; a real public_url (tunnel/domain) is kept.
+	if u := m.effectivePublicURL(); u != "" {
+		if parsed, err := url.Parse(u); err == nil && isLoopbackHost(parsed.Hostname()) {
+			_ = m.ctx.Bot.SetConfig("dashboard_public_url", "")
+		}
+	}
+	m.rebindSoon("listen")
+	base := m.lanURL()
+	return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\n**LAN URL:** "+base+"\n\nRegister this redirect URI in the Developer Portal:\n`"+base+"/callback`\n\n⚠️ Discord requires HTTPS redirect URIs outside localhost. If the portal rejects the `http://` URI, expose the dashboard via a tunnel (cloudflared) and run `"+prefix+"dashboard set public_url https://your.host` instead."))
 }
 
 func (m *DashboardModule) cmdDashboardRestart(ctx *commands.Context) error {

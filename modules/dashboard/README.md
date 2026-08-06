@@ -49,6 +49,40 @@ Only the non-secret, infrastructure fields (`listen`, `public_url`) can live in
 the world-readable core `config.yml`. The OAuth secrets stay in the module's
 0600 config file. When both define a value, the core config wins.
 
+## LAN access (`[p]dashboard lan`)
+
+By default the dashboard binds `127.0.0.1` (localhost only). To reach it from
+other devices on your network:
+
+1. `[p]dashboard lan` — one command that sets `dashboard.listen` to
+   `0.0.0.0:<port>` in `config.yml` (all interfaces), drops a stale
+   localhost-only `public_url` if one was set, rebinds the listener, and prints
+   the LAN URL. (`[p]dashboard set listen 0.0.0.0:8080` does the bind manually;
+   you can also bind a single interface by replacing `0.0.0.0` with the
+   machine's LAN IP, e.g. `192.168.1.5:8080`.)
+2. `[p]dashboard url` — now prints the auto-detected **LAN URL**
+   (`http://<lan-ip>:<port>`, detected from the host's interfaces) and the
+   exact redirect URI to register in the Developer Portal.
+3. Register `<lan-url>/callback` under **OAuth2 → Redirects**, create a client
+   secret, `[p]dashboard set client_secret <secret>`, `[p]dashboard restart`.
+
+When `public_url` is **not** set, the OAuth redirect URI is derived per request
+from the address the browser opened (scheme + Host), so the same server works
+from `http://127.0.0.1:8080`, `http://<lan-ip>:<port>`, or any hostname —
+register each redirect URI you actually use.
+
+> **Discord caveat:** Discord only accepts `http://` redirect URIs for
+> localhost/127.0.0.1 — non-localhost URIs must be HTTPS. If the Developer
+> Portal rejects your LAN `http://` redirect URI, expose the dashboard through
+> a tunnel (cloudflared) or reverse proxy and set `public_url` to the `https://`
+> URL; login then works from LAN devices and the internet alike (this is also
+> the setup to use for a dedicated domain).
+>
+> **Security note:** binding `0.0.0.0` exposes the dashboard to your whole LAN.
+> Login still requires Discord OAuth with the mutual-guild check, but on a
+> plain-http LAN origin session cookies are not `Secure` — keep `0.0.0.0`
+> binding to trusted networks only.
+
 ### Quick recovery when 8080 is taken
 
 ```text
@@ -63,8 +97,9 @@ the world-readable core `config.yml`. The OAuth secrets stay in the module's
 ## First-time setup (web login)
 
 1. `[p]dashboard set public_url https://dashboard.example.com`
-   (the public base URL where the dashboard is reachable locally or via a
-   reverse proxy / tunnel such as cloudflared or nginx).
+   (the public base URL where the dashboard is reachable — a tunnel/domain for
+   remote access, or **skip this step entirely for direct LAN access**, the LAN
+   URL is auto-derived from the address you open).
 2. `[p]dashboard url` — prints the OAuth **redirect URI** to register:
    `<public_url>/callback`. Add it under
    **Discord Developer Portal → your application → OAuth2 → Redirects**.
@@ -89,8 +124,9 @@ can reuse it.
 
 | subcommand | args | effect |
 |---|---|---|
-| `status` | — | show listen addr, public URL, configured?, running? |
-| `url` | — | print the login URL + the OAuth redirect URI to register |
+| `status` | — | show listen addr, public URL, LAN URL, configured?, running? |
+| `url` | — | print the login URL + the OAuth redirect URI to register (falls back to the auto-detected LAN URL when no `public_url` is set) |
+| `lan` | — | bind all interfaces (`0.0.0.0:<port>`) for LAN access, rebind, print the LAN URL |
 | `set` | `<key> <value>` | set a config key. `listen`/`public_url` → core `config.yml` (`dashboard:` section) + listener rebind. `client_secret` → core `config.yml` (`oauth:` section, the shared Discord-app credential) + OAuth client rebuild + session invalidation. `client_id`/`session_secret`/`allowed_guilds` → the dashboard's 0600 module config file. |
 | `restart` | — | stop & restart the HTTP server with the latest config |
 
@@ -208,9 +244,11 @@ go test ./modules/dashboard/   # template-render coverage + field types (no Disc
   crashes the bot). Long/async work runs off the gateway goroutines.
 - **Sessions are in-memory only** — restart the bot = re-login. Acceptable for a
   private dashboard.
-- **Default `listen` is `127.0.0.1:8080`** (localhost only). Expose remotely
-  via a reverse proxy / tunnel and set `public_url` accordingly. Use HTTPS for
-  the `Secure` cookie flag.
+- **Default `listen` is `127.0.0.1:8080`** (localhost only). `[p]dashboard lan`
+  binds all interfaces for LAN access; for remote access use a reverse proxy /
+  tunnel and set `public_url` (https) accordingly — the `Secure` cookie flag is
+  derived per request from the scheme the browser actually uses, so plain-http
+  LAN origins work too.
 - Live OAuth end-to-end verification (real Discord token + dev-portal redirect)
   is an owner-run step after building. Offline checks: `go vet ./...`, the
   template tests, and a plugin-load sanity check that confirms `New()` returns a

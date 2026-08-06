@@ -52,7 +52,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	}{
 		{"login", nil},
 		{"setup", map[string]string{
-			"public_url": "https://x.com", "client_id": "111", "redirect_uri": "https://x.com/callback",
+			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111", "redirect_uri": "https://x.com/callback",
 			"listen": "127.0.0.1:8080", "prefix": "?",
 		}},
 		{"index", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5}, Modules: []string{}}},
