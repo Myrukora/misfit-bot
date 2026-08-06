@@ -100,6 +100,10 @@ code {
 
 /* ── app shell ────────────────────────────────────────────────────────── */
 .app { display: flex; min-height: 100vh; }
+/* standalone pages (login/setup): full-viewport centered card, no sidebar */
+.app-standalone { align-items: center; justify-content: center; padding: 24px; }
+.app-standalone .content { max-width: none; padding: 0; display: flex; justify-content: center; }
+.app-standalone .center-card { margin: 0; }
 
 /* sidebar */
 .sidebar {
@@ -742,6 +746,10 @@ details.cmd[open] summary::after { transform: rotate(180deg); }
 .guild-icon {
   width: 74px;
   height: 74px;
+  min-width: 74px;
+  min-height: 74px;
+  flex: none;
+  aspect-ratio: 1;
   border-radius: 50%;
   object-fit: cover;
   border: 2px solid rgba(255, 255, 255, 0.16);
@@ -891,6 +899,49 @@ input[type="range"].cfg-field:focus { box-shadow: 0 0 0 3px rgba(88, 101, 242, 0
 
 .inline, .inline-form { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .inline-form .cfg-field { width: 240px; }
+
+/* ── glass switch (uiverse glass-toggle pattern, MIT) ──────────────────── */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.switch .track {
+  position: relative;
+  display: inline-block;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--hairline-strong);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.35);
+  transition: background 0.25s var(--ease), border-color 0.25s var(--ease), box-shadow 0.25s var(--ease);
+}
+.switch .knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #f4f6ff, #b9bfd4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  transition: transform 0.25s var(--ease);
+}
+.switch input:checked ~ .track {
+  background: linear-gradient(135deg, var(--blurple), #8b5cf6);
+  border-color: rgba(123, 135, 255, 0.65);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 14px rgba(88, 101, 242, 0.45);
+}
+.switch input:checked ~ .track .knob { transform: translateX(18px); }
+.switch input:focus-visible ~ .track { outline: 2px solid var(--blurple-bright); outline-offset: 2px; }
+.switch-label { font-size: 13px; color: var(--muted); transition: color 0.2s var(--ease); }
+.switch:hover .switch-label { color: var(--fg); }
 
 /* ── logs terminal ────────────────────────────────────────────────────── */
 .logs {

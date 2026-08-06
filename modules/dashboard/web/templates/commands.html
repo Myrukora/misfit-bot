@@ -2,7 +2,7 @@
 <h2>Commands</h2>
 <div class="toolbar">
   <div class="search-wrap"><svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="cmd-search" aria-label="Filter commands" placeholder="Filter commands…" class="cfg-field"></div>
-  {{if .Content.canRaw}}<label class="inline"><input type="checkbox" id="cmd-raw" {{if .Raw}}checked{{end}}> show non-usable (raw)</label>{{end}}
+  {{if .Content.canRaw}}<label class="switch"><input type="checkbox" id="cmd-raw" {{if .Raw}}checked{{end}}><span class="track"><span class="knob"></span></span><span class="switch-label">show non-usable (raw)</span></label>{{end}}
 </div>
 <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} visible to you{{if .Content.guild}} in this server{{end}}.</p>
 {{range .Content.groups}}

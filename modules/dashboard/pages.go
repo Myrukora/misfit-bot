@@ -53,12 +53,14 @@ func (m *DashboardModule) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
+	d.ShowSidebar = false // login is a standalone, centered card — no nav
 	m.tmpl.render(w, "login", d)
 }
 
 // renderSetup shows the OAuth bootstrap instructions page.
 func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
+	d.ShowSidebar = false // setup is a standalone, centered card — no nav
 	d.Content = map[string]string{
 		"public_url":   m.effectivePublicURL(),
 		"lan_url":      m.lanURL(),
@@ -314,11 +316,13 @@ func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.R
 // ── /logs ──────────────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleLogsPage(w http.ResponseWriter, r *http.Request) {
-	lines, _ := tailLines(m.logFilePath(), 200)
-	d := m.baseData(sessionOf(r))
-	d.Content = map[string]any{
-		"path":  m.logFilePath(),
-		"lines": lines,
+	path := m.logFilePath()
+	lines, err := tailLines(path, 200)
+	note := ""
+	if err != nil {
+		lines, note = nil, "no log file yet — is file logging enabled? (logging.enabled)"
 	}
+	d := m.baseData(sessionOf(r))
+	d.Content = map[string]any{"path": path, "lines": lines, "note": note}
 	m.tmpl.render(w, "logs", d)
 }

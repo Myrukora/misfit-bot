@@ -35,6 +35,7 @@ type renderData struct {
 	IsElevated bool
 	IsStaff    bool
 	IsRegular  bool
+	ShowSidebar bool // false = standalone page (login/setup): no sidebar/topbar
 	Raw        bool
 }
 

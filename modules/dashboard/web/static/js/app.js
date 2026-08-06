@@ -347,7 +347,7 @@
       const restore = spin(btn);
       try {
         const d = await req('GET', '/api/logs?tail=' + n);
-        logBox.textContent = (d.lines || []).join('\n');
+        logBox.textContent = d.note || (d.lines || []).join('\n');
         logBox.scrollTop = logBox.scrollHeight;
         toast('Logs refreshed (' + (d.lines || []).length + ' lines)', 'info');
         restore();

@@ -1082,7 +1082,7 @@ func (b *botAdapter) SetPresence(activityType string, text string) error {
 
 func (b *botAdapter) GetLatency() string {
 	if Client.HasGateway() {
-		return Client.Gateway.Latency().String()
+		return Client.Gateway.Latency().Round(time.Millisecond).String()
 	}
 	return "N/A"
 }

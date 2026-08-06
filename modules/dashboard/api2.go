@@ -243,6 +243,16 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 		n = 1000
 	}
 	path := m.logFilePath()
+	if _, err := os.Stat(path); err != nil {
+		// No log file (file logging disabled or nothing written yet) — respond
+		// 200 with a hint instead of a 500 so the page stays usable.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"path":  path,
+			"lines": []string{},
+			"note":  "no log file yet — is file logging enabled? (logging.enabled)",
+		})
+		return
+	}
 	lines, err := tailLines(path, n)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -251,26 +261,54 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "lines": lines})
 }
 
-// logFilePath resolves logging.file_path from config.yml (repo-relative) back
-// to an absolute path, falling back to <configDir>/logs/bot.log.
+// logFilePath resolves the current daily-rotated log file:
+// <dir>/<basename>-YYYY-MM-DD.log. The logger writes date-suffixed files via
+// DailyRotatingWriter; the plain <basename>.log file only exists on
+// pre-rotation installs. The newest non-empty daily file wins so the log page
+// never tails a stale file or an empty file created at rotation.
 func (m *DashboardModule) logFilePath() string {
+	dir, base := m.logFileBase()
+	return resolveLogFilePath(dir, base)
+}
+
+// resolveLogFilePath picks the newest non-empty daily log file for a
+// directory + basename pair, falling back to the legacy <base>.log file.
+// Pure and testable: the glob is relative to dir, so callers may point it at
+// any directory.
+func resolveLogFilePath(dir, base string) string {
+	matches, err := filepath.Glob(filepath.Join(dir, base+"-*.log"))
+	if err == nil && len(matches) > 0 {
+		sort.Strings(matches) // ISO date suffixes sort chronologically
+		for i := len(matches) - 1; i >= 0; i-- {
+			if st, err := os.Stat(matches[i]); err == nil && st.Size() > 0 {
+				return matches[i]
+			}
+		}
+		return matches[len(matches)-1]
+	}
+	return filepath.Join(dir, base+".log")
+}
+
+// logFileBase resolves logging.file_path from config.yml into a directory and
+// a file basename (e.g. "logs/bot.log" → "logs", "bot"), defaulting to
+// <configDir>/logs/bot.log.
+func (m *DashboardModule) logFileBase() (string, string) {
+	fp := "logs/bot.log"
 	path := filepath.Join(m.ctx.Bot.GetConfigDir(), "config.yml")
-	data, err := os.ReadFile(path)
-	if err == nil {
+	if data, err := os.ReadFile(path); err == nil {
 		var c struct {
 			Logging struct {
 				FilePath string `yaml:"file_path"`
 			} `yaml:"logging"`
 		}
 		if yaml.Unmarshal(data, &c) == nil && c.Logging.FilePath != "" {
-			fp := c.Logging.FilePath
-			if filepath.IsAbs(fp) {
-				return fp
-			}
-			return filepath.Join(m.ctx.Bot.GetConfigDir(), fp)
+			fp = c.Logging.FilePath
 		}
 	}
-	return filepath.Join(m.ctx.Bot.GetConfigDir(), "logs", "bot.log")
+	if !filepath.IsAbs(fp) {
+		fp = filepath.Join(m.ctx.Bot.GetConfigDir(), fp)
+	}
+	return filepath.Dir(fp), strings.TrimSuffix(filepath.Base(fp), ".log")
 }
 
 // tailLines returns the last n lines of a file efficiently.
