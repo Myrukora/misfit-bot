@@ -27,8 +27,8 @@ config_pre_restore_*.yml
 .pi/
 .tmp/
 
-# Bot binary
-bot
+# Bot binary (root-anchored: must NOT match cmd/bot/)
+/bot
 
 # Module persistence
 loaded_modules.json
