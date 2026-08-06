@@ -1,0 +1,9 @@
+# CODEOWNERS — every PR into this repository requires an approval from Lemma-Agent.
+#
+# Combined with the branch rule "Require review from Code Owners" (set on `main`
+# once the repository is public), this enforces the owner-review workflow:
+#   - the maintainer (Myrukora) is the only one who can push to `main`,
+#   - every PR must be approved by Lemma-Agent before it can be merged,
+#   - the maintainer's own PRs still need Lemma-Agent's approval (GitHub forbids
+#     authors from approving their own pull requests).
+* @Lemma-Agent
