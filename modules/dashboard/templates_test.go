@@ -101,9 +101,7 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	content := settingsPageData{
 		Core: []fieldRender{
 			{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"},
-			{Key: "name", Label: "Bot name", Type: "text", Value: "TestBot"},
 			{Key: "owner_id", Label: "Owner ID", Type: "text", Value: "9"},
-			{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"online", "idle", "dnd", "invisible"}},
 			{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
 			{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
 			{Key: "tos_url", Label: "Terms of Service URL", Type: "text", Value: ""},

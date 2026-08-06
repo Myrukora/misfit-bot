@@ -213,18 +213,17 @@ func TestChannelMentionNormalization(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
 
-	// Mention form → bare ID, for both channel config keys.
+	// Mention form → bare ID for the updater notify channel.
 	if err := cfg.Set("updater_notify_channel", "<#1534790217545027745>"); err != nil {
 		t.Fatalf("set mention: %v", err)
 	}
 	if cfg.Updater.NotifyChannel != "1534790217545027745" {
 		t.Errorf("notify_channel = %q, want bare ID 1534790217545027745", cfg.Updater.NotifyChannel)
 	}
-	if err := cfg.Set("log_channel", "<#1534790217545027745>"); err != nil {
-		t.Fatalf("set log_channel mention: %v", err)
-	}
-	if cfg.Logging.Channel != "1534790217545027745" {
-		t.Errorf("log_channel = %q, want bare ID", cfg.Logging.Channel)
+
+	// The removed log_channel key must be rejected as unknown.
+	if err := cfg.Set("log_channel", "123"); err == nil {
+		t.Errorf("log_channel accepted after removal; want unknown-key error")
 	}
 
 	// Bare ID passes through unchanged.

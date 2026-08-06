@@ -67,7 +67,6 @@ type BotConfig struct {
 	Prefix      string   `yaml:"prefix"`
 	OwnerID     string   `yaml:"owner_id"`
 	ElevatedIDs []string `yaml:"elevated_ids"`
-	Status      string   `yaml:"status"`
 	ToS         string   `yaml:"tos_url"`
 	Privacy     string   `yaml:"privacy_url"`
 	Name        string   `yaml:"name"`
@@ -81,7 +80,6 @@ type ModulesConfig struct {
 
 type LoggingConfig struct {
 	Enabled  bool   `yaml:"enabled"`
-	Channel  string `yaml:"channel_id"`
 	FilePath string `yaml:"file_path"`
 	Level    string `yaml:"level"`
 }
@@ -106,7 +104,6 @@ type UpdaterConfig struct {
 var DefaultConfig = &Config{
 	Bot: BotConfig{
 		Prefix:  "[p]",
-		Status:  "online",
 		Name:    "Bot",
 		ToS:     "",
 		Privacy: "",
@@ -187,20 +184,12 @@ func (c *Config) Set(key, value string) error {
 		c.Bot.Token = value
 	case "owner_id":
 		c.Bot.OwnerID = value
-	case "status":
-		c.Bot.Status = value
 	case "tos_url":
 		c.Bot.ToS = value
 	case "privacy_url":
 		c.Bot.Privacy = value
 	case "name":
 		c.Bot.Name = value
-	case "log_channel":
-		v, err := normalizeChannelID(value)
-		if err != nil {
-			return fmt.Errorf("invalid log_channel: %v", err)
-		}
-		c.Logging.Channel = v
 	case "log_level":
 		switch value {
 		case "debug", "info", "warn", "error":

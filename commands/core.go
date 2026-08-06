@@ -445,7 +445,7 @@ func init() {
 		Category:    "core",
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) < 2 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "set <key> <value>\nAvailable: prefix, token, owner_id, name, status, tos_url, privacy_url, log_channel, log_level, log_enabled, dashboard_listen, dashboard_public_url, oauth_client_secret"))
+				return ctx.Respond(embed.Warning("⚠️ Usage", "set <key> <value>\nAvailable: prefix, token, owner_id, name, tos_url, privacy_url, log_level, log_enabled, dashboard_listen, dashboard_public_url, oauth_client_secret"))
 			}
 			key := ctx.Args[0]
 			value := strings.Join(ctx.Args[1:], " ")
@@ -571,12 +571,12 @@ func init() {
 	RegisterCoreCommand(Command{
 		Name:        "logs",
 		Description: "Configure logging",
-		Usage:       "logs enable/disable/channel <channel_id>",
+		Usage:       "logs enable/disable",
 		OwnerOnly:   true,
 		Category:    "core",
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable/channel <channel_id>"))
+				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
 			}
 			switch strings.ToLower(ctx.Args[0]) {
 			case "enable":
@@ -589,16 +589,8 @@ func init() {
 					return ctx.Respond(embed.Error("❌ Error", err.Error()))
 				}
 				return ctx.Respond(embed.Success("✅ Logging", "Logging disabled. Restart required to take effect."))
-			case "channel":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Warning("⚠️ Usage", "logs channel <channel_id>"))
-				}
-				if err := ctx.Bot.SetConfig("log_channel", ctx.Args[1]); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Warning("📝 Logging", fmt.Sprintf("Log channel saved as <#%s>. Discord-channel logging not yet implemented.", ctx.Args[1])))
 			default:
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable/channel <channel_id>"))
+				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
 			}
 		},
 	})
@@ -1053,8 +1045,7 @@ func registerCoreSlashCommands() {
 			}
 		case "logs":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("action", "enable/disable/channel", true),
-				strOpt("channel_id", "Channel ID", false),
+				strOpt("action", "enable/disable", true),
 			}
 		case "update":
 			opts = []discord.ApplicationCommandOption{

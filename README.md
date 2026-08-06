@@ -60,9 +60,9 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 
 | Section | Keys |
 |---|---|
-| `bot` | `token`, `prefix`, `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url` |
+| `bot` | `token`, `prefix`, `owner_id`, `elevated_ids`, `name`, `tos_url`, `privacy_url` |
 | `modules` | `auto_load`, `path`, `disabled` |
-| `logging` | `enabled`, `channel_id`, `file_path`, `level` |
+| `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
 | `oauth` | `client_secret` (Discord app OAuth2 secret, shared with the dashboard) |
 | `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channel` |
@@ -87,7 +87,7 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 | `permissions` | Manage permission overrides | Owner |
 | `eval` | Execute a shell command | Super owner only |
 | `debug` | Runtime diagnostics (goroutines, memory) | Owner |
-| `logs` | View recent logs / logging settings | Owner |
+| `logs` | Enable/disable file logging (`enable` / `disable`) | Owner |
 | `backup` | `create` / `verify` / `restore` / `list` config backups | Owner |
 | `ratelimit` | Inspect/reset per-user rate limits | Owner |
 | `update` | `check` / `now` / `status` / `test` / `set` — self-updater control | Owner |
