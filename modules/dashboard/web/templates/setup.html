@@ -7,11 +7,11 @@
       <code>{{.Content.redirect_uri}}</code></li>
     <li>Create a <strong>Client Secret</strong> on that page.</li>
     <li>Run these commands in Discord as the bot owner:
-      <pre>{{.Content.prefix}}dashboard set public_url https://your.host
-{{.Content.prefix}}dashboard set client_secret YOUR_SECRET
-{{.Content.prefix}}dashboard restart</pre></li>
+      <pre>{{.Content.prefix}}dashboard set client_secret YOUR_SECRET
+{{.Content.prefix}}dashboard restart</pre>
+      Direct LAN access works without a <code>public_url</code> — the redirect URI above is derived from the address you open. For a tunnel/domain instead, run <code>{{.Content.prefix}}dashboard set public_url https://your.host</code> and register <code>https://your.host/callback</code>.</li>
     <li>Client ID used (auto-derived): <code>{{.Content.client_id}}</code></li>
-    <li>Listening on: <code>{{.Content.listen}}</code> (localhost by default — use a reverse proxy or tunnel such as cloudflared/nginx to expose it).</li>
+    <li>Listening on: <code>{{.Content.listen}}</code> — localhost only by default; run <code>{{.Content.prefix}}dashboard lan</code> to accept connections from your LAN. When bound, the dashboard is reachable at <code>{{.Content.lan_url}}</code>.</li>
   </ol>
 </div>
 {{template "footer" .}}{{end}}

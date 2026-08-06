@@ -96,22 +96,27 @@ func (m *DashboardModule) verifyCookie(raw string) (string, bool) {
 	return key, true
 }
 
-func (m *DashboardModule) secureCookie() bool {
-	return strings.HasPrefix(m.cfg.PublicURL, "https://")
+// requestIsHTTPS reports whether the browser connection is secure (direct TLS
+// or via a TLS-terminating proxy/tunnel that sets X-Forwarded-Proto). The
+// session cookie's Secure flag must match the scheme the browser ACTUALLY
+// sees, not the configured public_url: on a plain-http LAN origin a Secure
+// cookie would silently never be stored and login would loop forever.
+func (m *DashboardModule) requestIsHTTPS(r *http.Request) bool {
+	return m.requestScheme(r) == "https"
 }
 
-func (m *DashboardModule) setSessionCookie(w http.ResponseWriter, raw string) {
+func (m *DashboardModule) setSessionCookie(w http.ResponseWriter, r *http.Request, raw string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: raw, Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.secureCookie(),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.requestIsHTTPS(r),
 		MaxAge: 86400 * 7,
 	})
 }
 
-func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter) {
+func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/",
-		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.secureCookie(),
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.requestIsHTTPS(r),
 		MaxAge: -1,
 	})
 }
@@ -174,7 +179,7 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	url := m.oauth.GenerateAuthorizationURL(oauth2.AuthorizationURLParams{
-		RedirectURI: m.effectivePublicURL() + "/callback",
+		RedirectURI: m.redirectBaseURL(r) + "/callback",
 		Scopes:      []discord.OAuth2Scope{discord.OAuth2ScopeIdentify, discord.OAuth2ScopeGuilds},
 	})
 	http.Redirect(w, r, url, http.StatusSeeOther)
@@ -234,7 +239,7 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		csrfToken:   csrf,
 	}
 	m.sessions.put(key, us)
-	m.setSessionCookie(w, m.signCookie(key))
+	m.setSessionCookie(w, r, m.signCookie(key))
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
@@ -242,7 +247,7 @@ func (m *DashboardModule) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if _, key, ok := m.sessionFromCookie(r); ok {
 		m.sessions.del(key)
 	}
-	m.clearSessionCookie(w)
+	m.clearSessionCookie(w, r)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
 
