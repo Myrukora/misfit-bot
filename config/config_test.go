@@ -205,6 +205,51 @@ func TestUpdaterKeysValidation(t *testing.T) {
 	}
 }
 
+// TestChannelMentionNormalization covers the "entered #updates as a channel"
+// bug: a <#id> mention must be stored as the bare numeric ID (channel names
+// can't be resolved from config), and names must be rejected loudly instead of
+// being stored and failing later with "invalid notify channel".
+func TestChannelMentionNormalization(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	// Mention form → bare ID, for both channel config keys.
+	if err := cfg.Set("updater_notify_channel", "<#1534790217545027745>"); err != nil {
+		t.Fatalf("set mention: %v", err)
+	}
+	if cfg.Updater.NotifyChannel != "1534790217545027745" {
+		t.Errorf("notify_channel = %q, want bare ID 1534790217545027745", cfg.Updater.NotifyChannel)
+	}
+	if err := cfg.Set("log_channel", "<#1534790217545027745>"); err != nil {
+		t.Fatalf("set log_channel mention: %v", err)
+	}
+	if cfg.Logging.Channel != "1534790217545027745" {
+		t.Errorf("log_channel = %q, want bare ID", cfg.Logging.Channel)
+	}
+
+	// Bare ID passes through unchanged.
+	if err := cfg.Set("updater_notify_channel", "123456789012345678"); err != nil {
+		t.Fatalf("set bare id: %v", err)
+	}
+	if cfg.Updater.NotifyChannel != "123456789012345678" {
+		t.Errorf("bare id mangled: %q", cfg.Updater.NotifyChannel)
+	}
+
+	// Channel names must be rejected at Set time.
+	for _, v := range []string{"updates", "#updates", "general"} {
+		if err := cfg.Set("updater_notify_channel", v); err == nil {
+			t.Errorf("channel name %q accepted; want error", v)
+		}
+	}
+	// Empty clears the channel.
+	if err := cfg.Set("updater_notify_channel", ""); err != nil {
+		t.Fatalf("clear channel: %v", err)
+	}
+	if cfg.Updater.NotifyChannel != "" {
+		t.Errorf("channel not cleared: %q", cfg.Updater.NotifyChannel)
+	}
+}
+
 // TestLogEnabledValidation guards the [p]logs command against silent typos:
 // anything that isn't a recognizable boolean must be rejected instead of
 // silently disabling logging ("enable" used to coerce to false).

@@ -172,6 +172,23 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+// TestNormalizeChannel covers the send-time tolerance: configs saved before
+// mention normalization (raw <#id> values) must still work.
+func TestNormalizeChannel(t *testing.T) {
+	cases := map[string]string{
+		"<#1534790217545027745>":     "1534790217545027745",
+		"1534790217545027745":        "1534790217545027745",
+		"  <#1534790217545027745>  ": "1534790217545027745",
+		"":                           "",
+		"updates":                    "updates", // not a mention — parse will reject later
+	}
+	for in, want := range cases {
+		if got := normalizeChannel(in); got != want {
+			t.Errorf("normalizeChannel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestIsMergeCommit(t *testing.T) {
 	merges := []string{
 		"Merge pull request #123 from user/branch",
