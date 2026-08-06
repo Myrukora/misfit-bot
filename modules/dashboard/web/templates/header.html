@@ -19,16 +19,17 @@
       </div>
     </div>
     <nav class="nav">
-      <a href="/" class="nav-item{{if eq .Page "index"}} active{{end}}"><span class="nav-ico">◈</span>Overview</a>
-      <a href="/commands" class="nav-item{{if eq .Page "commands"}} active{{end}}"><span class="nav-ico">⌘</span>Commands</a>
-      {{if .ShowConfig}}<a href="/modules" class="nav-item{{if eq .Page "modules"}} active{{end}}"><span class="nav-ico">▤</span>Modules</a><a href="/settings" class="nav-item{{if eq .Page "settings"}} active{{end}}"><span class="nav-ico">⚙</span>Settings</a><a href="/permissions" class="nav-item{{if eq .Page "permissions"}} active{{end}}"><span class="nav-ico">🛡</span>Permissions</a><a href="/logs" class="nav-item{{if eq .Page "logs"}} active{{end}}"><span class="nav-ico">≣</span>Logs</a>{{end}}
+      <a href="/" class="nav-item{{if eq .Page "index"}} active{{end}}" title="Overview"><span class="nav-ico">◈</span>Overview</a>
+      <a href="/commands" class="nav-item{{if eq .Page "commands"}} active{{end}}" title="Commands"><span class="nav-ico">⌘</span>Commands</a>
+      {{if .ShowConfig}}<a href="/modules" class="nav-item{{if eq .Page "modules"}} active{{end}}" title="Modules"><span class="nav-ico">▤</span>Modules</a><a href="/settings" class="nav-item{{if eq .Page "settings"}} active{{end}}" title="Settings"><span class="nav-ico">⚙</span>Settings</a><a href="/permissions" class="nav-item{{if eq .Page "permissions"}} active{{end}}" title="Permissions"><span class="nav-ico">🛡</span>Permissions</a><a href="/logs" class="nav-item{{if eq .Page "logs"}} active{{end}}" title="Logs"><span class="nav-ico">≣</span>Logs</a>{{end}}
     </nav>
     {{if gt (len .Guilds) 0}}
     <div class="guilds">
       <div class="guilds-label">Servers</div>
-      {{range .Guilds}}<a href="/guild/{{.ID}}" class="guild{{if .Owner}} owned{{end}}">{{if .Icon}}<img src="{{.Icon}}" alt="">{{else}}<span class="guild-fallback">{{initial .Name}}</span>{{end}}<span class="guild-name">{{.Name}}</span>{{if .Owner}}<span class="guild-crown" title="You own this server">♛</span>{{end}}</a>{{end}}
+      {{range .Guilds}}<a href="/guild/{{.ID}}" class="guild{{if .Owner}} owned{{end}}" title="{{.Name}}">{{if .Icon}}<img src="{{.Icon}}" alt="">{{else}}<span class="guild-fallback">{{initial .Name}}</span>{{end}}<span class="guild-name">{{.Name}}</span>{{if .Owner}}<span class="guild-crown" title="You own this server">♛</span>{{end}}</a>{{end}}
     </div>
     {{end}}
+    <button class="sidebar-collapse" id="sidebar-collapse" aria-label="Collapse sidebar" title="Collapse sidebar">‹</button>
   </aside>
   <div class="main">
     <header class="topbar">

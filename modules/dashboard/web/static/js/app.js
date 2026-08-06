@@ -54,26 +54,71 @@
     revealEls.forEach(el => el.classList.add('in'));
   }
 
-  // ── Mobile drawer (sidebar ⇄ overlay) ──────────────────────────────────
+  // ── Sidebar: desktop collapse + mobile drawer ──────────────────────────
+  // Desktop: the sidebar slides away (collapsed) and the topbar hamburger
+  // appears to bring it back; the choice persists in localStorage. Mobile:
+  // the sidebar becomes an off-canvas drawer that pops in over an overlay.
   const navToggle = document.getElementById('nav-toggle');
   const sidebar = document.getElementById('sidebar');
   const overlay = document.getElementById('drawer-overlay');
+  const collapseBtn = document.getElementById('sidebar-collapse');
+  const mqMobile = window.matchMedia('(max-width: 900px)');
+
   if (navToggle && sidebar) {
-    const close = () => {
+    const closeDrawer = () => {
       sidebar.classList.remove('open');
       navToggle.setAttribute('aria-expanded', 'false');
       if (overlay) { overlay.hidden = true; overlay.classList.remove('show'); }
     };
+
+    const setCollapsed = (collapsed) => {
+      sidebar.classList.toggle('collapsed', collapsed);
+      navToggle.setAttribute('aria-expanded', String(!collapsed));
+      try { localStorage.setItem('dash_sidebar_collapsed', collapsed ? '1' : '0'); } catch (_) {}
+    };
+
+    // Restore the desktop preference on load (never applied on mobile).
+    try {
+      if (!mqMobile.matches && localStorage.getItem('dash_sidebar_collapsed') === '1') {
+        sidebar.classList.add('collapsed');
+      }
+    } catch (_) {}
+
     navToggle.addEventListener('click', () => {
-      const open = sidebar.classList.toggle('open');
-      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
-      if (overlay) {
-        overlay.hidden = false;
-        requestAnimationFrame(() => overlay.classList.toggle('show', open));
+      if (mqMobile.matches) {
+        // drawer mode
+        const open = sidebar.classList.toggle('open');
+        navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        sidebar.classList.remove('collapsed');
+        if (overlay) {
+          overlay.hidden = false;
+          requestAnimationFrame(() => overlay.classList.toggle('show', open));
+        }
+      } else {
+        // desktop collapse toggle
+        setCollapsed(!sidebar.classList.contains('collapsed'));
       }
     });
-    if (overlay) overlay.addEventListener('click', close);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+
+    if (collapseBtn) {
+      collapseBtn.addEventListener('click', () => setCollapsed(!sidebar.classList.contains('collapsed')));
+    }
+
+    if (overlay) overlay.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+
+    // Crossing the breakpoint: forget the collapsed state on mobile, close any
+    // open drawer, and re-apply the saved preference when returning to desktop.
+    mqMobile.addEventListener('change', (e) => {
+      if (e.matches) {
+        sidebar.classList.remove('collapsed');
+      } else {
+        closeDrawer();
+        try {
+          if (localStorage.getItem('dash_sidebar_collapsed') === '1') sidebar.classList.add('collapsed');
+        } catch (_) {}
+      }
+    });
   }
 
   // ── Metrics auto-refresh + count-up on the overview page ───────────────
