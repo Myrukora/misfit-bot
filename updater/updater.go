@@ -464,12 +464,23 @@ func (m *Manager) sendEmbed(channelID string, e discord.Embed) error {
 	if m.rest == nil {
 		return fmt.Errorf("discord rest client unavailable")
 	}
-	id, err := snowflake.Parse(channelID)
+	id, err := snowflake.Parse(normalizeChannel(channelID))
 	if err != nil {
 		return fmt.Errorf("invalid notify channel %q: %w", channelID, err)
 	}
 	_, err = m.rest.CreateMessage(id, discord.MessageCreate{Embeds: []discord.Embed{e}})
 	return err
+}
+
+// normalizeChannel strips a #channel mention wrapper (<#id>) from a stored
+// config value. Config.Set already normalizes on write; this tolerates values
+// saved before that (e.g. an older config.yml holding the raw mention).
+func normalizeChannel(s string) string {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "<#") && strings.HasSuffix(s, ">") {
+		return strings.TrimSuffix(strings.TrimPrefix(s, "<#"), ">")
+	}
+	return s
 }
 
 // gitAuthArgs returns the -c arguments that scope credentials to this single

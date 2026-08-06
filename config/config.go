@@ -196,7 +196,11 @@ func (c *Config) Set(key, value string) error {
 	case "name":
 		c.Bot.Name = value
 	case "log_channel":
-		c.Logging.Channel = value
+		v, err := normalizeChannelID(value)
+		if err != nil {
+			return fmt.Errorf("invalid log_channel: %v", err)
+		}
+		c.Logging.Channel = v
 	case "log_level":
 		switch value {
 		case "debug", "info", "warn", "error":
@@ -257,11 +261,33 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.Updater.AutoPull = v
 	case "updater_notify_channel":
-		c.Updater.NotifyChannel = strings.TrimSpace(value)
+		v, err := normalizeChannelID(value)
+		if err != nil {
+			return fmt.Errorf("invalid updater_notify_channel: %v", err)
+		}
+		c.Updater.NotifyChannel = v
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
 	return Save(c, filepath.Dir(c.FilePath))
+}
+
+// normalizeChannelID accepts a Discord channel mention (<#1234567890>) or a
+// bare numeric ID and returns the bare ID. Channel NAMES are rejected — they
+// cannot be resolved to an ID without the cache, and storing them would break
+// every later snowflake parse ("invalid notify channel").
+func normalizeChannelID(value string) (string, error) {
+	v := strings.TrimSpace(value)
+	if v == "" {
+		return "", nil
+	}
+	if strings.HasPrefix(v, "<#") && strings.HasSuffix(v, ">") {
+		v = strings.TrimSuffix(strings.TrimPrefix(v, "<#"), ">")
+	}
+	if _, err := strconv.ParseUint(v, 10, 64); err != nil {
+		return "", fmt.Errorf("%q is not a channel mention or numeric ID (paste the #channel mention)", value)
+	}
+	return v, nil
 }
 
 // parseBool accepts the same value set as the log_enabled handling
