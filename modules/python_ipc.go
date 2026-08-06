@@ -34,6 +34,13 @@ type PythonIPC struct {
 
 	// Voice action handler
 	onVoiceAction func(action string, params map[string]interface{}) (map[string]interface{}, error)
+
+	// Dashboard command execution: req_id → response channel. A command sent
+	// with source:"dashboard" gets a req_id; the module echoes it in its
+	// respond/reply_text/error replies, and deliverWeb routes the reply to the
+	// waiting HTTP caller instead of Discord.
+	pendingMu sync.Mutex
+	pending   map[string]chan map[string]interface{}
 }
 
 // PythonReadyInfo contains the module metadata and commands from the ready message.
@@ -68,8 +75,9 @@ type PythonSlashCommand struct {
 // NewPythonIPC creates a new Python IPC handler.
 func NewPythonIPC(cmd *exec.Cmd, log *logger.Logger) *PythonIPC {
 	return &PythonIPC{
-		cmd:    cmd,
-		logger: log,
+		cmd:     cmd,
+		logger:  log,
+		pending: map[string]chan map[string]interface{}{},
 	}
 }
 
@@ -120,6 +128,15 @@ func (p *PythonIPC) Stop() error {
 		p.stdin.Close()
 	}
 	p.mu.Unlock()
+
+	// Release pending dashboard waiters — the process is going away, so no
+	// reply will ever arrive; unblock them with a clear error.
+	p.pendingMu.Lock()
+	for id, ch := range p.pending {
+		close(ch)
+		delete(p.pending, id)
+	}
+	p.pendingMu.Unlock()
 
 	// Wait for process to exit with timeout
 	if p.cmd != nil && p.cmd.Process != nil {
@@ -191,6 +208,59 @@ func (p *PythonIPC) SendCommand(name string, args []string, channelID, guildID, 
 		"author_id":  authorID,
 		"is_slash":   isSlash,
 	})
+}
+
+// SendCommandFromWeb sends a dashboard-sourced command invocation and waits
+// for the module's respond/reply_text/error reply (correlated via req_id,
+// 5s timeout). The reply map is returned raw so the caller can render it.
+func (p *PythonIPC) SendCommandFromWeb(name string, args []string, guildID, authorID string) (map[string]interface{}, error) {
+	reqID := fmt.Sprintf("web-%d-%d", time.Now().UnixNano(), p.nextReqSeq())
+	ch := make(chan map[string]interface{}, 4)
+	p.pendingMu.Lock()
+	if p.pending == nil {
+		p.pending = map[string]chan map[string]interface{}{}
+	}
+	p.pending[reqID] = ch
+	p.pendingMu.Unlock()
+	defer func() {
+		p.pendingMu.Lock()
+		delete(p.pending, reqID)
+		p.pendingMu.Unlock()
+	}()
+
+	if err := p.Send(map[string]interface{}{
+		"type":       "command",
+		"name":       name,
+		"args":       args,
+		"channel_id": "",
+		"guild_id":   guildID,
+		"author_id":  authorID,
+		"is_slash":   false,
+		"source":     "dashboard",
+		"req_id":     reqID,
+	}); err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp, ok := <-ch:
+		if !ok {
+			return nil, fmt.Errorf("python module stopped while running %q", name)
+		}
+		if resp["type"] == "error" {
+			return nil, fmt.Errorf("%s", getString(resp, "message"))
+		}
+		return resp, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("python module timed out responding to %q", name)
+	}
+}
+
+var webReqSeq int64
+
+func (p *PythonIPC) nextReqSeq() int64 {
+	webReqSeq++
+	return webReqSeq
 }
 
 // SendEvent sends an event to the Python process.
@@ -371,8 +441,31 @@ func (p *PythonIPC) handleReady(message map[string]interface{}) {
 	}
 }
 
+// deliverWeb routes a Python reply to a pending dashboard waiter when it
+// carries a req_id. Returns true when the message was consumed by a waiter.
+func (p *PythonIPC) deliverWeb(message map[string]interface{}) bool {
+	reqID := getString(message, "req_id")
+	if reqID == "" {
+		return false
+	}
+	p.pendingMu.Lock()
+	ch := p.pending[reqID]
+	p.pendingMu.Unlock()
+	if ch == nil {
+		if p.logger != nil {
+			p.logger.Error("Python web reply for unknown req_id %s (module restarted?)", reqID)
+		}
+		return true // consumed: don't double-deliver to Discord
+	}
+	ch <- message
+	return true
+}
+
 // handleRespond handles a respond message from Python.
 func (p *PythonIPC) handleRespond(message map[string]interface{}) {
+	if p.deliverWeb(message) {
+		return
+	}
 	channelID := getString(message, "channel_id")
 	title := getString(message, "title")
 	description := getString(message, "description")
@@ -384,6 +477,9 @@ func (p *PythonIPC) handleRespond(message map[string]interface{}) {
 
 // handleReplyText handles a reply_text message from Python.
 func (p *PythonIPC) handleReplyText(message map[string]interface{}) {
+	if p.deliverWeb(message) {
+		return
+	}
 	channelID := getString(message, "channel_id")
 	text := getString(message, "text")
 
@@ -404,6 +500,9 @@ func (p *PythonIPC) handleLog(message map[string]interface{}) {
 
 // handleError handles an error message from Python.
 func (p *PythonIPC) handleError(message map[string]interface{}) {
+	if p.deliverWeb(message) {
+		return
+	}
 	msg := getString(message, "message")
 
 	if p.onError != nil {

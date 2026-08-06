@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 
 	"github.com/custombot/bot/modules"
 	"github.com/disgoorg/disgo/discord"
@@ -305,41 +306,77 @@ func (m *DashboardModule) apiSettings(w http.ResponseWriter, r *http.Request) {
 
 // coreSettingsGet reads the current core setting values from the bot.
 func (m *DashboardModule) coreSettingsGet() map[string]string {
+	cfg := m.rawConfig()
 	return map[string]string{
-		"prefix":      m.ctx.Bot.GetPrefix(),
-		"owner_id":    m.ctx.Bot.GetOwnerID(),
-		"tos_url":     m.ctx.Bot.GetToS(),
-		"privacy_url": m.ctx.Bot.GetPrivacy(),
-		"log_level":   m.logSetting("level"),
-		"log_enabled": m.logSetting("enabled"),
+		"prefix":                 m.ctx.Bot.GetPrefix(),
+		"owner_id":               m.ctx.Bot.GetOwnerID(),
+		"tos_url":                m.ctx.Bot.GetToS(),
+		"privacy_url":            m.ctx.Bot.GetPrivacy(),
+		"log_level":              m.cfgValue(cfg, "logging", "level"),
+		"log_enabled":            m.cfgValue(cfg, "logging", "enabled"),
+		"log_file_path":          m.cfgValue(cfg, "logging", "file_path"),
+		"dashboard_listen":       m.cfgValue(cfg, "dashboard", "listen"),
+		"dashboard_public_url":   m.cfgValue(cfg, "dashboard", "public_url"),
+		"token":                  redactedIfSet(m.cfgValue(cfg, "bot", "token")),
+		"oauth_client_secret":    redactedIfSet(m.cfgValue(cfg, "oauth", "client_secret")),
+		"updater_enabled":        m.cfgValue(cfg, "updater", "enabled"),
+		"updater_repo":           m.cfgValue(cfg, "updater", "repo"),
+		"updater_branch":         m.cfgValue(cfg, "updater", "branch"),
+		"updater_token":          redactedIfSet(m.cfgValue(cfg, "updater", "token")),
+		"updater_interval":       m.cfgValue(cfg, "updater", "check_interval"),
+		"updater_auto_pull":      m.cfgValue(cfg, "updater", "auto_pull"),
+		"updater_notify_channel": m.cfgValue(cfg, "updater", "notify_channel"),
 	}
 }
 
-// logSetting reads a single field from config.yml's logging block.
-func (m *DashboardModule) logSetting(field string) string {
+// rawConfig reads config.yml into a generic map (once per call — the file is
+// small). Returns nil on any read/parse error; callers fall back to "".
+func (m *DashboardModule) rawConfig() map[string]any {
 	path := filepath.Join(m.ctx.Bot.GetConfigDir(), "config.yml")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return ""
+		return nil
 	}
-	var c struct {
-		Logging map[string]any `yaml:"logging"`
-	}
+	var c map[string]any
 	if err := yaml.Unmarshal(data, &c); err != nil {
+		return nil
+	}
+	return c
+}
+
+// cfgValue reads a scalar from a raw config map at top.field (e.g.
+// "updater"."check_interval"). Coerces the yaml.v3 scalars (string, bool,
+// int) to their string form; missing or non-scalar values return "".
+func (m *DashboardModule) cfgValue(cfg map[string]any, top, field string) string {
+	if cfg == nil {
 		return ""
 	}
-	v, ok := c.Logging[field].(string)
+	block, ok := cfg[top].(map[string]any)
 	if !ok {
-		switch x := c.Logging[field].(type) {
-		case bool:
-			if x {
-				return "true"
-			}
-			return "false"
-		}
 		return ""
 	}
-	return v
+	return scalarStr(block[field])
+}
+
+// scalarStr coerces a yaml.v3 scalar value to its string form.
+func scalarStr(v any) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	default:
+		return ""
+	}
 }
 
 // apiSettingsCore applies validated core setting writes from the settings page.
@@ -355,8 +392,19 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 	}
 	allowed := map[string]bool{
 		"prefix": true, "owner_id": true,
-		"tos_url": true, "privacy_url": true, "log_level": true, "log_enabled": true,
+		"tos_url": true, "privacy_url": true,
+		"log_level": true, "log_enabled": true, "log_file_path": true,
+		"dashboard_listen": true, "dashboard_public_url": true,
+		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
+		"updater_token": true, "updater_interval": true, "updater_auto_pull": true,
+		"updater_notify_channel": true,
+		"token":                  true, "oauth_client_secret": true,
 	}
+	// Secrets are owner-only. Elevated users may still save their allowed keys
+	// in the same batch; owner-only keys are simply never written for them
+	// (the UI renders them disabled, this is the server-side guarantee).
+	ownerOnly := map[string]bool{"token": true, "updater_token": true, "oauth_client_secret": true}
+	owner := m.resolveLevel(sessionOf(r)) == lvlOwner
 	results := map[string]string{}
 	anyErr := false
 	for k, v := range body {
@@ -365,11 +413,24 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 			anyErr = true
 			continue
 		}
+		if ownerOnly[k] && !owner {
+			results[k] = "skipped (owner only)"
+			continue
+		}
 		if err := m.ctx.Bot.SetConfig(k, v); err != nil {
 			results[k] = err.Error()
 			anyErr = true
-		} else {
-			results[k] = "ok"
+			continue
+		}
+		results[k] = "ok"
+		// Live side-effects for dashboard-affecting keys: rebind the listener
+		// when the bind address / public URL change, rebuild the OAuth client
+		// when the shared client secret changes.
+		switch k {
+		case "dashboard_listen", "dashboard_public_url":
+			m.rebindSoon(k)
+		case "oauth_client_secret":
+			m.refreshOAuth()
 		}
 	}
 	if anyErr {

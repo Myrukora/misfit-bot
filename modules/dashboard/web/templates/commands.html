@@ -24,6 +24,13 @@
         <div><span class="lbl">Owner only</span> {{yesno .OwnerOnly}}</div>
         {{if .SuperOwnerOnly}}<div><span class="lbl">Super-owner only</span> {{yesno .SuperOwnerOnly}}</div>{{end}}
         {{if .UsableIn}}<div><span class="lbl">Usable in</span> {{joinOr .UsableIn ", " "nowhere cached"}}</div>{{end}}
+        {{if and .Usable (not .SuperOwnerOnly)}}
+        <div class="cmd-run" data-command="{{.Name}}" data-guild="{{$.Content.guild}}">
+          <input type="text" class="cfg-field" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
+          <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
+          <div class="cmd-run-result" hidden></div>
+        </div>
+        {{end}}
       </div>
     </details>
     {{end}}

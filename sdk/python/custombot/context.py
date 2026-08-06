@@ -43,13 +43,14 @@ class Context:
     """
 
     def __init__(self, ipc, channel_id: str, guild_id: str, author_id: str,
-                 args: list, is_slash: bool):
+                 args: list, is_slash: bool, req_id: str = ""):
         self._ipc = ipc
         self.channel_id = channel_id
         self.guild_id = guild_id
         self.author_id = author_id
         self.args = args
         self.is_slash = is_slash
+        self.req_id = req_id  # non-empty when invoked from the web dashboard
 
     def respond(self, title: str, description: str = "") -> None:
         """
@@ -59,12 +60,15 @@ class Context:
             title: Embed title
             description: Embed description
         """
-        self._ipc.send({
+        msg = {
             "type": "respond",
             "channel_id": self.channel_id,
             "title": title,
             "description": description
-        })
+        }
+        if self.req_id:
+            msg["req_id"] = self.req_id
+        self._ipc.send(msg)
 
     def reply_text(self, text: str) -> None:
         """
@@ -73,11 +77,14 @@ class Context:
         Args:
             text: Text to send
         """
-        self._ipc.send({
+        msg = {
             "type": "reply_text",
             "channel_id": self.channel_id,
             "text": text
-        })
+        }
+        if self.req_id:
+            msg["req_id"] = self.req_id
+        self._ipc.send(msg)
 
 
 class BotContext:

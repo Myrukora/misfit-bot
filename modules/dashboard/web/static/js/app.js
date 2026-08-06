@@ -231,6 +231,8 @@
     form.querySelectorAll('.cfg-field').forEach(field => {
       const wrap = field.closest('.field');
       if (!wrap) return;
+      // Owner-only fields render disabled for elevated viewers — never submit them.
+      if (wrap.dataset.owneronly === 'true') return;
       const key = wrap.dataset.key;
       const type = wrap.dataset.type;
       let value;
@@ -248,23 +250,76 @@
     return tasks;
   }
 
-  // ── Core settings save ──────────────────────────────────────────────────
-  const coreSave = document.getElementById('core-save');
-  if (coreSave) {
-    coreSave.addEventListener('click', async () => {
-      const form = document.getElementById('core-form');
+  // ── Core settings save (per section) ───────────────────────────────────
+  document.querySelectorAll('.save-section').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const form = btn.closest('form');
       if (!form) return;
       const body = {};
       collectFields(form).forEach(t => { body[t.key] = t.value; });
-      const restore = spin(coreSave);
+      const restore = spin(btn);
       try {
         await req('POST', '/api/settings/core', body);
-        toast('Core settings saved', 'ok');
+        toast(btn.textContent.replace('Save ', '') + ' saved', 'ok');
       } catch (e) {
         toast('Save failed: ' + e.message, 'err');
       } finally {
         restore();
       }
+    });
+  });
+
+  // ── Updater panel (owner only) ─────────────────────────────────────────
+  const updPanel = document.getElementById('updater-status');
+  if (updPanel) {
+    const statusEl = updPanel;
+    async function loadStatus() {
+      try {
+        const s = await req('GET', '/api/updater/status');
+        const lines = [
+          (s.enabled === 'true' ? '<span class="upd-ok">enabled</span>' : '<span class="upd-err">disabled</span>') + ' · ' + (s.repo || 'no repo') + '@' + s.branch,
+          'interval ' + s.interval + ' · auto_pull ' + s.auto_pull + ' · notify ' + (s.notify_channel || '—'),
+          'last check ' + s.last_check + ' · last seen ' + (s.last_sha || '—')
+        ];
+        if (s.last_error) lines.push('<span class="upd-err">last error: ' + s.last_error + '</span>');
+        statusEl.innerHTML = lines.join('\n');
+      } catch (e) {
+        statusEl.textContent = 'updater unavailable: ' + e.message;
+      }
+    }
+    loadStatus();
+    const checkBtn = document.getElementById('upd-check');
+    if (checkBtn) checkBtn.addEventListener('click', async () => {
+      const restore = spin(checkBtn);
+      try {
+        const r = await req('POST', '/api/updater/check');
+        if (r.up_to_date) toast('Up to date (' + r.local_sha.slice(0, 7) + ')', 'ok');
+        else toast(r.behind + ' new commit(s) available', 'info');
+        loadStatus();
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const applyBtn = document.getElementById('upd-apply');
+    if (applyBtn) applyBtn.addEventListener('click', async () => {
+      if (!confirm('Pull, rebuild and restart the bot now?')) return;
+      const restore = spin(applyBtn);
+      try {
+        await req('POST', '/api/updater/apply');
+        toast('Update applied — bot will restart in a moment', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const testBtn = document.getElementById('upd-test');
+    if (testBtn) testBtn.addEventListener('click', async () => {
+      const restore = spin(testBtn);
+      try {
+        await req('POST', '/api/updater/test');
+        toast('Sample PR + commit embeds sent', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
     });
   }
 
@@ -334,6 +389,32 @@
       } catch (e) {
         restore();
         toast(e.message, 'err');
+      }
+    });
+  });
+
+  // ── Command runner (Run button on /commands) ───────────────────────────
+  document.querySelectorAll('.run-cmd').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const wrap = btn.closest('.cmd-run');
+      const input = wrap.querySelector('input');
+      const result = wrap.querySelector('.cmd-run-result');
+      const command = wrap.dataset.command;
+      const guild = wrap.dataset.guild || '';
+      const args = input.value.trim() ? input.value.trim().split(/\s+/) : [];
+      const restore = spin(btn);
+      result.hidden = false;
+      result.textContent = 'Running…';
+      try {
+        const r = await req('POST', '/api/exec', { command, args, guild });
+        let out = '';
+        if (r.text) out = r.text;
+        else if (r.title || r.description) out = (r.title ? '[' + r.title + ']\n' : '') + (r.description || '');
+        result.textContent = out || '(no response)';
+      } catch (e) {
+        result.textContent = 'error: ' + e.message;
+      } finally {
+        restore();
       }
     });
   });

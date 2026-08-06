@@ -1109,6 +1109,110 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 	rtLimiter.Reset(userID)
 }
 
+// ExecuteCommand runs any registered command (core prefix, core slash, or any
+// loaded module's command) with a virtual context whose responses are captured
+// instead of posted to Discord. This is how the web dashboard executes
+// commands — core, Go module, Python module and Lua module alike (Lua routes
+// respond/reply_text through the context; Python via SendCommandFromWeb).
+//
+// Permission mapping (mirrors the Discord dispatcher):
+//   - SuperOwnerOnly → ALWAYS denied from the web (eval executes `sh -c`)
+//   - OwnerOnly → the requesting user must be owner or elevated (CanUse)
+//   - RequiredPerm → CanUse with the user's cached perms; with no guild
+//     context, only owner/elevated pass (everyone else has 0 perms)
+//
+// The Discord rate limiter is intentionally NOT applied here: the web already
+// has auth + CSRF + per-command permission checks, and sharing the command
+// budget between Discord and the web would let Discord spam block the UI.
+func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserID string) (commands.CommandResult, error) {
+	var res commands.CommandResult
+	if asUserID == "" {
+		return res, fmt.Errorf("no user specified")
+	}
+	authorID, err := snowflake.Parse(asUserID)
+	if err != nil {
+		return res, fmt.Errorf("invalid user id")
+	}
+
+	// Resolve the command exactly like the prefix dispatcher: core prefix
+	// commands (by name or alias), then core slash commands, then modules.
+	// Prefix and slash commands carry the same permission fields, so both are
+	// flattened into a common view for the gate below.
+	type cmdInfo struct {
+		superOwnerOnly, ownerOnly bool
+		requiredPerm              discord.Permissions
+		exec                      func(*commands.Context) error
+	}
+	var ci *cmdInfo
+	for i := range commands.CoreCommands {
+		c := &commands.CoreCommands[i]
+		if c.Name == name || util.ContainsStr(c.Aliases, name) {
+			ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+			break
+		}
+	}
+	if ci == nil {
+		for i := range commands.CoreSlashCommands {
+			c := &commands.CoreSlashCommands[i]
+			if c.Name == name {
+				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+				break
+			}
+		}
+	}
+	if ci == nil {
+		modCmds := ModMgr.AllCommands()
+		for i := range modCmds {
+			c := &modCmds[i]
+			if c.Name == name || util.ContainsStr(c.Aliases, name) {
+				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+				break
+			}
+		}
+	}
+	if ci == nil {
+		return res, fmt.Errorf("unknown command: %s", name)
+	}
+
+	// Permission gate — web execution is never granted for SuperOwnerOnly
+	// commands, and everything else mirrors the Discord dispatcher's checks.
+	userPerms := b.GetUserPermissions(asUserID, guildID)
+	guildOwnerID := b.GetGuildOwnerID(guildID)
+	if err := commands.CanExecuteWeb(
+		PermMgr.IsOwner(asUserID), PermMgr.IsElevated(asUserID), asUserID == guildOwnerID,
+		userPerms, ci.superOwnerOnly, ci.ownerOnly, ci.requiredPerm,
+	); err != nil {
+		return res, err
+	}
+
+	// Virtual context: Respond/ReplyText capture into the result instead of
+	// posting to Discord. Only the first embed is captured (the web result box
+	// is a single unit); the command's other side effects are its own business.
+	ctx := &commands.Context{
+		Bot:     b,
+		GuildID: guildID,
+		Author:  discord.User{ID: authorID},
+		Args:    args,
+		Web:     true,
+		Respond: func(embeds ...discord.Embed) error {
+			if len(embeds) > 0 {
+				res.Title = embeds[0].Title
+				res.Description = embeds[0].Description
+				res.Color = embeds[0].Color
+			}
+			return nil
+		},
+		ReplyText: func(text string) error {
+			res.Text = text
+			return nil
+		},
+	}
+	if err := ci.exec(ctx); err != nil {
+		return res, fmt.Errorf("command failed: %v", err)
+	}
+	return res, nil
+}
+
 func loadCoreModules(ba *botAdapter) {
 	Log.Info("Registering %d core commands", len(commands.CoreCommands))
 	Log.Info("Registering %d core slash commands", len(commands.CoreSlashCommands))

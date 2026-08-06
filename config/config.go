@@ -204,6 +204,18 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid log_enabled: %v", err)
 		}
 		c.Logging.Enabled = v
+	case "log_file_path":
+		v := strings.TrimSpace(value)
+		if v == "" {
+			return fmt.Errorf("log file path cannot be empty")
+		}
+		c.Logging.FilePath = v
+	case "modules_auto_load":
+		v, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid modules_auto_load: %v", err)
+		}
+		c.Modules.AutoLoad = v
 	case "dashboard_listen":
 		c.Dashboard.Listen = NormalizeListen(value)
 	case "dashboard_public_url":

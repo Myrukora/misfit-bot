@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/custombot/bot/modules"
+	"github.com/custombot/bot/updater"
 	"gopkg.in/yaml.v3"
 )
 
@@ -333,6 +335,122 @@ func tailLines(path string, n int) ([]string, error) {
 	return ring, nil
 }
 
+// ── /api/exec — universal command execution ─────────────────────────────
+
+// apiExec runs any command the requesting dashboard user may use, exactly as
+// the Discord dispatcher would gate it: SuperOwnerOnly is always blocked
+// (server-side, in ExecuteCommand), OwnerOnly requires owner/elevated, and
+// RequiredPerm commands check the user's cached perms for the given guild.
+// The response is the captured embed/text, never raw process output.
+func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *userSession) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	var body struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Guild   string   `json:"guild"`
+	}
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Command == "" {
+		writeError(w, http.StatusBadRequest, "command required")
+		return
+	}
+	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, us.userID.String())
+	if err != nil {
+		msg := err.Error()
+		code := http.StatusBadRequest
+		if strings.Contains(msg, "insufficient permissions") || strings.Contains(msg, "cannot be executed from the web") {
+			code = http.StatusForbidden
+		}
+		writeError(w, code, msg)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"title": res.Title, "description": res.Description, "color": res.Color, "text": res.Text,
+	})
+}
+
+// ── /api/updater/* (owner only) ──────────────────────────────────────────
+
+// updaterMgr returns the self-update manager (nil when unavailable).
+func (m *DashboardModule) updaterMgr() *updater.Manager {
+	upd, _ := m.ctx.Bot.GetUpdater().(*updater.Manager)
+	return upd
+}
+
+// apiUpdaterStatus returns the live updater state (repo/branch/last check/…).
+func (m *DashboardModule) apiUpdaterStatus(w http.ResponseWriter, r *http.Request) {
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	writeJSON(w, http.StatusOK, upd.Status())
+}
+
+// apiUpdaterCheck fetches from GitHub and reports how far behind the bot is.
+func (m *DashboardModule) apiUpdaterCheck(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	res, err := upd.Check(context.Background())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// apiUpdaterApply runs the full update pipeline (pull → rebuild → swap). The
+// bot keeps running the old code until the restart fires via OnApplied, so the
+// client gets a clean 200 before the process re-executes.
+func (m *DashboardModule) apiUpdaterApply(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	if err := upd.Apply(context.Background()); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// apiUpdaterTest posts one sample PR + one sample commit embed to the notify
+// channel so the owner can preview both markdown-rich formats.
+func (m *DashboardModule) apiUpdaterTest(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	if err := upd.NotifyTest(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // ── /api/shutdown, /api/restart ───────────────────────────────────────────
 
 func (m *DashboardModule) apiShutdown(w http.ResponseWriter, r *http.Request) {
@@ -474,6 +592,36 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			m.apiLogs(w, r)
 			return
 		}
+	case "exec":
+		if meth == "POST" {
+			us := sessionOf(r)
+			if us == nil {
+				writeError(w, http.StatusForbidden, "not logged in")
+				return
+			}
+			m.apiExec(w, r, us)
+			return
+		}
+	case "updater":
+		// Owner only — mirrors the [p]update command's OwnerOnly flag. Actions
+		// rebuild and restart the bot, so elevated users never get them.
+		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
+			writeError(w, http.StatusForbidden, "owner only")
+			return
+		}
+		switch {
+		case meth == "GET" && len(parts) == 2 && parts[1] == "status":
+			m.apiUpdaterStatus(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "check":
+			m.apiUpdaterCheck(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "apply":
+			m.apiUpdaterApply(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "test":
+			m.apiUpdaterTest(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+		return
 	case "shutdown":
 		if meth == "POST" {
 			us := sessionOf(r)
