@@ -7,8 +7,10 @@
 #   ./install.sh --no-deps       # skip system packages, only build
 #   ./install.sh --no-modules    # build only the core binary
 #   ./install.sh --skip-go       # don't auto-install the Go toolchain
-#   ./install.sh -y              # non-interactive (assume yes everywhere)
 #   DISTRO=ubuntu ./install.sh   # override distro detection
+#
+# Note: package installs are always non-interactive; sudo prompts for the
+# password itself when needed.
 #
 # Dependency map (verified against the codebase):
 #   build  : Go >= 1.26.4  (go.mod directive; older Go auto-downloads the
@@ -26,9 +28,13 @@
 set -euo pipefail
 
 REQUIRED_GO="1.26.4"
+# Newest 1.26.x available on go.dev (>= REQUIRED_GO) — pinned with SHA256
+# checksums from https://go.dev/dl/?mode=json (verified at install time).
+GO_DOWNLOAD="1.26.5"
+GO_TARBALL_SHA256_amd64="5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053"
+GO_TARBALL_SHA256_arm64="fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49"
 GO_BASE_URL="https://go.dev/dl"
 
-ASSUME_YES=0
 DO_DEPS=1
 DO_MODULES=1
 DO_GO=1
@@ -46,7 +52,6 @@ usage() {
 
 for arg in "$@"; do
   case "$arg" in
-    -y|--yes)             ASSUME_YES=1 ;;
     --no-deps)            DO_DEPS=0 ;;
     --no-modules)         DO_MODULES=0 ;;
     --skip-go)            DO_GO=0 ;;
@@ -58,8 +63,17 @@ done
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
-ver_ge() { # $1 >= $2 (semver-ish, uses sort -V)
-  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$2" ]
+ver_ge() { # dotted-numeric comparison: $1 >= $2 — pure bash, no sort -V
+          # dependency (busybox sort on Alpine lacks -V)
+  local -a a b
+  local i
+  IFS=. read -r -a a <<< "$1"
+  IFS=. read -r -a b <<< "$2"
+  for i in 0 1 2 3; do
+    [ "${a[$i]:-0}" -gt "${b[$i]:-0}" ] && return 0
+    [ "${a[$i]:-0}" -lt "${b[$i]:-0}" ] && return 1
+  done
+  return 0
 }
 
 have() { command -v "$1" >/dev/null 2>&1; }
@@ -147,6 +161,9 @@ install_deps() {
         git python3 python3-venv python3-pip ffmpeg
       ;;
     pacman)
+      # Full system upgrade is intentional: Arch does not support partial
+      # upgrades (old+new package mixes can break libs, incl. the opus cgo
+      # build). Safe to skip with --no-deps if you update the system yourself.
       sudo_run pacman -Syu --needed --noconfirm \
         pkgconf opus opusfile base-devel git python python-pip ffmpeg
       ;;
@@ -221,9 +238,11 @@ ensure_go() {
 
   [ "$DO_GO" = 1 ] || die "Go is not installed (use --skip-go only if you provide your own toolchain)"
 
-  local arch url tmp
+  local arch url tmp sha256 varname
   arch="$(detect_arch)"
-  url="${GO_BASE_URL}/go${REQUIRED_GO}.linux-${arch}.tar.gz"
+  url="${GO_BASE_URL}/go${GO_DOWNLOAD}.linux-${arch}.tar.gz"
+  varname="GO_TARBALL_SHA256_${arch}"
+  sha256="${!varname:-}"
   info "Go not found — downloading ${url}"
   tmp="$(mktemp -d)"
   if have curl; then
@@ -233,11 +252,21 @@ ensure_go() {
   else
     die "need curl or wget to download Go — install Go manually from ${GO_BASE_URL}"
   fi
+  if [ -n "$sha256" ]; then
+    # Verify the tarball before touching /usr/local.
+    if ! printf '%s  %s\n' "$sha256" "$tmp/go.tgz" | sha256sum -c - >/dev/null 2>&1; then
+      rm -rf "$tmp"
+      die "Go tarball checksum mismatch (expected ${sha256}) — aborting; install Go manually from ${GO_BASE_URL}"
+    fi
+    ok "Go tarball checksum verified"
+  else
+    warn "no pinned checksum for arch ${arch} — skipping verification"
+  fi
   sudo_run rm -rf /usr/local/go
   sudo_run tar -C /usr/local -xzf "$tmp/go.tgz"
   rm -rf "$tmp"
   export PATH="/usr/local/go/bin:$PATH"
-  ok "Go ${REQUIRED_GO} installed at /usr/local/go"
+  ok "Go ${GO_DOWNLOAD} installed at /usr/local/go"
 }
 
 # ── runtime binary sanity (warn-only: features degrade, build still works) ─
