@@ -307,7 +307,6 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"privacy_url": m.ctx.Bot.GetPrivacy(),
 		"log_level":   m.logSetting("level"),
 		"log_enabled": m.logSetting("enabled"),
-		"log_channel": m.logSetting("channel_id"),
 	}
 }
 
@@ -366,7 +365,7 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 	}
 	allowed := map[string]bool{
 		"prefix": true, "name": true, "owner_id": true, "status": true,
-		"tos_url": true, "privacy_url": true, "log_level": true, "log_enabled": true, "log_channel": true,
+		"tos_url": true, "privacy_url": true, "log_level": true, "log_enabled": true,
 	}
 	results := map[string]string{}
 	anyErr := false

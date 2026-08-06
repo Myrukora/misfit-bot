@@ -441,6 +441,7 @@ code {
 .btn-ghost:hover:not(:disabled) { background: var(--glass); }
 
 .btn-sm { padding: 5px 11px; font-size: 12px; border-radius: 9px; }
+.btn svg { width: 14px; height: 14px; flex: 0 0 auto; }
 
 /* spinner (loading state) — pure CSS ring */
 .spinner {
@@ -720,14 +721,14 @@ details.cmd[open] summary::after { transform: rotate(180deg); }
   flex-wrap: wrap;
 }
 .search-wrap { position: relative; }
-.search-wrap::before {
-  content: "⌕";
+.search-ico {
   position: absolute;
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
+  width: 15px;
+  height: 15px;
   color: var(--faint);
-  font-size: 15px;
   pointer-events: none;
 }
 .search-wrap .cfg-field { padding-left: 34px; width: 250px; }
@@ -886,10 +887,6 @@ input[type="range"].cfg-field:focus { box-shadow: 0 0 0 3px rgba(88, 101, 242, 0
 
 .inline, .inline-form { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
 .inline-form .cfg-field { width: 240px; }
-
-.save-state { margin-left: 10px; font-size: 12px; font-weight: 600; }
-.save-state.ok { color: var(--green); }
-.save-state.err { color: var(--red); }
 
 /* ── logs terminal ────────────────────────────────────────────────────── */
 .logs {

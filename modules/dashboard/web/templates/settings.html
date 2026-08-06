@@ -9,7 +9,6 @@
     {{range .Core}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple" id="core-save">Save core settings</button>
-      <span class="save-state" data-for="core-form"></span>
     </div>
   </form>
 </section>
@@ -24,7 +23,6 @@
     {{range .DashboardSelf.Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple save-module">Save changes</button>
-      <span class="save-state" data-for></span>
     </div>
   </form>
 </section>
@@ -37,7 +35,6 @@
     {{range .Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple save-module">Save changes</button>
-      <span class="save-state"></span>
     </div>
   </form>
 </section>

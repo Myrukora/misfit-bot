@@ -106,7 +106,6 @@ func TestSettingsFieldEveryType(t *testing.T) {
 			{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"online", "idle", "dnd", "invisible"}},
 			{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
 			{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
-			{Key: "log_channel", Label: "Log channel", Type: "channel", Value: "", Entities: []entityOpt{{ID: "111", Name: "My Server / #logs"}}},
 			{Key: "tos_url", Label: "Terms of Service URL", Type: "text", Value: ""},
 			{Key: "privacy_url", Label: "Privacy Policy URL", Type: "text", Value: ""},
 		},
