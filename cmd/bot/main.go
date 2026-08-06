@@ -193,7 +193,7 @@ func run() bool {
 		bot.WithDefaultGateway(),
 		bot.WithVoiceManagerConfigOpts(),
 		bot.WithCacheConfigOpts(
-			cache.WithCaches(cache.FlagMembers, cache.FlagRoles),
+			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles),
 		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(
