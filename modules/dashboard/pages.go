@@ -62,7 +62,7 @@ func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 		"public_url":   m.effectivePublicURL(),
 		"lan_url":      m.lanURL(),
 		"client_id":    m.cfg.ClientID,
-		"redirect_uri": m.effectiveBaseURL() + "/callback",
+		"redirect_uri": m.redirectBaseURL(r) + "/callback", // must match what handleLoginStart sends
 		"listen":       m.effectiveListen(),
 		"prefix":       m.ctx.Bot.GetPrefix(),
 	}

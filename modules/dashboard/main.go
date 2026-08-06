@@ -13,6 +13,7 @@ import (
 	"github.com/custombot/bot/commands"
 	"github.com/custombot/bot/config"
 	"github.com/custombot/bot/embed"
+	"github.com/custombot/bot/internal/util"
 	"github.com/custombot/bot/modules"
 	"github.com/custombot/bot/permissions"
 
@@ -272,39 +273,112 @@ func (m *DashboardModule) requestScheme(r *http.Request) string {
 	return "http"
 }
 
-// lanURL returns the dashboard's LAN-reachable base URL ("http://<lan-ip>:<port>")
-// auto-detected from the host's interfaces, using the effective listen port.
-// Only used for reporting when no public_url is configured.
+// lanURL returns the dashboard's LAN-reachable base URL. A concrete
+// non-loopback listen host (e.g. "192.168.1.5:8080") is used directly;
+// wildcard/loopback binds fall back to the auto-detected primary LAN address.
+// net.JoinHostPort keeps IPv6 hosts correctly bracketed.
 func (m *DashboardModule) lanURL() string {
-	return "http://" + m.lanIP() + ":" + m.listenPort()
+	return "http://" + net.JoinHostPort(m.lanHost(), m.listenPort())
 }
 
-// lanIP picks a private IPv4 address of this machine (preferring RFC1918
-// ranges), falling back to any non-loopback IPv4, then 127.0.0.1.
+// lanHost resolves the host part of the LAN URL: the configured concrete
+// listen host when the listener binds one (and it's not loopback/wildcard), else
+// the machine's primary LAN address (see lanIP). Loopback/wildcard listens are
+// treated as "not concrete" so the reported URL is the address the owner
+// should open from other devices (the url/status commands separately warn when
+// the listener is still localhost-only).
+func (m *DashboardModule) lanHost() string {
+	host, _, err := net.SplitHostPort(m.effectiveListen())
+	if err == nil && host != "" && !isLoopbackHost(host) && host != "0.0.0.0" && host != "::" {
+		return host
+	}
+	return m.lanIP()
+}
+
+// lanIP returns the machine's primary LAN IPv4 address. The default-route
+// interface is preferred (net.Dial("udp", ...) performs route lookup only —
+// no packets are sent), so Docker bridges and VPN interfaces can't shadow the
+// real LAN address. Falls back to the first suitable address from
+// net.InterfaceAddrs (see lanIPFromAddrs), then 127.0.0.1.
 func (m *DashboardModule) lanIP() string {
-	var firstNonLoopback string
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			ipn, ok := a.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			ip := ipn.IP.To4()
-			if ip == nil || ip.IsLoopback() {
-				continue
-			}
-			if firstNonLoopback == "" {
-				firstNonLoopback = ip.String()
-			}
-			if ip.IsPrivate() {
-				return ip.String()
-			}
+	if ip := primaryLANIP(); ip != "" {
+		return ip
+	}
+	if addrs, err := interfaceAddrs(); err == nil {
+		if ip := lanIPFromAddrs(addrs); ip != "" {
+			return ip
 		}
 	}
-	if firstNonLoopback != "" {
-		return firstNonLoopback
-	}
 	return "127.0.0.1"
+}
+
+// primaryLANIP asks the kernel for the local address of the default-route
+// interface. The UDP dial never sends a packet; it only resolves the route.
+var primaryLANIP = func() string {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return ""
+	}
+	defer conn.Close()
+	if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && addr.IP != nil && !addr.IP.IsLoopback() {
+		return addr.IP.String()
+	}
+	return ""
+}
+
+// interfaceAddrs is a seam for tests (defaults to net.InterfaceAddrs).
+var interfaceAddrs = func() ([]net.Addr, error) { return net.InterfaceAddrs() }
+
+// lanIPFromAddrs picks the most LAN-appropriate non-loopback IPv4 from addrs:
+// 192.168.0.0/16 and 10.0.0.0/8 first (typical home/office LANs), then any
+// other non-loopback IPv4. Docker's default bridge (172.17.0.0/16) and the
+// CGNAT range (100.64.0.0/10, used by Tailscale et al.) are excluded entirely
+// — reporting them would produce an unreachable LAN URL.
+func lanIPFromAddrs(addrs []net.Addr) string {
+	var fallback string
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		ip := ipn.IP.To4()
+		if ip == nil || ip.IsLoopback() || isExcludedLANIP(ip) {
+			continue
+		}
+		if fallback == "" {
+			fallback = ip.String()
+		}
+		if isPreferredLANIP(ip) {
+			return ip.String()
+		}
+	}
+	return fallback
+}
+
+// isPreferredLANIP reports whether ip is in a range typically used for LAN
+// clients: 192.168.0.0/16 or 10.0.0.0/8. 172.16.0.0/12 is deliberately NOT
+// preferred because Docker and other container runtimes default to subnets in
+// that block (172.17-172.31), so a docker bridge could shadow the real LAN.
+func isPreferredLANIP(ip net.IP) bool {
+	ip = ip.To4()
+	if ip == nil {
+		return false
+	}
+	return (ip[0] == 192 && ip[1] == 168) || ip[0] == 10
+}
+
+// isExcludedLANIP reports whether ip must never be reported as the LAN
+// address: Docker's default bridge (172.17.0.0/16) and the CGNAT range
+// (100.64.0.0/10) used by Tailscale and carriers.
+func isExcludedLANIP(ip net.IP) bool {
+	ip = ip.To4()
+	if ip == nil {
+		return false
+	}
+	if ip[0] == 172 && ip[1] == 17 {
+		return true
+	}
+	return ip[0] == 100 && ip[1] >= 64 && ip[1] <= 127
 }
 
 // listenPort extracts the port from the effective listen address; defaults to
@@ -524,7 +598,7 @@ func (m *DashboardModule) Commands() []commands.Command {
 		{
 			Name:        "dashboard",
 			Description: "Manage the web dashboard (owner setup: view status, get OAuth URL, set secrets, restart server)",
-			Usage:       "dashboard <status|url|set|restart>",
+			Usage:       "dashboard <status|url|lan|set|restart>",
 			Category:    "dashboard",
 			OwnerOnly:   true,
 			Execute: func(ctx *commands.Context) error {
@@ -565,8 +639,8 @@ func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
 	fields := []discord.EmbedField{
 		{Name: "Listen", Value: "`" + listen + "`", Inline: nil},
 		{Name: "Public URL", Value: "`" + publicURL + "`", Inline: nil},
-		{Name: "LAN URL", Value: "`" + m.lanURL() + "`", Inline: nil},
-		{Name: "Redirect URI", Value: "`" + m.effectiveBaseURL() + "/callback`", Inline: nil},
+		{Name: "LAN URL", Value: "`" + m.lanURL() + "`", Inline: util.PtrBool(false)},
+		{Name: "Redirect URI", Value: "`" + m.effectiveBaseURL() + "/callback`", Inline: util.PtrBool(false)},
 		{Name: "Configured", Value: boolEmoji(m.configured()), Inline: nil},
 		{Name: "Running", Value: boolEmoji(running), Inline: nil},
 	}
@@ -648,6 +722,8 @@ func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) 
 // cmdDashboardLAN switches the dashboard to LAN mode in one step: bind all
 // interfaces (0.0.0.0:<port>), drop a stale localhost-only public_url so the
 // reported URL is the LAN URL, rebind the listener, and print where to go.
+// A real (non-localhost) public_url is kept — it takes priority for OAuth
+// redirects and the message reflects that.
 func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
 	prefix := m.ctx.Bot.GetPrefix()
 	target := "0.0.0.0:" + m.listenPort()
@@ -656,12 +732,18 @@ func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
 	}
 	// A localhost-only public_url would keep url/status reporting a URL that
 	// only works on this machine; a real public_url (tunnel/domain) is kept.
+	// The listener rebind happens only after every config update succeeded.
 	if u := m.effectivePublicURL(); u != "" {
 		if parsed, err := url.Parse(u); err == nil && isLoopbackHost(parsed.Hostname()) {
-			_ = m.ctx.Bot.SetConfig("dashboard_public_url", "")
+			if err := m.ctx.Bot.SetConfig("dashboard_public_url", ""); err != nil {
+				return ctx.Respond(embed.Error("❌ Error", err.Error()))
+			}
 		}
 	}
 	m.rebindSoon("listen")
+	if u := m.effectivePublicURL(); u != "" {
+		return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\nA `public_url` is configured (`"+u+"`) and takes priority for OAuth login — its redirect URI is:\n`"+u+"/callback`\n\nLAN devices can reach the dashboard at `"+m.lanURL()+"`; login redirects through `public_url`."))
+	}
 	base := m.lanURL()
 	return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\n**LAN URL:** "+base+"\n\nRegister this redirect URI in the Developer Portal:\n`"+base+"/callback`\n\n⚠️ Discord requires HTTPS redirect URIs outside localhost. If the portal rejects the `http://` URI, expose the dashboard via a tunnel (cloudflared) and run `"+prefix+"dashboard set public_url https://your.host` instead."))
 }
