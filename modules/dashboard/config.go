@@ -23,6 +23,7 @@ type DashboardConfig struct {
 	AllowedGuilds []string `yaml:"allowed_guilds"`
 }
 
+// defaultConfig returns the default dashboard module configuration.
 func defaultConfig() *DashboardConfig {
 	return &DashboardConfig{
 		Listen:        "127.0.0.1:8080", // localhost-only by default for safety
@@ -30,8 +31,10 @@ func defaultConfig() *DashboardConfig {
 	}
 }
 
+// cfgPath resolves the module config file path.
 func cfgPath(dir string) string { return filepath.Join(dir, "config.yml") }
 
+// loadConfig reads the module config, creating defaults when the file is missing.
 func loadConfig(dir string) (*DashboardConfig, error) {
 	c := defaultConfig()
 	data, err := os.ReadFile(cfgPath(dir))
@@ -56,6 +59,7 @@ func loadConfig(dir string) (*DashboardConfig, error) {
 	return c, nil
 }
 
+// Save persists the dashboard config to disk (0600).
 func (c *DashboardConfig) Save(dir string) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
@@ -67,6 +71,7 @@ func (c *DashboardConfig) Save(dir string) error {
 	return os.WriteFile(cfgPath(dir), data, 0600)
 }
 
+// Set applies one dashboard config key with validation.
 func (c *DashboardConfig) Set(key, value string) error {
 	if c.AllowedGuilds == nil {
 		c.AllowedGuilds = []string{}

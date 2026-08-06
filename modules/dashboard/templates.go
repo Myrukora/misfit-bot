@@ -58,6 +58,7 @@ func csvContains(csv, opt string) bool {
 	return false
 }
 
+// joinOr joins s with sep, or returns or when s is empty.
 func joinOr(s []string, sep, or string) string {
 	if len(s) == 0 {
 		return or
@@ -65,6 +66,7 @@ func joinOr(s []string, sep, or string) string {
 	return strings.Join(s, sep)
 }
 
+// yesno renders a boolean as ✅ or ⛔.
 func yesno(b bool) string {
 	if b {
 		return "✅"
@@ -108,6 +110,7 @@ func initial(s string) string {
 	return string([]rune(s)[0])
 }
 
+// loadTemplates parses all embedded page templates with the shared FuncMap.
 func loadTemplates() (*templateBundle, error) {
 	tmpl, err := template.New("").Funcs(tmplFuncs).ParseFS(templateFiles, "web/templates/*.html")
 	if err != nil {
@@ -116,6 +119,7 @@ func loadTemplates() (*templateBundle, error) {
 	return &templateBundle{tmpl: tmpl}, nil
 }
 
+// render executes the named page template with the shared renderData.
 func (b *templateBundle) render(w io.Writer, page string, data renderData) error {
 	if data.Page == "" {
 		data.Page = page

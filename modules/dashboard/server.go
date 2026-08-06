@@ -23,6 +23,7 @@ func (m *DashboardModule) buildHandler() http.Handler {
 	return h
 }
 
+// recoverMiddleware turns handler panics into 500s — the dashboard runs in-process, so a panic must never escape.
 func (m *DashboardModule) recoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -35,6 +36,7 @@ func (m *DashboardModule) recoverMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// logMiddleware logs one line per request with status and duration.
 func (m *DashboardModule) logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -53,11 +55,13 @@ type statusWriter struct {
 	status int
 }
 
+// WriteHeader records the status code before delegating to the wrapped writer.
 func (s *statusWriter) WriteHeader(code int) {
 	s.status = code
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// securityHeaders sets conservative security headers (CSP, nosniff, frame denial).
 func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()

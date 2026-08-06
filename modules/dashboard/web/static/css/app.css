@@ -246,13 +246,12 @@ code {
 
 /* guilds list */
 .guilds {
-  margin-top: auto;
+  margin-top: auto; /* push the server list to the bottom of the sidebar */
   display: flex;
   flex-direction: column;
   gap: 2px;
   border-top: 1px solid var(--hairline);
   padding-top: 12px;
-  margin-top: 14px;
 }
 .guilds-label {
   font-size: 10.5px;
@@ -504,6 +503,8 @@ code {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: rgba(88, 101, 242, 0.18); /* fallback for browsers without color-mix() */
+  border: 1px solid rgba(88, 101, 242, 0.35);
   background: color-mix(in srgb, var(--ic, var(--blurple)) 18%, transparent);
   border: 1px solid color-mix(in srgb, var(--ic, var(--blurple)) 35%, transparent);
   color: var(--ic, var(--blurple-bright));
@@ -595,6 +596,9 @@ code {
 .card:hover { border-color: var(--hairline-strong); }
 
 .tbl { width: 100%; border-collapse: collapse; }
+/* allow wide tables to scroll horizontally inside their card on narrow screens */
+.table-wrap { overflow-x: auto; }
+.table-wrap .tbl { min-width: 480px; }
 .tbl th {
   text-align: left;
   padding: 10px 12px;
@@ -934,6 +938,18 @@ input[type="range"].cfg-field:focus { box-shadow: 0 0 0 3px rgba(88, 101, 242, 0
 .center-card h1 { margin: 16px 0 4px; font-size: 26px; font-weight: 780; letter-spacing: -0.02em; color: #fff; }
 .center-card .login-avatar {
   width: 84px; height: 84px; border-radius: 50%; object-fit: cover; margin: 0 auto;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 5px rgba(88, 101, 242, 0.24), 0 0 44px rgba(88, 101, 242, 0.45);
+}
+/* letter-avatar fallback for the login card (no hero sizing involved) */
+.login-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, var(--blurple), #8b5cf6);
   border: 2px solid rgba(255, 255, 255, 0.18);
   box-shadow: 0 0 0 5px rgba(88, 101, 242, 0.24), 0 0 44px rgba(88, 101, 242, 0.45);
 }

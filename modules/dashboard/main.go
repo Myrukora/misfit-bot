@@ -55,15 +55,22 @@ type DashboardModule struct {
 	appNameAt time.Time
 }
 
+// Name returns the module name.
 func (m *DashboardModule) Name() string    { return "dashboard" }
+// Version returns the module version.
 func (m *DashboardModule) Version() string { return "1.0.0" }
+// Description returns a one-line module summary.
 func (m *DashboardModule) Description() string {
 	return "MEE6-style web dashboard with Discord OAuth login, metrics, command catalog, and tiered config"
 }
+// Author returns the module author.
 func (m *DashboardModule) Author() string                         { return "custombot" }
+// Dependencies returns the module names this module requires.
 func (m *DashboardModule) Dependencies() []string                 { return nil }
+// SlashCommands returns nil — the dashboard is prefix-command only.
 func (m *DashboardModule) SlashCommands() []commands.SlashCommand { return nil }
 
+// OnLoad initializes the dashboard: config, OAuth client, templates and the HTTP server.
 func (m *DashboardModule) OnLoad(ctx *modules.Context) error {
 	m.ctx = ctx
 	m.logger = ctx.Logger
@@ -115,6 +122,7 @@ func (m *DashboardModule) OnLoad(ctx *modules.Context) error {
 	return nil
 }
 
+// OnUnload stops the HTTP server and marks the module stopped.
 func (m *DashboardModule) OnUnload() error {
 	// Mark stopped BEFORE stopping the server: any in-flight rebindSoon
 	// goroutine will then be refused by startServer, so an unloaded module
@@ -408,11 +416,13 @@ func (m *DashboardModule) loopbackOnlyListen() bool {
 	return isLoopbackHost(host)
 }
 
+// isLoopbackHost reports whether host is localhost, 127.0.0.1 or ::1.
 func isLoopbackHost(host string) bool {
 	h := strings.ToLower(strings.Trim(host, "[]"))
 	return h == "localhost" || h == "127.0.0.1" || h == "::1"
 }
 
+// startServer binds the HTTP listener and serves until stopped.
 func (m *DashboardModule) startServer() error {
 	// Resolve the listen address BEFORE taking m.mu. effectiveListen() locks
 	// m.mu internally, so calling it under m.mu would self-deadlock (sync.Mutex
@@ -469,6 +479,7 @@ func (m *DashboardModule) startServer() error {
 	return nil
 }
 
+// stopServer gracefully shuts the server down and waits for it to exit.
 func (m *DashboardModule) stopServer() {
 	m.mu.Lock()
 	srv := m.srv
@@ -486,11 +497,13 @@ func (m *DashboardModule) stopServer() {
 	m.serveWG.Wait()
 }
 
+// restartServer stops and restarts the HTTP server.
 func (m *DashboardModule) restartServer() error {
 	m.stopServer()
 	return m.startServer()
 }
 
+// isRunning reports whether the HTTP server is currently serving.
 func (m *DashboardModule) isRunning() bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -510,6 +523,7 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 	}
 }
 
+// WebGetConfig returns the dashboard's global config for the web UI (secrets redacted).
 func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error) {
 	if guildID != "" {
 		return map[string]string{}, nil // dashboard has only global-scoped config
@@ -531,6 +545,7 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 	return v, nil
 }
 
+// WebSetConfig applies one WebConfigurable field to the dashboard config.
 func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 	if guildID != "" {
 		return fmt.Errorf("dashboard config is global-only")
@@ -590,6 +605,7 @@ func (m *DashboardModule) rebindSoon(key string) {
 	}()
 }
 
+// redactedIfSet masks a non-empty secret value.
 func redactedIfSet(s string) string {
 	if s == "" {
 		return ""
@@ -630,11 +646,13 @@ func (m *DashboardModule) Commands() []commands.Command {
 	}
 }
 
+// cmdDashboardUsage prints the [p]dashboard subcommand help.
 func (m *DashboardModule) cmdDashboardUsage(ctx *commands.Context) error {
 	p := m.ctx.Bot.GetPrefix()
 	return ctx.Respond(embed.Info("📊 Dashboard", "Usage:\n`"+p+"dashboard status` — show status\n`"+p+"dashboard url` — show login URL & redirect URI\n`"+p+"dashboard lan` — bind all interfaces + show LAN URL\n`"+p+"dashboard set <key> <value>` — set config\n`"+p+"dashboard restart` — restart the HTTP server\n\nKeys: `listen, public_url, client_id, client_secret, session_secret, allowed_guilds`"))
 }
 
+// cmdDashboardStatus prints listen/public/LAN URLs and running state.
 func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
 	m.mu.Lock()
 	lastErr := m.lastErr
@@ -657,6 +675,7 @@ func (m *DashboardModule) cmdDashboardStatus(ctx *commands.Context) error {
 	return ctx.Respond(e)
 }
 
+// cmdDashboardURL prints the login URL and the OAuth redirect URI to register.
 func (m *DashboardModule) cmdDashboardURL(ctx *commands.Context) error {
 	prefix := m.ctx.Bot.GetPrefix()
 	if publicURL := m.effectivePublicURL(); publicURL != "" {
@@ -678,6 +697,7 @@ func (m *DashboardModule) cmdDashboardURL(ctx *commands.Context) error {
 	return ctx.Respond(embed.Info("📊 Dashboard URLs (LAN)", "LAN URL: "+base+"\nOAuth redirect URI to register in the Developer Portal:\n`"+base+"/callback`"+note+"\n\nDiscord accepts `http://` redirect URIs for localhost/LAN setups — register `"+base+"/callback` as-is. For access from the internet, expose the dashboard via a tunnel (cloudflared) and set `public_url` to the `https://` URL instead."))
 }
 
+// cmdDashboardSet writes a dashboard config key (core config for listen/public_url/client_secret).
 func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) error {
 	if len(args) < 1 {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`dashboard set <key> <value>`\nKeys: listen, public_url, client_id, client_secret, session_secret, allowed_guilds\n\n`listen` and `public_url` → config.yml `dashboard:` section.\n`client_secret` → config.yml `oauth:` section (the shared Discord-app credential).\n`client_id`, `session_secret`, `allowed_guilds` → the dashboard module's own config file."))
@@ -753,6 +773,7 @@ func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
 	return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\n**LAN URL:** "+base+"\n\nRegister this redirect URI in the Developer Portal:\n`"+base+"/callback`\n\nDiscord accepts `http://` redirect URIs for LAN/localhost setups — register `"+base+"/callback` as-is. For internet access, use a tunnel (cloudflared) and set `public_url` to the `https://` URL instead."))
 }
 
+// cmdDashboardRestart restarts the HTTP server.
 func (m *DashboardModule) cmdDashboardRestart(ctx *commands.Context) error {
 	if err := m.restartServer(); err != nil {
 		return ctx.Respond(embed.Error("❌ Error", "restart failed: "+err.Error()))
@@ -760,6 +781,7 @@ func (m *DashboardModule) cmdDashboardRestart(ctx *commands.Context) error {
 	return ctx.Respond(embed.Success("✅ Dashboard", "HTTP server restarted on `"+m.effectiveListen()+"`."))
 }
 
+// boolEmoji renders a boolean as a Discord-friendly check/cross.
 func boolEmoji(b bool) string {
 	if b {
 		return "✅ Yes"

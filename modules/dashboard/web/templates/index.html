@@ -3,7 +3,7 @@
   {{if .BotAvatar}}<img class="hero-avatar" src="{{.BotAvatar}}" alt="">{{else}}<span class="hero-avatar hero-fallback">{{initial .Bot}}</span>{{end}}
   <div>
     <h1>Live overview</h1>
-    <p class="hero-sub">Monitoring <strong>{{.Bot}}</strong> across {{.Content.Guilds}} server{{if ne (printf "%v" .Content.Guilds) "1"}}s{{end}} — metrics refresh every 5 seconds.</p>
+    <p class="hero-sub">Monitoring <strong>{{.Bot}}</strong> across {{.Content.Guilds}} server{{if ne .Content.Guilds 1}}s{{end}} — metrics refresh every 5 seconds.</p>
     <span class="hero-status"><span class="status-dot"></span>{{.Content.ModulesLoaded}} modules · {{.Content.Commands}} commands · {{.Content.Latency}} latency</span>
   </div>
 </section>

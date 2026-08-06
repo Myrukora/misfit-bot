@@ -36,7 +36,6 @@
   function spin(btn) {
     const old = btn.innerHTML;
     btn.disabled = true;
-    btn.dataset.oldHtml = old;
     btn.innerHTML = '<span class="spinner"></span>';
     return () => { btn.innerHTML = old; btn.disabled = false; };
   }
@@ -74,6 +73,11 @@
     const setCollapsed = (collapsed) => {
       sidebar.classList.toggle('collapsed', collapsed);
       navToggle.setAttribute('aria-expanded', String(!collapsed));
+      if (collapseBtn) {
+        collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+        collapseBtn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+        collapseBtn.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+      }
       try { localStorage.setItem('dash_sidebar_collapsed', collapsed ? '1' : '0'); } catch (_) {}
     };
 
@@ -105,7 +109,11 @@
     }
 
     if (overlay) overlay.addEventListener('click', closeDrawer);
-    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    // Escape closes the drawer only while it is actually open — on desktop it
+    // must not touch the sidebar's exposed state.
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && sidebar.classList.contains('open')) closeDrawer();
+    });
 
     // Crossing the breakpoint: forget the collapsed state on mobile, close any
     // open drawer, and re-apply the saved preference when returning to desktop.
@@ -156,7 +164,18 @@
         setMetric('m-roles', s.roles_cached);
         setMetric('m-latency', s.gateway_latency);
         setMetric('m-uptime', s.uptime);
-        setMetric('m-mods', s.modules_loaded + '/' + s.modules_available);
+        // m-mods renders as "n<small>/total</small>" — update the numerator text
+        // node and the denominator separately so the muted style survives.
+        const mods = document.getElementById('m-mods');
+        const modsDen = mods && mods.querySelector('small');
+        if (modsDen) {
+          if (mods.firstChild && mods.firstChild.nodeType === Node.TEXT_NODE) {
+            mods.firstChild.nodeValue = String(s.modules_loaded);
+          }
+          modsDen.textContent = '/' + s.modules_available;
+        } else {
+          setMetric('m-mods', s.modules_loaded + '/' + s.modules_available);
+        }
         setMetric('m-cmds', s.commands);
         if (s.runtime) { setMetric('m-mem', s.runtime.alloc_mb); setMetric('m-goros', s.runtime.goroutines); }
       } catch (_) {}
@@ -234,6 +253,7 @@
   if (coreSave) {
     coreSave.addEventListener('click', async () => {
       const form = document.getElementById('core-form');
+      if (!form) return;
       const body = {};
       collectFields(form).forEach(t => { body[t.key] = t.value; });
       const restore = spin(coreSave);
@@ -241,8 +261,9 @@
         await req('POST', '/api/settings/core', body);
         toast('Core settings saved', 'ok');
       } catch (e) {
-        restore();
         toast('Save failed: ' + e.message, 'err');
+      } finally {
+        restore();
       }
     });
   }
@@ -261,8 +282,9 @@
         }
         toast(mod + ' settings saved', 'ok');
       } catch (e) {
-        restore();
         toast('Save failed: ' + e.message, 'err');
+      } finally {
+        restore();
       }
     });
   });
@@ -271,9 +293,12 @@
   document.querySelectorAll('input[type=range].cfg-field').forEach(r => {
     const out = r.parentElement.querySelector('.rangeval');
     const paint = () => {
-      const min = parseFloat(r.min) || 0;
-      const max = parseFloat(r.max) || 100;
-      const pct = ((parseFloat(r.value) - min) / (max - min)) * 100;
+      const min = Number.isFinite(parseFloat(r.min)) ? parseFloat(r.min) : 0;
+      const rawMax = parseFloat(r.max);
+      const max = Number.isFinite(rawMax) ? rawMax : 100;
+      const val = Number.isFinite(parseFloat(r.value)) ? parseFloat(r.value) : min;
+      const span = max - min;
+      const pct = span > 0 ? Math.min(100, Math.max(0, ((val - min) / span) * 100)) : 0;
       r.style.setProperty('--fill', pct + '%');
       if (out) out.textContent = r.value;
     };

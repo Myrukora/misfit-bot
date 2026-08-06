@@ -22,6 +22,7 @@ type metricsSnapshot struct {
 	Runtime       map[string]any `json:"runtime"`
 }
 
+// metrics captures a live snapshot of bot + runtime stats.
 func (m *DashboardModule) metrics() metricsSnapshot {
 	s := metricsSnapshot{Runtime: map[string]any{}, Modules: []string{}}
 	if m.client == nil {

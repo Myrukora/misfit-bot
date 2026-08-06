@@ -56,6 +56,7 @@ func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 	m.tmpl.render(w, "login", d)
 }
 
+// renderSetup shows the OAuth bootstrap instructions page.
 func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
 	d.Content = map[string]string{

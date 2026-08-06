@@ -7,7 +7,7 @@
   {{else if eq .Type "textarea"}}
     <textarea class="cfg-field" placeholder="{{.Placeholder}}" rows="4">{{.Value}}</textarea>
   {{else if eq .Type "range"}}
-    <input type="range" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}" style="--fill:{{.Value}}%">
+    <input type="range" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}">
     <span class="rangeval">{{.Value}}</span>
   {{else if eq .Type "number"}}
     <input type="number" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}">

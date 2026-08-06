@@ -111,6 +111,7 @@ type moduleConfigWrite struct {
 	Value   string `json:"value"`
 }
 
+// apiModuleConfigSet validates and writes one WebConfigurable field.
 func (m *DashboardModule) apiModuleConfigSet(w http.ResponseWriter, r *http.Request, name string) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
@@ -201,6 +202,7 @@ func (m *DashboardModule) apiElevatedList(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, m.permMgr().GetElevated())
 }
 
+// apiElevatedAction adds or removes an elevated user.
 func (m *DashboardModule) apiElevatedAction(w http.ResponseWriter, r *http.Request, action string) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
@@ -304,6 +306,7 @@ func (m *DashboardModule) apiShutdown(w http.ResponseWriter, r *http.Request) {
 	go func() { m.ctx.Bot.Shutdown() }()
 }
 
+// apiRestart restarts the bot process after acknowledging the request.
 func (m *DashboardModule) apiRestart(w http.ResponseWriter, r *http.Request) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")

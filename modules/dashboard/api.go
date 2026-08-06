@@ -73,6 +73,7 @@ func (m *DashboardModule) apiMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// guildSummary builds a lightweight guild row for the nav and API responses.
 func (m *DashboardModule) guildSummary(id string, us *userSession) *guildOpt {
 	gid, err := snowflake.Parse(id)
 	if err != nil || m.client == nil {
@@ -162,6 +163,7 @@ type roleOpt struct {
 	Position int    `json:"position"`
 }
 
+// apiGuild serves the detail of one guild to a user who manages it.
 func (m *DashboardModule) apiGuild(w http.ResponseWriter, r *http.Request, id string) {
 	us := sessionOf(r)
 	if us == nil {
@@ -209,6 +211,7 @@ func (m *DashboardModule) apiGuild(w http.ResponseWriter, r *http.Request, id st
 	writeJSON(w, http.StatusOK, d)
 }
 
+// channelTypeName renders a channel type as a short human label.
 func channelTypeName(t discord.ChannelType) string {
 	switch t {
 	case discord.ChannelTypeGuildText:
@@ -239,6 +242,7 @@ type moduleView struct {
 	Available   bool   `json:"available"`
 }
 
+// apiModules serves the module catalog with load state and metadata.
 func (m *DashboardModule) apiModules(w http.ResponseWriter, r *http.Request) {
 	loaded := map[string]bool{}
 	for _, n := range m.ctx.Bot.GetLoadedModuleNames() {
@@ -259,6 +263,7 @@ func (m *DashboardModule) apiModules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, views)
 }
 
+// apiModuleAction loads, unloads or reloads one module for the owner.
 func (m *DashboardModule) apiModuleAction(w http.ResponseWriter, r *http.Request, name, action string) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
@@ -290,6 +295,7 @@ type settingsResponse struct {
 	Modules []moduleConfigSchema `json:"modules"`
 }
 
+// apiSettings serves the core values and configurable-module schemas.
 func (m *DashboardModule) apiSettings(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, settingsResponse{
 		Core:    m.coreSettingsGet(),
@@ -297,6 +303,7 @@ func (m *DashboardModule) apiSettings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// coreSettingsGet reads the current core setting values from the bot.
 func (m *DashboardModule) coreSettingsGet() map[string]string {
 	return map[string]string{
 		"prefix":      m.ctx.Bot.GetPrefix(),
@@ -353,6 +360,7 @@ func (m *DashboardModule) coreStatusRead() string {
 	return c.Bot.Status
 }
 
+// apiSettingsCore applies validated core setting writes from the settings page.
 func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
