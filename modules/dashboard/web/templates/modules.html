@@ -1,6 +1,7 @@
 {{define "modules"}}{{template "header" .}}
 <h2>Modules</h2>
 <p class="muted">Load, unload and reload hot-swappable modules.</p>
+<div class="card table-wrap">
 <table class="tbl">
   <thead><tr><th>Module</th><th>Status</th><th>Actions</th></tr></thead>
   <tbody>
@@ -10,14 +11,15 @@
     <td>{{if .Loaded}}<span class="tag ok">loaded</span>{{else}}<span class="tag">available</span>{{end}}</td>
     <td class="actions">
       {{if .Loaded}}
-      <button class="btn btn-ghost act" data-action="reload">reload</button>
-      <button class="btn btn-danger act" data-action="unload">unload</button>
+      <button class="btn btn-ghost btn-sm act" data-action="reload">reload</button>
+      <button class="btn btn-danger btn-sm act" data-action="unload">unload</button>
       {{else}}
-      <button class="btn btn-ghost act" data-action="load">load</button>
+      <button class="btn btn-ghost btn-sm act" data-action="load">load</button>
       {{end}}
     </td>
   </tr>
   {{end}}
   </tbody>
 </table>
+</div>
 {{template "footer" .}}{{end}}

@@ -1,6 +1,7 @@
 {{define "login"}}{{template "header" .}}
 <div class="center-card">
-  <h1>{{.Bot}} Dashboard</h1>
+  {{if .BotAvatar}}<img class="login-avatar" src="{{.BotAvatar}}" alt="">{{else}}<span class="login-avatar login-fallback">{{initial .Bot}}</span>{{end}}
+  <h1>{{.Bot}}</h1>
   <p class="muted">Log in with Discord to manage your bot.</p>
   <form action="/login" method="post">
     <button class="btn btn-blurple" type="submit">Login with Discord</button>

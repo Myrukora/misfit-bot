@@ -146,6 +146,7 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 	return out
 }
 
+// contains reports whether s contains v.
 func contains(s []string, v string) bool {
 	for _, x := range s {
 		if x == v {
@@ -202,6 +203,7 @@ type catGroup struct {
 	Commands []cmdView
 }
 
+// Display returns the human heading for a module group.
 func (mg *moduleGroup) Display() string {
 	if mg.Module == "core" {
 		return "Core"

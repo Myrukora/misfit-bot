@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"html"
 	"net/http"
 	"strings"
 	"sync"
@@ -41,16 +42,19 @@ type sessionStore struct {
 	sessions map[string]*userSession
 }
 
+// newSessionStore creates an empty in-memory session store.
 func newSessionStore() *sessionStore {
 	return &sessionStore{sessions: make(map[string]*userSession)}
 }
 
+// put stores a session under key.
 func (s *sessionStore) put(key string, us *userSession) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sessions[key] = us
 }
 
+// get returns the session stored under key.
 func (s *sessionStore) get(key string) (*userSession, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -58,12 +62,14 @@ func (s *sessionStore) get(key string) (*userSession, bool) {
 	return us, ok
 }
 
+// del removes the session stored under key.
 func (s *sessionStore) del(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, key)
 }
 
+// clear drops every session (used when OAuth secrets change).
 func (s *sessionStore) clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -80,6 +86,7 @@ func (m *DashboardModule) signCookie(key string) string {
 	return key + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
+// verifyCookie validates a signed session cookie and returns its key.
 func (m *DashboardModule) verifyCookie(raw string) (string, bool) {
 	idx := strings.IndexByte(raw, '.')
 	if idx <= 0 {
@@ -105,6 +112,7 @@ func (m *DashboardModule) requestIsHTTPS(r *http.Request) bool {
 	return m.requestScheme(r) == "https"
 }
 
+// setSessionCookie writes the signed session cookie, matching Secure to the request scheme.
 func (m *DashboardModule) setSessionCookie(w http.ResponseWriter, r *http.Request, raw string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: raw, Path: "/",
@@ -113,6 +121,7 @@ func (m *DashboardModule) setSessionCookie(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// clearSessionCookie expires the session cookie.
 func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: sessionCookie, Value: "", Path: "/",
@@ -121,6 +130,7 @@ func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter, r *http.Requ
 	})
 }
 
+// sessionFromCookie reads and verifies the session cookie.
 func (m *DashboardModule) sessionFromCookie(r *http.Request) (*userSession, string, bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -173,6 +183,7 @@ func (m *DashboardModule) handleLoginPage(w http.ResponseWriter, r *http.Request
 	m.renderLogin(w, r)
 }
 
+// handleLoginStart begins the Discord OAuth flow.
 func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Request) {
 	if m.oauth == nil || !m.configured() {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -185,6 +196,7 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
+// handleCallback completes OAuth, enforces the mutual-guild rule and issues a session.
 func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if m.oauth == nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -216,7 +228,7 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		// Friendly denial — this person shares no server with the bot.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(denialPage(m.ctx.BotName)))
+		_, _ = w.Write([]byte(denialPage(m.botIdentity().Name)))
 		return
 	}
 	key, err := randHex(32)
@@ -243,6 +255,7 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
+// handleLogout destroys the session and redirects to /login.
 func (m *DashboardModule) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if _, key, ok := m.sessionFromCookie(r); ok {
 		m.sessions.del(key)
@@ -276,7 +289,10 @@ func (m *DashboardModule) checkCSRF(r *http.Request) bool {
 }
 
 // denialPage is the friendly "no shared server" message shown at /callback.
+// The bot name is HTML-escaped: it can come from Discord identity data, and
+// this response is served to unauthenticated users.
 func denialPage(botName string) string {
+	botName = html.EscapeString(botName)
 	return fmt.Sprintf(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Login denied</title></head><body style="font-family:system-ui;background:#1e1f22;color:#f2f3f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
 <div style="max-width:460px;text-align:center">

@@ -21,6 +21,7 @@ var levelOrder = map[string]int{
 
 const guildCacheTTL = 5 * time.Minute
 
+// levelGEQ reports whether level a is at least level b (owner > elevated > staff > regular).
 func levelGEQ(a, b string) bool { return levelOrder[a] >= levelOrder[b] }
 
 // resolveLevel computes the dashboard RBAC tier for the logged-in user:
@@ -58,6 +59,7 @@ func (m *DashboardModule) botGuildIDs() map[string]bool {
 	return out
 }
 
+// allBotGuildList returns every guild ID the bot is in.
 func (m *DashboardModule) allBotGuildList() []string {
 	out := make([]string, 0, len(m.botGuildIDs()))
 	for id := range m.botGuildIDs() {
@@ -101,6 +103,7 @@ func (m *DashboardModule) refreshGuilds(us *userSession) {
 	us.guildsAt = time.Now()
 }
 
+// userOAuthGuilds returns the session's cached OAuth guild list.
 func (m *DashboardModule) userOAuthGuilds(us *userSession) []discord.OAuth2Guild {
 	if us == nil {
 		return nil
@@ -200,6 +203,7 @@ func (m *DashboardModule) requireMin(min string, next http.HandlerFunc) http.Han
 	}
 }
 
+// requireOwner wraps a handler so only owner/elevated users may call it.
 func (m *DashboardModule) requireOwner(next http.HandlerFunc) http.HandlerFunc {
 	return m.requireMin(lvlElevated, next) // owner OR elevated
 }

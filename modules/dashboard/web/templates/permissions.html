@@ -4,9 +4,9 @@
 <div class="card">
   <h3>Elevated users</h3>
   <ul class="list" id="elevated-list">
-    {{range .Content.elevated}}<li><code>{{.}}</code> <button class="btn btn-danger elrm" data-id="{{.}}">remove</button></li>{{end}}
+    {{range .Content.elevated}}<li><code>{{.}}</code> <button class="btn btn-danger btn-sm elrm" data-id="{{.}}" style="margin-left:auto">remove</button></li>{{end}}
   </ul>
-  <form id="elevated-add" class="inline-form">
+  <form id="elevated-add" class="inline-form" style="margin-top:14px">
     <input type="text" class="cfg-field" placeholder="User ID" id="elevated-id">
     <button type="button" class="btn btn-blurple" id="elevated-add-btn">Add</button>
   </form>

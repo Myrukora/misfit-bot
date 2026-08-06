@@ -36,7 +36,7 @@ type moduleConfigView struct {
 type settingsPageData struct {
 	GuildID       string
 	GuildName     string
-	Core          map[string]string // global core settings (nil for guild view)
+	Core          []fieldRender // typed, labeled core settings (nil for guild view)
 	DashboardSelf moduleConfigView
 	Modules       []moduleConfigView
 }
@@ -56,6 +56,7 @@ func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 	m.tmpl.render(w, "login", d)
 }
 
+// renderSetup shows the OAuth bootstrap instructions page.
 func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
 	d.Content = map[string]string{
@@ -188,7 +189,7 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 			data.GuildName = detail.Name
 		}
 	} else {
-		data.Core = m.coreSettingsGet()
+		data.Core = m.coreSettingsFields()
 	}
 
 	// Dashboard self-config (global only).
@@ -215,6 +216,29 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	d := m.baseData(us)
 	d.Content = data
 	m.tmpl.render(w, "settings", d)
+}
+
+// ── core settings (schema-driven) ────────────────────────────────────────
+
+// coreSettingsFields renders every core bot setting as a typed, labeled field
+// through the same schema-driven "field" partial the WebConfigurable module
+// fields use. Each key maps to the input type that matches its validation in
+// config.Config.Set: selects for enums (status, log_level) and a toggle for
+// the boolean (log_enabled). Values come from coreSettingsGet() so the JSON
+// API and the page always agree. log_channel is deliberately NOT exposed —
+// logging is file-only (Discord channel logging was never implemented).
+func (m *DashboardModule) coreSettingsFields() []fieldRender {
+	vals := m.coreSettingsGet()
+	return []fieldRender{
+		{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
+		{Key: "name", Label: "Bot name", Help: "Fallback name from config.yml — the live Discord name (set on the Developer Portal) is shown in the header automatically.", Type: "text", Value: vals["name"], Placeholder: "Bot"},
+		{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678"},
+		{Key: "status", Label: "Presence status", Help: "The bot's Discord presence status.", Type: "select", Value: vals["status"], Options: []string{"online", "idle", "dnd", "invisible"}},
+		{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Takes effect after a restart.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
+		{Key: "log_enabled", Label: "File logging", Help: "Whether the bot writes logs to disk. Takes effect after a restart.", Type: "toggle", Value: vals["log_enabled"]},
+		{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
+		{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+	}
 }
 
 // buildModuleView produces the filtered, redacted field renders for a module.
