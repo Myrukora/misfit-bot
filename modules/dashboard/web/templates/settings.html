@@ -1,0 +1,44 @@
+{{define "settings"}}{{template "header" .}}
+{{with .Content}}
+<h2>Settings {{if .GuildID}}<small class="muted">· {{.GuildName}} ({{.GuildID}})</small>{{else}}<small class="muted">· core / global</small>{{end}}</h2>
+
+{{if .Core}}
+<section class="card">
+  <h3>Core bot settings</h3>
+  <form id="core-form" class="cfg-form">
+    {{range $k, $v := .Core}}
+    <div class="field"><label>{{$k}}</label><input type="text" class="cfg-field" data-corekey="{{$k}}" value="{{$v}}"></div>
+    {{end}}
+    <button type="button" class="btn btn-blurple" id="core-save">Save core settings</button>
+    <span class="save-state" data-for="core-form"></span>
+  </form>
+</section>
+{{else}}
+<p class="muted">Showing guild-scoped settings only. Core/global settings are available to the bot owner/elevated users without a server selected.</p>
+{{end}}
+
+{{if .DashboardSelf.Fields}}
+<section class="card">
+  <h3>Dashboard (self-config)</h3>
+  <form class="module-cfg cfg-form" data-module="{{.DashboardSelf.Name}}" data-guild="{{.GuildID}}">
+    {{range .DashboardSelf.Fields}}{{template "field" .}}{{end}}
+    <button type="button" class="btn btn-ghost save-module">Save</button>
+    <span class="save-state" data-for></span>
+  </form>
+</section>
+{{end}}
+
+{{range .Modules}}
+<section class="card">
+  <h3>{{.Name}}</h3>
+  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{$.Content.GuildID}}">
+    {{range .Fields}}{{template "field" .}}{{end}}
+    <button type="button" class="btn btn-ghost save-module">Save</button>
+    <span class="save-state"></span>
+  </form>
+</section>
+{{end}}
+
+{{if not (or .Core .DashboardSelf.Fields .Modules)}}<p class="muted">No configurable settings here.</p>{{end}}
+{{end}}
+{{template "footer" .}}{{end}}

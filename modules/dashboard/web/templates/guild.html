@@ -1,0 +1,25 @@
+{{define "guild"}}{{template "header" .}}
+{{with .Content}}
+<div class="guild-head">
+  {{if .Icon}}<img class="guild-icon" src="{{.Icon}}" alt="">{{end}}
+  <h2>{{.Name}}</h2>
+  <span class="muted">ID {{.ID}} · {{.MemberCount}} members · owner <code>{{.OwnerID}}</code></span>
+</div>
+<p><span class="lbl">Bot permissions here</span> {{.BotPerms}}</p>
+<div class="two-col">
+  <div class="card">
+    <h3>Channels ({{len .Channels}})</h3>
+    <ul class="list">
+      {{range .Channels}}<li><code>{{.ID}}</code> <span>{{.Name}}</span> <small class="muted">{{.Type}}</small></li>{{end}}
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Roles ({{len .Roles}})</h3>
+    <ul class="list">
+      {{range .Roles}}<li><span class="dot" style="background:#{{printf "%06x" .Color}}"></span> <code>{{.ID}}</code> {{.Name}} <small class="muted">#{{.Position}}</small></li>{{end}}
+    </ul>
+  </div>
+</div>
+<p class="muted"><a href="/settings?guild={{.ID}}">Edit guild-scoped module settings →</a></p>
+{{end}}
+{{template "footer" .}}{{end}}

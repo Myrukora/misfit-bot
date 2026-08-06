@@ -1,0 +1,15 @@
+{{define "permissions"}}{{template "header" .}}
+<h2>Permissions</h2>
+<p class="muted">Manage bot-level elevated users (bypass all permission checks).</p>
+<div class="card">
+  <h3>Elevated users</h3>
+  <ul class="list" id="elevated-list">
+    {{range .Content.elevated}}<li><code>{{.}}</code> <button class="btn btn-danger elrm" data-id="{{.}}">remove</button></li>{{end}}
+  </ul>
+  <form id="elevated-add" class="inline-form">
+    <input type="text" class="cfg-field" placeholder="User ID" id="elevated-id">
+    <button type="button" class="btn btn-blurple" id="elevated-add-btn">Add</button>
+  </form>
+</div>
+<p class="muted">Bot owner: <code>{{.Content.owner_id}}</code> (cannot be removed via the dashboard).</p>
+{{template "footer" .}}{{end}}

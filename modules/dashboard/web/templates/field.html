@@ -1,0 +1,32 @@
+{{define "field"}}
+<div class="field" data-key="{{.Key}}" data-type="{{.Type}}">
+  <div class="field-label"><label>{{.Label}}</label><span class="scope scope-{{if .GuildScoped}}guild{{else}}global{{end}}">{{if .GuildScoped}}guild{{else}}global{{end}}</span></div>
+  {{if .Help}}<p class="help">{{.Help}}</p>{{end}}
+  {{if eq .Type "toggle"}}
+    <label class="switch"><input type="checkbox" class="cfg-field" {{if eq .Value "true"}}checked{{end}}><span class="slider"></span></label>
+  {{else if eq .Type "textarea"}}
+    <textarea class="cfg-field" placeholder="{{.Placeholder}}" rows="4">{{.Value}}</textarea>
+  {{else if eq .Type "range"}}
+    <input type="range" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}">
+    <span class="rangeval">{{.Value}}</span>
+  {{else if eq .Type "number"}}
+    <input type="number" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}">
+  {{else if eq .Type "select"}}
+    <select class="cfg-field">
+      {{range .Options}}<option value="{{.}}" {{if eq $.Value .}}selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  {{else if eq .Type "multi"}}
+    <div class="multi cfg-field" data-value="{{.Value}}">
+      {{range .Options}}<label class="multi-opt"><input type="checkbox" value="{{.}}" {{if csvContains $.Value .}}checked{{end}}> {{.}}</label>{{end}}
+    </div>
+  {{else if eq .Type "secret"}}
+    <input type="password" class="cfg-field" placeholder="{{if .Value}}•••••••• (currently set){{else}}not set{{end}}">
+  {{else if eq .Type "channel"}}
+    {{if .Entities}}<select class="cfg-field"><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a channel">{{end}}
+  {{else if eq .Type "role"}}
+    {{if .Entities}}<select class="cfg-field"><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a role">{{end}}
+  {{else}}
+    <input type="text" class="cfg-field" value="{{.Value}}" placeholder="{{.Placeholder}}">
+  {{end}}
+</div>
+{{end}}

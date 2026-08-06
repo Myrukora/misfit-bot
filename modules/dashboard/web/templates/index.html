@@ -1,0 +1,26 @@
+{{define "index"}}{{template "header" .}}
+<h2>Overview</h2>
+<div class="metrics-grid">
+  <div class="metric"><div class="metric-label">Servers</div><div class="metric-value" id="m-guilds">{{.Content.Guilds}}</div></div>
+  <div class="metric"><div class="metric-label">Cached Members</div><div class="metric-value" id="m-members">{{.Content.Members}}</div></div>
+  <div class="metric"><div class="metric-label">Cached Channels</div><div class="metric-value" id="m-channels">{{.Content.Channels}}</div></div>
+  <div class="metric"><div class="metric-label">Cached Roles</div><div class="metric-value" id="m-roles">{{.Content.Roles}}</div></div>
+  <div class="metric"><div class="metric-label">Gateway Latency</div><div class="metric-value" id="m-latency">{{.Content.Latency}}</div></div>
+  <div class="metric"><div class="metric-label">Uptime</div><div class="metric-value" id="m-uptime">{{.Content.Uptime}}</div></div>
+  <div class="metric"><div class="metric-label">Modules Loaded</div><div class="metric-value" id="m-mods">{{.Content.ModulesLoaded}}/{{.Content.ModulesAvail}}</div></div>
+  <div class="metric"><div class="metric-label">Commands</div><div class="metric-value" id="m-cmds">{{.Content.Commands}}</div></div>
+  <div class="metric"><div class="metric-label">Memory (MB)</div><div class="metric-value" id="m-mem">{{.Content.Runtime.alloc_mb}}</div></div>
+  <div class="metric"><div class="metric-label">Goroutines</div><div class="metric-value" id="m-goros">{{.Content.Runtime.goroutines}}</div></div>
+</div>
+{{if .ShowConfig}}
+<h3>Loaded modules</h3>
+<div class="chips">{{range .Content.Modules}}<span class="chip">{{.}}</span>{{end}}</div>
+<div class="quick-links">
+  <a href="/commands" class="btn btn-ghost">Command catalog</a>
+  <a href="/settings" class="btn btn-ghost">Core settings</a>
+  <a href="/logs" class="btn btn-ghost">Logs</a>
+</div>
+{{else}}
+<p class="muted">You are signed in as <strong>{{.Level}}</strong>. Visit the <a href="/commands">command catalog</a> to see what you can run.</p>
+{{end}}
+{{template "footer" .}}{{end}}

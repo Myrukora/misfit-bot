@@ -1,0 +1,8 @@
+{{define "logs"}}{{template "header" .}}
+<h2>Logs</h2>
+<p class="muted">Tailing <code>{{.Content.path}}</code> — last {{len .Content.lines}} lines.</p>
+<button class="btn btn-ghost" id="logs-refresh">Refresh</button>
+<button class="btn btn-ghost" id="logs-more">Load 500</button>
+<pre class="logs" id="log-box">{{range .Content.lines}}{{.}}
+{{end}}</pre>
+{{template "footer" .}}{{end}}

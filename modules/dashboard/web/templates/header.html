@@ -1,0 +1,35 @@
+{{define "header"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{.CSRF}}">
+<title>{{.Bot}} Dashboard · {{.Page}}</title>
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">{{.Bot}}</div>
+    <nav class="nav">
+      <a href="/" class="nav-item">Overview</a>
+      <a href="/commands" class="nav-item">Commands</a>
+      {{if .ShowConfig}}<a href="/modules" class="nav-item">Modules</a><a href="/settings" class="nav-item">Settings</a><a href="/permissions" class="nav-item">Permissions</a><a href="/logs" class="nav-item">Logs</a>{{end}}
+    </nav>
+    {{if gt (len .Guilds) 0}}
+    <div class="guilds">
+      <div class="muted">Servers</div>
+      {{range .Guilds}}<a href="/guild/{{.ID}}" class="guild{{if .Owner}} owned{{end}}">{{if .Icon}}<img src="{{.Icon}}" alt="">{{end}}<span>{{.Name}}</span></a>{{end}}
+    </div>
+    {{end}}
+  </aside>
+  <div class="main">
+    <header class="topbar">
+      <div class="title">{{.Page}}</div>
+      <div class="user">
+        {{if .User}}<img src="{{.User.Avatar}}" alt="{{.User.Username}}">{{.User.Username}}<span class="badge lvl-{{.Level}}">{{.Level}}</span>{{end}}
+        <a href="/logout" class="logout">Logout</a>
+      </div>
+    </header>
+    <main class="content">
+{{end}}

@@ -1,0 +1,57 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+dev-debug.log
+
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+
+# Bot configuration (contains tokens)
+config.yml
+config_backup_*.yml
+config_pre_restore_*.yml
+
+# Runtime/bot-generated state (never commit)
+# module_configs may hold API keys/secrets (e.g. dashboard session_secret)
+module_configs/
+bot.new
+bot.old
+updater_state.json
+config_pre_restore_*.yml
+.pi/
+.tmp/
+
+# Bot binary
+bot
+
+# Module persistence
+loaded_modules.json
+
+# Python module venvs and caches
+modules/*/.venv/
+modules/*/__pycache__/
+# Python SDK caches
+__pycache__/
+*.pyc
+
+# Editor directories and files
+.idea
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS specific
+.DS_Store
+
+# Built plugin binaries (artifacts, not source)
+modules/*.so
+*.so

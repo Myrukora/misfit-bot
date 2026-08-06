@@ -1,0 +1,9 @@
+{{define "login"}}{{template "header" .}}
+<div class="center-card">
+  <h1>{{.Bot}} Dashboard</h1>
+  <p class="muted">Log in with Discord to manage your bot.</p>
+  <form action="/login" method="post">
+    <button class="btn btn-blurple" type="submit">Login with Discord</button>
+  </form>
+</div>
+{{template "footer" .}}{{end}}

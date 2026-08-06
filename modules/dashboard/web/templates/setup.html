@@ -1,0 +1,17 @@
+{{define "setup"}}{{template "header" .}}
+<div class="center-card">
+  <h1>Dashboard not configured yet</h1>
+  <p class="muted">Set up Discord OAuth2 from the bot, then restart the dashboard.</p>
+  <ol class="setup">
+    <li>In the <strong>Discord Developer Portal → your application → OAuth2</strong>, add this redirect URI:
+      <code>{{.Content.redirect_uri}}</code></li>
+    <li>Create a <strong>Client Secret</strong> on that page.</li>
+    <li>Run these commands in Discord as the bot owner:
+      <pre>{{.Content.prefix}}dashboard set public_url https://your.host
+{{.Content.prefix}}dashboard set client_secret YOUR_SECRET
+{{.Content.prefix}}dashboard restart</pre></li>
+    <li>Client ID used (auto-derived): <code>{{.Content.client_id}}</code></li>
+    <li>Listening on: <code>{{.Content.listen}}</code> (localhost by default — use a reverse proxy or tunnel such as cloudflared/nginx to expose it).</li>
+  </ol>
+</div>
+{{template "footer" .}}{{end}}
