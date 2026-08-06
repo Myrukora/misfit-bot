@@ -1,0 +1,3 @@
+- [ ] This PR is not server-specific to my own deployment.
+- [ ] This change is useful for the upstream Misfit's Tavern instance.
+- [ ] I agree to license my contribution under the MIT License.

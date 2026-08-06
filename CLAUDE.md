@@ -394,7 +394,7 @@ dashboard:                 # optional — pin dashboard bind/public URL from the
   public_url: ""           # e.g. "https://dashboard.example.com"
 oauth:                     # Discord application OAuth2 credentials the dashboard (and any OAuth-using module) read
   client_secret: ""        # from Dev Portal → OAuth2 → General; NOT the bot token. Set via `[p]dashboard set client_secret <secret>`
-updater:                   # self-update integration with the bot's own private GitHub repo
+updater:                   # self-update integration with the bot's own GitHub repo (currently private, may go public later)
   enabled: true            # master switch; false = updater does nothing
   repo: "Myrukora/misfit-bot"  # owner/name; empty = feature off
   branch: "main"           # branch to track
@@ -415,7 +415,7 @@ updater:                   # self-update integration with the bot's own private 
 
 ### Self-Updater (`updater/`)
 
-The bot is wired to its own private GitHub repository (`Myrukora/misfit-bot`, created via `gh repo create --private`). The `updater.Manager` is constructed **once** in `main()` (never inside `run()`, so in-process restarts don't spawn duplicate poll loops) and runs a poll loop every `check_interval`:
+The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, currently private). The `updater.Manager` is constructed **once** in `main()` (never inside `run()`, so in-process restarts don't spawn duplicate poll loops) and runs a poll loop every `check_interval`:
 
 1. **Notifications** — diffs GitHub state against `updater_state.json` (last commit SHA + seen PR numbers, atomic write, 0600):
    - New open PRs → embed: **author row on top** (avatar + username hyperlinked to the GitHub profile), bold title `Pull request opened: #<number> <title>` (linked to the PR), PR body as description (markdown renders), GitHub-green `0x2EA043`.
@@ -484,7 +484,7 @@ go vet ./...                       # Vet
 - Slash command batch registration with mutex serialization
 - Auto-delete: ONLY errors (red `embed.Error`) vanish, after 7s; every other response (success/info/warning/usage/status/plain text) stays permanently. No preserved list, no opt-in hook — dispatcher deletes iff first embed is red
 - Self-updater (`updater/` package): poll loop (default 300s), PR + commit notification embeds (author row → bold title → markdown description; merge commits skipped; first poll silent), auto pull → rebuild (core + Go plugins) → binary swap → `syscall.Exec` self-restart, `[p]update check|now|status|test|set`, `updater_state.json` persistence, live config via `[p]update set`/`[p]set updater_*`
-- Private GitHub repo `Myrukora/misfit-bot` + branch/PR workflow (owner review & approval for collaborator PRs; GitHub-side branch rules to be set by the owner when the repo goes public)
+- GitHub repo `Myrukora/misfit-bot` (currently private, may go public later) + branch/PR workflow (owner review & approval for collaborator PRs; GitHub-side branch rules to be set by the owner when the repo goes public)
 - Cleanup module (9 subcommands, pagination via `fetchMessages`)
 - Cache methods on Interface (GetCachedMember/Guild/Role/Channel, GetMemberRoles)
 - Event hook system (18 event types, safeDispatch panic recovery)
@@ -525,7 +525,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 1. **`config.yml` permissions (0644)** — The bot runs on a single-user Ubuntu server. The owner has full SSH access. 0644 is acceptable since no other users exist on the system. If the bot is ever deployed to a multi-user host, change to `0600`.
 2. **Lua bridge unrestricted `ctx.api()` and `ctx.http()`** — The bot is private; only the owner writes Lua modules. Full Discord API and arbitrary HTTP access is intentional for development flexibility. Before public module distribution, add URL allowlisting and endpoint whitelisting.
 3. **`[p]eval` shell command execution** — Protected by `SuperOwnerOnly` (bot owner only). Will be **removed entirely** before production launch. Kept in for development convenience only.
-4. **Branch + PR workflow, no direct commits to `main`** — The repo (`Myrukora/misfit-bot`, currently PRIVATE) uses the branch workflow: `git checkout -b <feature>` → commit → `gh pr create` → **owner review + approval → merge**. PRs from collaborators require the owner's manual approval; the owner's own PRs are exempt (GitHub forbids self-approval). The bot only ever pulls `main` (fast-forward) — PR-only merges keep every GitHub merge strategy fast-forward-compatible. Server-side enforcement (rulesets/branch protection) needs GitHub Pro for private repos, so **when the repo goes public, the owner will set the branch rules in GitHub settings** (free for public repos) — until then the workflow is enforced by convention.
+4. **Branch + PR workflow, no direct commits to `main`** — The repo (`Myrukora/misfit-bot`, currently private, may go public later) uses the branch workflow: `git checkout -b <feature>` → commit → `gh pr create` → **owner review + approval → merge**. PRs from collaborators require the owner's manual approval; the owner's own PRs are exempt (GitHub forbids self-approval). The bot only ever pulls `main` (fast-forward) — PR-only merges keep every GitHub merge strategy fast-forward-compatible. Server-side enforcement (rulesets/branch protection) needs GitHub Pro for private repos, so **when the repo goes public, the owner will set the branch rules in GitHub settings** (free for public repos) — until then the workflow is enforced by convention.
 5. **Updater GitHub token in gitignored `config.yml`** — The bot authenticates to its private repo via `updater.token`, injected per git invocation via `http.extraheader` (never persisted to `.git/config`). The token never appears in any commit; `config.yml`, `module_configs/`, `updater_state.json`, `loaded_modules.json`, binaries and venvs are all gitignored. If the gh token is ever rotated, update `updater.token` (`[p]update set token <pat>`).
 
 ## Key Gotchas

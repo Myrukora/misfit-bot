@@ -3,10 +3,10 @@
 // a Discord channel), and can automatically pull the latest code, rebuild the
 // bot binary (and Go plugin modules) and re-launch itself.
 //
-// The repository must be private; the GitHub token lives only in the
-// gitignored config.yml and is used per-invocation (never stored in
-// .git/config). No user-controlled input is ever interpolated into a shell
-// command.
+// The repository is assumed private (may be made public later); the GitHub
+// token lives only in the gitignored config.yml and is used per-invocation
+// (never stored in .git/config). No user-controlled input is ever
+// interpolated into a shell command.
 package updater
 
 import (
