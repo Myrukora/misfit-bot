@@ -216,7 +216,7 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		// Friendly denial — this person shares no server with the bot.
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(denialPage(m.ctx.BotName)))
+		_, _ = w.Write([]byte(denialPage(m.botIdentity().Name)))
 		return
 	}
 	key, err := randHex(32)

@@ -21,7 +21,8 @@ type templateBundle struct {
 
 // renderData is the shared context passed to every page template.
 type renderData struct {
-	Bot        string
+	Bot        string // dynamic bot name (gateway self-user → Dev Portal app name → config)
+	BotAvatar  string // bot avatar URL (may be empty)
 	User       *userJSON
 	Level      string
 	Guilds     []guildOpt
@@ -42,6 +43,8 @@ var tmplFuncs = template.FuncMap{
 	"joinOr":      joinOr,
 	"yesno":       yesno,
 	"csvContains": csvContains,
+	"pageTitle":   pageTitle,
+	"initial":     initial,
 }
 
 // csvContains reports whether opt appears in the comma-separated csv value
@@ -67,6 +70,42 @@ func yesno(b bool) string {
 		return "✅"
 	}
 	return "⛔"
+}
+
+// pageTitle maps a page name to its display title for the topbar and <title>.
+func pageTitle(page string) string {
+	switch page {
+	case "index":
+		return "Overview"
+	case "login":
+		return "Login"
+	case "setup":
+		return "Setup"
+	case "commands":
+		return "Commands"
+	case "guild":
+		return "Server"
+	case "modules":
+		return "Modules"
+	case "settings":
+		return "Settings"
+	case "permissions":
+		return "Permissions"
+	case "logs":
+		return "Logs"
+	}
+	if page == "" {
+		return "Dashboard"
+	}
+	return strings.ToUpper(page[:1]) + page[1:]
+}
+
+// initial returns the first rune of s for avatar fallbacks ("✦" when empty).
+func initial(s string) string {
+	if s == "" {
+		return "✦"
+	}
+	return string([]rune(s)[0])
 }
 
 func loadTemplates() (*templateBundle, error) {

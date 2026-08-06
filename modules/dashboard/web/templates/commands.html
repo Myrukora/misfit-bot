@@ -1,7 +1,7 @@
 {{define "commands"}}{{template "header" .}}
 <h2>Commands</h2>
 <div class="toolbar">
-  <input type="search" id="cmd-search" placeholder="Filter commands…" class="cfg-field" style="max-width:260px">
+  <div class="search-wrap"><input type="search" id="cmd-search" placeholder="Filter commands…" class="cfg-field"></div>
   {{if .Content.canRaw}}<label class="inline"><input type="checkbox" id="cmd-raw" {{if .Raw}}checked{{end}}> show non-usable (raw)</label>{{end}}
 </div>
 <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} visible to you{{if .Content.guild}} in this server{{end}}.</p>

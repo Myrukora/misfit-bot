@@ -137,7 +137,8 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 // baseData builds the renderData shared by all pages (user, level, guilds, nav
 // flags, CSRF). Pass the page-specific payload via Content separately.
 func (m *DashboardModule) baseData(us *userSession) renderData {
-	d := renderData{Bot: m.ctx.BotName, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: ""}
+	id := m.botIdentity()
+	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: ""}
 	if us != nil {
 		level := m.resolveLevel(us)
 		var guilds []guildOpt

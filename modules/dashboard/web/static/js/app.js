@@ -1,8 +1,11 @@
 // Dashboard client: vanilla JS, no dependencies. CSRF via <meta name="csrf-token">.
 (function () {
+  'use strict';
+
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const apiHeaders = { 'Content-Type': 'application/json' };
   if (csrf) apiHeaders['X-CSRF-Token'] = csrf;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   async function req(method, url, body) {
     const opts = { method, headers: { ...apiHeaders } };
@@ -14,22 +17,103 @@
     return data;
   }
 
-  // ── Metrics auto-refresh on the overview page ──────────────────────────
+  // ── Toast notifications ────────────────────────────────────────────────
+  function toast(msg, kind) {
+    const box = document.getElementById('toasts');
+    if (!box) { window.alert(msg); return; } // no toasts container (e.g. denial page)
+    const t = document.createElement('div');
+    t.className = 'toast ' + (kind || 'info');
+    t.textContent = msg;
+    box.appendChild(t);
+    setTimeout(() => {
+      t.classList.add('out');
+      setTimeout(() => t.remove(), 300);
+    }, 3400);
+  }
+
+  // Replaces a button's content with a spinner while an async task runs.
+  // Returns a function that restores the button.
+  function spin(btn) {
+    const old = btn.innerHTML;
+    btn.disabled = true;
+    btn.dataset.oldHtml = old;
+    btn.innerHTML = '<span class="spinner"></span>';
+    return () => { btn.innerHTML = old; btn.disabled = false; };
+  }
+
+  // ── Scroll reveal (skipped entirely for reduced motion) ────────────────
+  const revealEls = document.querySelectorAll('.reveal:not(.in)');
+  if ('IntersectionObserver' in window && !reduceMotion) {
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+      });
+    }, { threshold: 0.12 });
+    revealEls.forEach(el => io.observe(el));
+  } else {
+    revealEls.forEach(el => el.classList.add('in'));
+  }
+
+  // ── Mobile drawer (sidebar ⇄ overlay) ──────────────────────────────────
+  const navToggle = document.getElementById('nav-toggle');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('drawer-overlay');
+  if (navToggle && sidebar) {
+    const close = () => {
+      sidebar.classList.remove('open');
+      navToggle.setAttribute('aria-expanded', 'false');
+      if (overlay) { overlay.hidden = true; overlay.classList.remove('show'); }
+    };
+    navToggle.addEventListener('click', () => {
+      const open = sidebar.classList.toggle('open');
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (overlay) {
+        overlay.hidden = false;
+        requestAnimationFrame(() => overlay.classList.toggle('show', open));
+      }
+    });
+    if (overlay) overlay.addEventListener('click', close);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+  }
+
+  // ── Metrics auto-refresh + count-up on the overview page ───────────────
   const m = document.getElementById('m-guilds');
   if (m) {
+    // Animate pure-numeric values from their current to the new value.
+    // Non-numeric strings (latency, uptime, "3/5" formats) set directly.
+    function setMetric(id, v) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const target = String(v);
+      if (el.textContent === target) return;
+      if (reduceMotion || !/^\d+$/.test(target) || !/^\d+$/.test(el.textContent)) {
+        el.textContent = target;
+        return;
+      }
+      const from = parseInt(el.textContent, 10);
+      const to = parseInt(target, 10);
+      const dur = 650;
+      const t0 = performance.now();
+      function tick(now) {
+        const p = Math.min(1, (now - t0) / dur);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(from + (to - from) * eased);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
     async function refresh() {
       try {
         const s = await req('GET', '/api/metrics');
-        const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
-        set('m-guilds', s.guilds);
-        set('m-members', s.members_cached);
-        set('m-channels', s.channels_cached);
-        set('m-roles', s.roles_cached);
-        set('m-latency', s.gateway_latency);
-        set('m-uptime', s.uptime);
-        set('m-mods', s.modules_loaded + '/' + s.modules_available);
-        set('m-cmds', s.commands);
-        if (s.runtime) { set('m-mem', s.runtime.alloc_mb); set('m-goros', s.runtime.goroutines); }
+        setMetric('m-guilds', s.guilds);
+        setMetric('m-members', s.members_cached);
+        setMetric('m-channels', s.channels_cached);
+        setMetric('m-roles', s.roles_cached);
+        setMetric('m-latency', s.gateway_latency);
+        setMetric('m-uptime', s.uptime);
+        setMetric('m-mods', s.modules_loaded + '/' + s.modules_available);
+        setMetric('m-cmds', s.commands);
+        if (s.runtime) { setMetric('m-mem', s.runtime.alloc_mb); setMetric('m-goros', s.runtime.goroutines); }
       } catch (_) {}
     }
     refresh();
@@ -62,28 +146,58 @@
       const tr = btn.closest('tr');
       const name = tr.dataset.module;
       const action = btn.dataset.action;
-      btn.disabled = true;
+      const restore = spin(btn);
       try {
         await req('POST', '/api/modules/' + encodeURIComponent(name) + '/' + action);
-        location.reload();
+        toast(action + 'ed ' + name, 'ok');
+        setTimeout(() => location.reload(), 700);
       } catch (e) {
-        alert(e.message); btn.disabled = false;
+        restore();
+        toast(e.message, 'err');
       }
     });
   });
+
+  // ── Config field collection (shared by core + module saves) ────────────
+  // Mirrors the field partial's data-key/data-type contract: toggles read
+  // checked, selects/inputs read value, blank secrets are skipped (keep
+  // existing value).
+  function collectFields(form) {
+    const tasks = [];
+    form.querySelectorAll('.cfg-field').forEach(field => {
+      const wrap = field.closest('.field');
+      if (!wrap) return;
+      const key = wrap.dataset.key;
+      const type = wrap.dataset.type;
+      let value;
+      if (type === 'toggle') {
+        value = field.checked ? 'true' : 'false';
+      } else if (type === 'multi') {
+        value = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value).join(',');
+      } else {
+        value = field.value;
+      }
+      // Skip secrets that were left blank (keep existing value).
+      if (type === 'secret' && value === '') return;
+      tasks.push({ key, value });
+    });
+    return tasks;
+  }
 
   // ── Core settings save ──────────────────────────────────────────────────
   const coreSave = document.getElementById('core-save');
   if (coreSave) {
     coreSave.addEventListener('click', async () => {
+      const form = document.getElementById('core-form');
       const body = {};
-      document.querySelectorAll('[data-corekey]').forEach(el => { body[el.dataset.corekey] = el.value; });
-      const st = document.querySelector('#core-form .save-state');
+      collectFields(form).forEach(t => { body[t.key] = t.value; });
+      const restore = spin(coreSave);
       try {
         await req('POST', '/api/settings/core', body);
-        if (st) { st.textContent = 'saved'; st.className = 'save-state ok'; }
+        toast('Core settings saved', 'ok');
       } catch (e) {
-        if (st) { st.textContent = e.message; st.className = 'save-state err'; }
+        restore();
+        toast('Save failed: ' + e.message, 'err');
       }
     });
   }
@@ -94,61 +208,63 @@
       const form = btn.closest('form');
       const mod = form.dataset.module;
       const guild = form.dataset.guild || '';
-      const st = form.querySelector('.save-state');
-      const fields = form.querySelectorAll('.cfg-field');
-      const tasks = [];
-      fields.forEach(field => {
-        const wrap = field.closest('.field');
-        if (!wrap) return;
-        const key = wrap.dataset.key;
-        const type = wrap.dataset.type;
-        let value;
-        if (type === 'toggle') {
-          value = field.checked ? 'true' : 'false';
-        } else if (type === 'multi') {
-          const checked = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value);
-          value = checked.join(',');
-        } else if (type === 'secret' || type === 'channel' || type === 'role') {
-          if (field.tagName === 'SELECT') value = field.value;
-          else value = field.value;
-        } else {
-          value = field.value;
-        }
-        // Skip secrets that were left blank (keep existing value).
-        if (type === 'secret' && value === '') return;
-        tasks.push({ guildID: guild, key, value });
-      });
+      const tasks = collectFields(form).map(t => ({ guildID: guild, key: t.key, value: t.value }));
+      const restore = spin(btn);
       try {
         for (const t of tasks) {
           await req('POST', '/api/settings/module/' + encodeURIComponent(mod), t);
         }
-        if (st) { st.textContent = 'saved'; st.className = 'save-state ok'; }
+        toast(mod + ' settings saved', 'ok');
       } catch (e) {
-        if (st) { st.textContent = e.message; st.className = 'save-state err'; }
+        restore();
+        toast('Save failed: ' + e.message, 'err');
       }
     });
   });
 
-  // Range value display
+  // Range value bubble + filled track
   document.querySelectorAll('input[type=range].cfg-field').forEach(r => {
     const out = r.parentElement.querySelector('.rangeval');
-    if (out) r.addEventListener('input', () => { out.textContent = r.value; });
+    const paint = () => {
+      const min = parseFloat(r.min) || 0;
+      const max = parseFloat(r.max) || 100;
+      const pct = ((parseFloat(r.value) - min) / (max - min)) * 100;
+      r.style.setProperty('--fill', pct + '%');
+      if (out) out.textContent = r.value;
+    };
+    r.addEventListener('input', paint);
+    paint();
   });
 
   // ── Permissions: add/remove elevated ───────────────────────────────────
   const addBtn = document.getElementById('elevated-add-btn');
   if (addBtn) {
     addBtn.addEventListener('click', async () => {
-      const id = document.getElementById('elevated-id').value.trim();
+      const idInput = document.getElementById('elevated-id');
+      const id = idInput.value.trim();
       if (!id) return;
-      try { await req('POST', '/api/permissions/elevated/add', { id }); location.reload(); }
-      catch (e) { alert(e.message); }
+      const restore = spin(addBtn);
+      try {
+        await req('POST', '/api/permissions/elevated/add', { id });
+        toast('Elevated user added', 'ok');
+        setTimeout(() => location.reload(), 700);
+      } catch (e) {
+        restore();
+        toast(e.message, 'err');
+      }
     });
   }
   document.querySelectorAll('.elrm').forEach(b => {
     b.addEventListener('click', async () => {
-      try { await req('POST', '/api/permissions/elevated/remove', { id: b.dataset.id }); location.reload(); }
-      catch (e) { alert(e.message); }
+      const restore = spin(b);
+      try {
+        await req('POST', '/api/permissions/elevated/remove', { id: b.dataset.id });
+        toast('Elevated user removed', 'ok');
+        setTimeout(() => location.reload(), 700);
+      } catch (e) {
+        restore();
+        toast(e.message, 'err');
+      }
     });
   });
 
@@ -157,11 +273,21 @@
   if (logBox) {
     const refreshBtn = document.getElementById('logs-refresh');
     const moreBtn = document.getElementById('logs-more');
-    async function load(n) {
-      try { const d = await req('GET', '/api/logs?tail=' + n); logBox.textContent = (d.lines || []).join('\n'); }
-      catch (e) { logBox.textContent = 'error: ' + e.message; }
+    async function load(n, btn) {
+      const restore = spin(btn);
+      try {
+        const d = await req('GET', '/api/logs?tail=' + n);
+        logBox.textContent = (d.lines || []).join('\n');
+        logBox.scrollTop = logBox.scrollHeight;
+        toast('Logs refreshed (' + (d.lines || []).length + ' lines)', 'info');
+        restore();
+      } catch (e) {
+        restore();
+        logBox.textContent = 'error: ' + e.message;
+        toast(e.message, 'err');
+      }
     }
-    if (refreshBtn) refreshBtn.addEventListener('click', () => load(200));
-    if (moreBtn) moreBtn.addEventListener('click', () => load(500));
+    if (refreshBtn) refreshBtn.addEventListener('click', () => load(200, refreshBtn));
+    if (moreBtn) moreBtn.addEventListener('click', () => load(500, moreBtn));
   }
 })();

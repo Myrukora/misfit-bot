@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/custombot/bot/modules"
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 )
 
@@ -36,7 +37,7 @@ type moduleConfigView struct {
 type settingsPageData struct {
 	GuildID       string
 	GuildName     string
-	Core          map[string]string // global core settings (nil for guild view)
+	Core          []fieldRender // typed, labeled core settings (nil for guild view)
 	DashboardSelf moduleConfigView
 	Modules       []moduleConfigView
 }
@@ -188,7 +189,7 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 			data.GuildName = detail.Name
 		}
 	} else {
-		data.Core = m.coreSettingsGet()
+		data.Core = m.coreSettingsFields()
 	}
 
 	// Dashboard self-config (global only).
@@ -215,6 +216,56 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	d := m.baseData(us)
 	d.Content = data
 	m.tmpl.render(w, "settings", d)
+}
+
+// ── core settings (schema-driven) ────────────────────────────────────────
+
+// coreSettingsFields renders every core bot setting as a typed, labeled field
+// through the same schema-driven "field" partial the WebConfigurable module
+// fields use. Each key maps to the input type that matches its validation in
+// config.Config.Set: selects for enums (status, log_level), a toggle for the
+// boolean (log_enabled), and a cache-populated channel dropdown for
+// log_channel. Values come from coreSettingsGet() so the JSON API and the
+// page always agree.
+func (m *DashboardModule) coreSettingsFields() []fieldRender {
+	vals := m.coreSettingsGet()
+	return []fieldRender{
+		{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
+		{Key: "name", Label: "Bot name", Help: "Fallback name from config.yml — the live Discord name (set on the Developer Portal) is shown in the header automatically.", Type: "text", Value: vals["name"], Placeholder: "Bot"},
+		{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678"},
+		{Key: "status", Label: "Presence status", Help: "The bot's Discord presence status.", Type: "select", Value: vals["status"], Options: []string{"online", "idle", "dnd", "invisible"}},
+		{Key: "log_level", Label: "Log level", Help: "Verbosity of the bot's log file. Takes effect after a restart.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
+		{Key: "log_enabled", Label: "File logging", Help: "Whether the bot writes logs to disk. Takes effect after a restart.", Type: "toggle", Value: vals["log_enabled"]},
+		{Key: "log_channel", Label: "Log channel", Help: "Discord channel the bot posts logging embeds to. Optional — pick a channel from any server the bot is in.", Type: "channel", Value: vals["log_channel"], Entities: m.allTextChannels()},
+		{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
+		{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+	}
+}
+
+// allTextChannels lists every text-capable channel the bot can see across all
+// cached guilds, labeled "GuildName / #channel" so the same channel name in
+// two servers is distinguishable. Used to populate the global log_channel
+// dropdown. Only guild text and announcement channels qualify — a logging
+// embed needs a message-capable channel.
+func (m *DashboardModule) allTextChannels() []entityOpt {
+	if m.client == nil {
+		return nil
+	}
+	var out []entityOpt
+	for g := range m.client.Caches.Guilds() {
+		for ch := range m.client.Caches.ChannelsForGuild(g.ID) {
+			t := ch.Type()
+			if t != discord.ChannelTypeGuildText && t != discord.ChannelTypeGuildNews {
+				continue
+			}
+			out = append(out, entityOpt{
+				ID:   ch.ID().String(),
+				Name: g.Name + " / #" + ch.Name(),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // buildModuleView produces the filtered, redacted field renders for a module.

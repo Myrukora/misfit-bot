@@ -47,6 +47,12 @@ type DashboardModule struct {
 	dataDir string
 	logger  modules.Logger
 	lastErr string // last server bind error, surfaced in [p]dashboard status when not running
+
+	// appName caches the Developer Portal application name fetched via REST
+	// (fallback identity source when the gateway self-user cache is empty).
+	appNameMu sync.Mutex
+	appName   string
+	appNameAt time.Time
 }
 
 func (m *DashboardModule) Name() string    { return "dashboard" }

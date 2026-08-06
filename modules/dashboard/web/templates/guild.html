@@ -1,25 +1,29 @@
 {{define "guild"}}{{template "header" .}}
 {{with .Content}}
-<div class="guild-head">
-  {{if .Icon}}<img class="guild-icon" src="{{.Icon}}" alt="">{{end}}
-  <h2>{{.Name}}</h2>
-  <span class="muted">ID {{.ID}} · {{.MemberCount}} members · owner <code>{{.OwnerID}}</code></span>
+<div class="guild-head reveal in">
+  {{if .Icon}}<img class="guild-icon" src="{{.Icon}}" alt="">{{else}}<span class="guild-icon guild-fallback" style="font-size:28px">{{initial .Name}}</span>{{end}}
+  <div class="guild-title">
+    <h2>{{.Name}}</h2>
+    <p class="muted" style="margin:2px 0 0">ID {{.ID}} · <strong>{{.MemberCount}}</strong> members · owner <code>{{.OwnerID}}</code></p>
+  </div>
 </div>
-<p><span class="lbl">Bot permissions here</span> {{.BotPerms}}</p>
+<div class="card reveal" style="--d:.05s">
+  <span class="lbl">Bot permissions here</span> <code>{{.BotPerms}}</code>
+</div>
 <div class="two-col">
-  <div class="card">
+  <div class="card reveal" style="--d:.1s">
     <h3>Channels ({{len .Channels}})</h3>
     <ul class="list">
-      {{range .Channels}}<li><code>{{.ID}}</code> <span>{{.Name}}</span> <small class="muted">{{.Type}}</small></li>{{end}}
+      {{range .Channels}}<li><code>{{.ID}}</code> <span>{{.Name}}</span> <span class="ch-type">{{.Type}}</span></li>{{end}}
     </ul>
   </div>
-  <div class="card">
+  <div class="card reveal" style="--d:.15s">
     <h3>Roles ({{len .Roles}})</h3>
     <ul class="list">
-      {{range .Roles}}<li><span class="dot" style="background:#{{printf "%06x" .Color}}"></span> <code>{{.ID}}</code> {{.Name}} <small class="muted">#{{.Position}}</small></li>{{end}}
+      {{range .Roles}}<li><span class="dot" style="background:#{{printf "%06x" .Color}}"></span> <code>{{.ID}}</code> <span>{{.Name}}</span> <small class="muted" style="margin-left:auto">#{{.Position}}</small></li>{{end}}
     </ul>
   </div>
 </div>
-<p class="muted"><a href="/settings?guild={{.ID}}">Edit guild-scoped module settings →</a></p>
+<p class="muted reveal" style="--d:.2s"><a href="/settings?guild={{.ID}}">Edit guild-scoped module settings →</a></p>
 {{end}}
 {{template "footer" .}}{{end}}
