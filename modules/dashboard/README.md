@@ -71,12 +71,11 @@ from the address the browser opened (scheme + Host), so the same server works
 from `http://127.0.0.1:8080`, `http://<lan-ip>:<port>`, or any hostname —
 register each redirect URI you actually use.
 
-> **Discord caveat:** Discord only accepts `http://` redirect URIs for
-> localhost/127.0.0.1 — non-localhost URIs must be HTTPS. If the Developer
-> Portal rejects your LAN `http://` redirect URI, expose the dashboard through
-> a tunnel (cloudflared) or reverse proxy and set `public_url` to the `https://`
-> URL; login then works from LAN devices and the internet alike (this is also
-> the setup to use for a dedicated domain).
+> **Discord caveat:** Discord accepts `http://` redirect URIs for localhost and
+> LAN setups — the LAN `http://` redirect URI registers fine in the Developer
+> Portal (local/LAN instances of Red-Dashboard work the same way). Use HTTPS via
+> a tunnel (cloudflared) or reverse proxy with `public_url` only if you want to
+> reach the dashboard from the internet or via a dedicated domain.
 >
 > **Security note:** binding `0.0.0.0` exposes the dashboard to your whole LAN.
 > Login still requires Discord OAuth with the mutual-guild check, but on a

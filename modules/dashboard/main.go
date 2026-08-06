@@ -669,7 +669,7 @@ func (m *DashboardModule) cmdDashboardURL(ctx *commands.Context) error {
 	if m.loopbackOnlyListen() {
 		note = "\n\n⚠️ The server currently listens on `" + m.effectiveListen() + "` (this machine only). Run `" + prefix + "dashboard lan` to bind all interfaces so other LAN devices can reach it."
 	}
-	return ctx.Respond(embed.Info("📊 Dashboard URLs (LAN)", "LAN URL: "+base+"\nOAuth redirect URI to register in the Developer Portal:\n`"+base+"/callback`"+note+"\n\n⚠️ Discord requires HTTPS redirect URIs outside localhost. If the Developer Portal rejects this `http://` URI, expose the dashboard through a tunnel (cloudflared) and run:\n`"+prefix+"dashboard set public_url https://your.host`\nThen register `https://your.host/callback` and log in from anywhere."))
+	return ctx.Respond(embed.Info("📊 Dashboard URLs (LAN)", "LAN URL: "+base+"\nOAuth redirect URI to register in the Developer Portal:\n`"+base+"/callback`"+note+"\n\nDiscord accepts `http://` redirect URIs for localhost/LAN setups — register `"+base+"/callback` as-is. For access from the internet, expose the dashboard via a tunnel (cloudflared) and set `public_url` to the `https://` URL instead."))
 }
 
 func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) error {
@@ -725,7 +725,6 @@ func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) 
 // A real (non-localhost) public_url is kept — it takes priority for OAuth
 // redirects and the message reflects that.
 func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
-	prefix := m.ctx.Bot.GetPrefix()
 	target := "0.0.0.0:" + m.listenPort()
 	if err := m.ctx.Bot.SetConfig("dashboard_listen", target); err != nil {
 		return ctx.Respond(embed.Error("❌ Error", err.Error()))
@@ -745,7 +744,7 @@ func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
 		return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\nA `public_url` is configured (`"+u+"`) and takes priority for OAuth login — its redirect URI is:\n`"+u+"/callback`\n\nLAN devices can reach the dashboard at `"+m.lanURL()+"`; login redirects through `public_url`."))
 	}
 	base := m.lanURL()
-	return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\n**LAN URL:** "+base+"\n\nRegister this redirect URI in the Developer Portal:\n`"+base+"/callback`\n\n⚠️ Discord requires HTTPS redirect URIs outside localhost. If the portal rejects the `http://` URI, expose the dashboard via a tunnel (cloudflared) and run `"+prefix+"dashboard set public_url https://your.host` instead."))
+	return ctx.Respond(embed.Success("✅ LAN mode", "Dashboard now listens on **all interfaces** (`"+target+"`).\n\n**LAN URL:** "+base+"\n\nRegister this redirect URI in the Developer Portal:\n`"+base+"/callback`\n\nDiscord accepts `http://` redirect URIs for LAN/localhost setups — register `"+base+"/callback` as-is. For internet access, use a tunnel (cloudflared) and set `public_url` to the `https://` URL instead."))
 }
 
 func (m *DashboardModule) cmdDashboardRestart(ctx *commands.Context) error {
