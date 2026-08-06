@@ -2,6 +2,8 @@
 
 A self-hosting Discord bot in Go: hot-loadable modules (Go/Lua/Python), an in-process web dashboard, and a GitHub self-updater.
 
+![Misfit Bot banner](assets/banner.png)
+
 ## Features
 
 - **Hot-loadable module system** — Go `.so` plugins (via the Go `plugin` package), Lua scripts (gopher-lua), and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload modules at runtime with `[p]load` / `[p]unload` / `[p]reload`.
