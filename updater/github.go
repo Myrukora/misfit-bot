@@ -105,22 +105,29 @@ func (g *githubClient) fetchRemoteHead(ctx context.Context) (string, error) {
 	return out[0].SHA, nil
 }
 
+// maxCommitNotifications caps how many commit embeds a single poll posts.
+const maxCommitNotifications = 5
+
 // fetchCommitsSince returns the commits on the tracked branch that are not in
-// base (i.e. the commits since the last seen SHA), newest first, capped at 5.
-// If the history was rewritten (force push), the compare fails and the caller
-// resyncs to the remote head.
+// base (i.e. the commits since the last seen SHA), newest first, capped at
+// maxCommitNotifications. The compare API lists commits base→head (oldest
+// first), so we keep the LAST 5 (the newest) and reverse for notification
+// order. Commits older than the cap are intentionally not notified (burst
+// protection for a fast-moving repo).
 func (g *githubClient) fetchCommitsSince(ctx context.Context, base string) ([]ghCommit, error) {
 	var out struct {
 		AheadBy int        `json:"ahead_by"`
 		Commits []ghCommit `json:"commits"`
 	}
-	path := fmt.Sprintf("/repos/%s/compare/%s...%s?per_page=5", g.repo, base, g.branch)
+	path := fmt.Sprintf("/repos/%s/compare/%s...%s?per_page=100", g.repo, base, g.branch)
 	if err := g.do(ctx, path, &out); err != nil {
 		return nil, err
 	}
-	// The compare API lists commits base→head (oldest first); reverse so the
-	// newest commit is notified first.
 	commits := out.Commits
+	if len(commits) > maxCommitNotifications {
+		commits = commits[len(commits)-maxCommitNotifications:]
+	}
+	// Oldest first → newest first so the newest commit is notified first.
 	for i, j := 0, len(commits)-1; i < j; i, j = i+1, j-1 {
 		commits[i], commits[j] = commits[j], commits[i]
 	}
