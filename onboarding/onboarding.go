@@ -81,7 +81,6 @@ func Run(dir string) (*config.Config, error) {
 	cfg.Logging.Enabled = true
 	cfg.Logging.FilePath = "logs/bot.log"
 	cfg.Logging.Level = "info"
-	cfg.Logging.Channel = ""
 
 	if err := config.Save(cfg, dir); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
