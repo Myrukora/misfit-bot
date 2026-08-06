@@ -223,17 +223,20 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 // coreSettingsFields renders every core bot setting as a typed, labeled field
 // through the same schema-driven "field" partial the WebConfigurable module
 // fields use. Each key maps to the input type that matches its validation in
-// config.Config.Set: selects for enums (status, log_level) and a toggle for
-// the boolean (log_enabled). Values come from coreSettingsGet() so the JSON
-// API and the page always agree. log_channel is deliberately NOT exposed —
-// logging is file-only (Discord channel logging was never implemented).
+// config.Config.Set: a select for the log_level enum and a toggle for the
+// log_enabled boolean. Values come from coreSettingsGet() so the JSON API and
+// the page always agree.
+//
+// Deliberately NOT exposed (dead or misleading in the UI):
+//   - log_channel: Discord channel logging was never implemented (file-only)
+//   - name: the header shows the live Discord name; config bot.name is only a
+//     bridge/fallback value (streaming presence URL, module contexts)
+//   - status: bot.status is never read by the bot — presence is live
 func (m *DashboardModule) coreSettingsFields() []fieldRender {
 	vals := m.coreSettingsGet()
 	return []fieldRender{
 		{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
-		{Key: "name", Label: "Bot name", Help: "Fallback name from config.yml — the live Discord name (set on the Developer Portal) is shown in the header automatically.", Type: "text", Value: vals["name"], Placeholder: "Bot"},
 		{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678"},
-		{Key: "status", Label: "Presence status", Help: "The bot's Discord presence status.", Type: "select", Value: vals["status"], Options: []string{"online", "idle", "dnd", "invisible"}},
 		{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Takes effect after a restart.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
 		{Key: "log_enabled", Label: "File logging", Help: "Whether the bot writes logs to disk. Takes effect after a restart.", Type: "toggle", Value: vals["log_enabled"]},
 		{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},

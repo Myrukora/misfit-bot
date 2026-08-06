@@ -307,9 +307,7 @@ func (m *DashboardModule) apiSettings(w http.ResponseWriter, r *http.Request) {
 func (m *DashboardModule) coreSettingsGet() map[string]string {
 	return map[string]string{
 		"prefix":      m.ctx.Bot.GetPrefix(),
-		"name":        m.ctx.Bot.GetName(),
 		"owner_id":    m.ctx.Bot.GetOwnerID(),
-		"status":      m.coreStatusRead(),
 		"tos_url":     m.ctx.Bot.GetToS(),
 		"privacy_url": m.ctx.Bot.GetPrivacy(),
 		"log_level":   m.logSetting("level"),
@@ -344,22 +342,6 @@ func (m *DashboardModule) logSetting(field string) string {
 	return v
 }
 
-// coreStatusRead reads the bot "status" field from config.yml (not exposed by Interface).
-func (m *DashboardModule) coreStatusRead() string {
-	path := filepath.Join(m.ctx.Bot.GetConfigDir(), "config.yml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var c struct {
-		Bot struct {
-			Status string `yaml:"status"`
-		} `yaml:"bot"`
-	}
-	_ = yaml.Unmarshal(data, &c)
-	return c.Bot.Status
-}
-
 // apiSettingsCore applies validated core setting writes from the settings page.
 func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request) {
 	if !m.checkCSRF(r) {
@@ -372,7 +354,7 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		return
 	}
 	allowed := map[string]bool{
-		"prefix": true, "name": true, "owner_id": true, "status": true,
+		"prefix": true, "owner_id": true,
 		"tos_url": true, "privacy_url": true, "log_level": true, "log_enabled": true,
 	}
 	results := map[string]string{}
