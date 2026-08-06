@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod   # берёт версию Go из go.mod (1.26.4)
+          cache: true               # кэш модулей между запусками
+
+      - name: Install cgo dependencies (Opus)
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libopus-dev
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build core binary
+        run: go build -o /tmp/bot ./cmd/bot/
+
+      - name: Build Go plugin modules
+        run: |
+          go build -buildmode=plugin -o /tmp/cleanup.so ./modules/cleanup/
+          go build -buildmode=plugin -o /tmp/dashboard.so ./modules/dashboard/
