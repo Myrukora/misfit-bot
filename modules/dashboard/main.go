@@ -429,6 +429,14 @@ func isLoopbackHost(host string) bool {
 
 // startServer binds the HTTP listener and serves until stopped.
 func (m *DashboardModule) startServer() error {
+	return m.startServerWithListener(nil)
+}
+
+// startServerWithListener binds and serves. When ln is non-nil it is used
+// as-is — the caller has already proven it bindable while the previous server
+// was still running (see restartServer), so a failed bind can never take the
+// dashboard offline.
+func (m *DashboardModule) startServerWithListener(ln net.Listener) error {
 	// Resolve the listen address BEFORE taking m.mu. effectiveListen() locks
 	// m.mu internally, so calling it under m.mu would self-deadlock (sync.Mutex
 	// is non-reentrant). buildHandler() below does not touch m.mu.
@@ -455,9 +463,12 @@ func (m *DashboardModule) startServer() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	ln, err := net.Listen("tcp", srv.Addr) // detect address-in-use immediately
-	if err != nil {
-		return fmt.Errorf("listen %s: %w", srv.Addr, err)
+	var err error
+	if ln == nil {
+		ln, err = net.Listen("tcp", srv.Addr) // detect address-in-use immediately
+		if err != nil {
+			return fmt.Errorf("listen %s: %w", srv.Addr, err)
+		}
 	}
 	m.srv = srv
 	m.running = true
@@ -502,10 +513,42 @@ func (m *DashboardModule) stopServer() {
 	m.serveWG.Wait()
 }
 
-// restartServer stops and restarts the HTTP server.
+// restartServer rebinds the HTTP server without a downtime window: when the
+// target address differs from the current one, the new listener is created
+// (and proven bindable) BEFORE the old server is stopped. If the new address
+// can't bind, the old server keeps serving untouched and the error is
+// returned — a bad dashboard_listen can never take the dashboard offline.
+// A same-address restart (e.g. public_url-only change) is a plain in-place
+// restart: the address is already bound by the running server.
 func (m *DashboardModule) restartServer() error {
+	listen := m.effectiveListen()
+	if listen == "" {
+		listen = "127.0.0.1:8080"
+	}
+	m.mu.Lock()
+	curAddr := ""
+	if m.srv != nil {
+		curAddr = m.srv.Addr
+	}
+	m.mu.Unlock()
+
+	if curAddr == listen {
+		m.stopServer()
+		return m.startServer()
+	}
+
+	// Different address: bind the NEW listener while the old server is still
+	// serving. On failure the old server keeps running — no rollback needed.
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", listen, err)
+	}
 	m.stopServer()
-	return m.startServer()
+	if err := m.startServerWithListener(ln); err != nil {
+		ln.Close() // don't leak the pre-bound listener (e.g. module stopped)
+		return err
+	}
+	return nil
 }
 
 // isRunning reports whether the HTTP server is currently serving.
