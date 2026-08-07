@@ -39,14 +39,15 @@ type DashboardModule struct {
 	sessions *sessionStore
 	tmpl     *templateBundle
 
-	srv     *http.Server
-	running bool
-	stopped bool           // set on unload: refuses any further startServer (kills in-flight rebindSoon)
-	serveWG sync.WaitGroup // tracks the active Serve goroutine; stopServer waits on it
-	mu      sync.Mutex     // guards Start/Stop, cfg swaps, running/stopped/srv/lastErr
-	dataDir string
-	logger  modules.Logger
-	lastErr string // last server bind error, surfaced in [p]dashboard status when not running
+	srv       *http.Server
+	running   bool
+	stopped   bool           // set on unload: refuses any further startServer (kills in-flight rebindSoon)
+	serveWG   sync.WaitGroup // tracks the active Serve goroutine; stopServer waits on it
+	mu        sync.Mutex     // guards Start/Stop, cfg swaps, running/stopped/srv/lastErr
+	restartMu sync.Mutex     // serializes the whole restartServer sequence (bind→stop→start)
+	dataDir   string
+	logger    modules.Logger
+	lastErr   string // last server bind error, surfaced in [p]dashboard status when not running
 
 	// appName caches the Developer Portal application name fetched via REST
 	// (fallback identity source when the gateway self-user cache is empty).
@@ -521,6 +522,12 @@ func (m *DashboardModule) stopServer() {
 // A same-address restart (e.g. public_url-only change) is a plain in-place
 // restart: the address is already bound by the running server.
 func (m *DashboardModule) restartServer() error {
+	// Serialize the full sequence: two concurrent configuration requests must
+	// never interleave bind/stop/start — one could kill the other's freshly
+	// started server or leave a pre-bound listener open (blocking rebinds).
+	m.restartMu.Lock()
+	defer m.restartMu.Unlock()
+
 	listen := m.effectiveListen()
 	if listen == "" {
 		listen = "127.0.0.1:8080"
