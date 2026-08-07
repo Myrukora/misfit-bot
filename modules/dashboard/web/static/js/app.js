@@ -257,10 +257,13 @@
       if (!form) return;
       const body = {};
       collectFields(form).forEach(t => { body[t.key] = t.value; });
+      // spin() replaces the label with a spinner — capture it first so the
+      // success toast names the section.
+      const label = btn.textContent.replace('Save ', '');
       const restore = spin(btn);
       try {
         await req('POST', '/api/settings/core', body);
-        toast(btn.textContent.replace('Save ', '') + ' saved', 'ok');
+        toast(label + ' saved', 'ok');
       } catch (e) {
         toast('Save failed: ' + e.message, 'err');
       } finally {
@@ -273,16 +276,26 @@
   const updPanel = document.getElementById('updater-status');
   if (updPanel) {
     const statusEl = updPanel;
+    // Build status rows with DOM nodes + textContent: repo/branch/notify/
+    // last_error are user- or git-controlled strings and must never be parsed
+    // as HTML in the owner's session.
+    const statusRow = (text, cls) => {
+      const d = document.createElement('div');
+      if (cls) d.className = cls;
+      d.textContent = text;
+      return d;
+    };
     async function loadStatus() {
       try {
         const s = await req('GET', '/api/updater/status');
-        const lines = [
-          (s.enabled === 'true' ? '<span class="upd-ok">enabled</span>' : '<span class="upd-err">disabled</span>') + ' · ' + (s.repo || 'no repo') + '@' + s.branch,
-          'interval ' + s.interval + ' · auto_pull ' + s.auto_pull + ' · notify ' + (s.notify_channel || '—'),
-          'last check ' + s.last_check + ' · last seen ' + (s.last_sha || '—')
+        const rows = [
+          statusRow((s.enabled === 'true' ? 'enabled' : 'disabled') + ' · ' + (s.repo || 'no repo') + '@' + s.branch,
+            s.enabled === 'true' ? 'upd-ok' : 'upd-err'),
+          statusRow('interval ' + s.interval + ' · auto_pull ' + s.auto_pull + ' · notify ' + (s.notify_channel || '—')),
+          statusRow('last check ' + s.last_check + ' · last seen ' + (s.last_sha || '—')),
         ];
-        if (s.last_error) lines.push('<span class="upd-err">last error: ' + s.last_error + '</span>');
-        statusEl.innerHTML = lines.join('\n');
+        if (s.last_error) rows.push(statusRow('last error: ' + s.last_error, 'upd-err'));
+        statusEl.replaceChildren(...rows);
       } catch (e) {
         statusEl.textContent = 'updater unavailable: ' + e.message;
       }
@@ -306,7 +319,7 @@
       const restore = spin(applyBtn);
       try {
         await req('POST', '/api/updater/apply');
-        toast('Update applied — bot will restart in a moment', 'ok');
+        toast('Update started — the bot will rebuild and restart', 'ok');
       } catch (e) {
         toast(e.message, 'err');
       } finally { restore(); }

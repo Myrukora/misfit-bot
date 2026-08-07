@@ -39,11 +39,11 @@ type Logger interface {
 
 // CheckResult is the outcome of a [Manager.Check].
 type CheckResult struct {
-	UpToDate  bool
-	Behind    int      // commits behind the remote branch
-	NewSHAs   []string // abbreviated new SHAs, newest first (max 10)
-	LocalSHA  string
-	RemoteSHA string
+	UpToDate  bool     `json:"up_to_date"`
+	Behind    int      `json:"behind"`     // commits behind the remote branch
+	NewSHAs   []string `json:"new_shas"`   // abbreviated new SHAs, newest first (max 10)
+	LocalSHA  string   `json:"local_sha"`
+	RemoteSHA string   `json:"remote_sha"`
 }
 
 // Manager coordinates the self-update pipeline and GitHub notifications.

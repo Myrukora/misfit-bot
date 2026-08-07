@@ -315,6 +315,7 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"log_level":              m.cfgValue(cfg, "logging", "level"),
 		"log_enabled":            m.cfgValue(cfg, "logging", "enabled"),
 		"log_file_path":          m.cfgValue(cfg, "logging", "file_path"),
+		"modules_auto_load":      m.cfgValue(cfg, "modules", "auto_load"),
 		"dashboard_listen":       m.cfgValue(cfg, "dashboard", "listen"),
 		"dashboard_public_url":   m.cfgValue(cfg, "dashboard", "public_url"),
 		"token":                  redactedIfSet(m.cfgValue(cfg, "bot", "token")),
@@ -393,17 +394,21 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 	allowed := map[string]bool{
 		"prefix": true, "owner_id": true,
 		"tos_url": true, "privacy_url": true,
-		"log_level": true, "log_enabled": true, "log_file_path": true,
+		"log_level": true, "log_enabled": true, "log_file_path": true, "modules_auto_load": true,
 		"dashboard_listen": true, "dashboard_public_url": true,
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
 		"updater_token": true, "updater_interval": true, "updater_auto_pull": true,
 		"updater_notify_channel": true,
 		"token":                  true, "oauth_client_secret": true,
 	}
-	// Secrets are owner-only. Elevated users may still save their allowed keys
-	// in the same batch; owner-only keys are simply never written for them
-	// (the UI renders them disabled, this is the server-side guarantee).
-	ownerOnly := map[string]bool{"token": true, "updater_token": true, "oauth_client_secret": true}
+	// Secrets and ownership are owner-only. Elevated users may still save their
+	// allowed keys in the same batch; owner-only keys are simply never written
+	// for them (the UI renders them disabled, this is the server-side
+	// guarantee). owner_id is included so an elevated user can never transfer
+	// ownership to themselves and escalate.
+	ownerOnly := map[string]bool{
+		"token": true, "updater_token": true, "oauth_client_secret": true, "owner_id": true,
+	}
 	owner := m.resolveLevel(sessionOf(r)) == lvlOwner
 	results := map[string]string{}
 	anyErr := false
@@ -431,6 +436,7 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 			m.rebindSoon(k)
 		case "oauth_client_secret":
 			m.refreshOAuth()
+			m.sessions.clear() // invalidate existing sessions (secret changed)
 		}
 	}
 	if anyErr {

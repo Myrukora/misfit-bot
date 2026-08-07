@@ -315,6 +315,8 @@ Single `.lua` files in `modules/`. Loaded by `LuaLoader` using gopher-lua.
 
 **Bridge:** `LuaBridge` registers a `ctx` global table with log functions (`log`, `log_debug`, `log_warn`, `log_error`) and bot info functions (`get_prefix`, `get_name`, `get_version`, `get_owner_id`, `is_owner`, `is_elevated`). Command execution adds `channel_id`, `guild_id`, `author_id`, `is_slash`, `args` table, `respond` fn, `reply_text` fn to the ctx table.
 
+**Lua execute convention (verified against the loader):** the loader reads the **global** `M` table (`local M = {}` does NOT work) and calls callbacks with explicit args: `on_load(M, name)`, `commands(M)`, and each command's `execute(M)` — the single argument is always the module table. Read the command context from the **global** `ctx` table (`ctx.args`, `ctx.respond`, `ctx.reply_text`, `ctx.log`, …), which `RegisterCommandContext` refreshes per call. Do NOT name a callback parameter `ctx` — it would shadow the global. Use DOT syntax (`function M.on_load(M, name)`), not colon syntax (`M:on_load` shifts every parameter by one). Modules should also define `M.slash_commands()` (may return `{}`).
+
 ### Python Modules
 
 Directories in `modules/` containing `main.py` + optional `requirements.txt`. Loaded by `PythonLoader` via subprocess IPC.

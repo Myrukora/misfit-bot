@@ -1124,7 +1124,7 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 // The Discord rate limiter is intentionally NOT applied here: the web already
 // has auth + CSRF + per-command permission checks, and sharing the command
 // budget between Discord and the web would let Discord spam block the UI.
-func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserID string) (commands.CommandResult, error) {
+func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (commands.CommandResult, error) {
 	var res commands.CommandResult
 	if asUserID == "" {
 		return res, fmt.Errorf("no user specified")
@@ -1134,6 +1134,19 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 		return res, fmt.Errorf("invalid user id")
 	}
 
+	// Optional channel context: commands like the cleanup module's subcommands
+	// need a real channel. When provided it must exist in the cache and belong
+	// to the target guild; anything else is rejected before execution.
+	if channelID != "" {
+		ch := b.GetCachedChannel(channelID)
+		if ch == nil {
+			return res, fmt.Errorf("invalid channel: %s", channelID)
+		}
+		if gch, ok := ch.(discord.GuildChannel); ok && gch.GuildID().String() != guildID {
+			return res, fmt.Errorf("channel %s does not belong to guild %s", channelID, guildID)
+		}
+	}
+
 	// Resolve the command exactly like the prefix dispatcher: core prefix
 	// commands (by name or alias), then core slash commands, then modules.
 	// Prefix and slash commands carry the same permission fields, so both are
@@ -1141,13 +1154,14 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 	type cmdInfo struct {
 		superOwnerOnly, ownerOnly bool
 		requiredPerm              discord.Permissions
+		isSlash                   bool
 		exec                      func(*commands.Context) error
 	}
 	var ci *cmdInfo
 	for i := range commands.CoreCommands {
 		c := &commands.CoreCommands[i]
 		if c.Name == name || util.ContainsStr(c.Aliases, name) {
-			ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+			ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
 			break
 		}
 	}
@@ -1155,7 +1169,7 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 		for i := range commands.CoreSlashCommands {
 			c := &commands.CoreSlashCommands[i]
 			if c.Name == name {
-				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, true, c.Execute}
 				break
 			}
 		}
@@ -1165,7 +1179,7 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 		for i := range modCmds {
 			c := &modCmds[i]
 			if c.Name == name || util.ContainsStr(c.Aliases, name) {
-				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
+				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
 				break
 			}
 		}
@@ -1188,13 +1202,20 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 	// Virtual context: Respond/ReplyText capture into the result instead of
 	// posting to Discord. Only the first embed is captured (the web result box
 	// is a single unit); the command's other side effects are its own business.
+	// res is written by Respond/ReplyText, which a command may invoke from a
+	// goroutine after Execute returns — guard it so the returned copy is safe.
+	var resMu sync.Mutex
 	ctx := &commands.Context{
-		Bot:     b,
-		GuildID: guildID,
-		Author:  discord.User{ID: authorID},
-		Args:    args,
-		Web:     true,
+		Bot:       b,
+		ChannelID: channelID,
+		GuildID:   guildID,
+		Author:    discord.User{ID: authorID},
+		Args:      args,
+		IsSlash:   ci.isSlash,
+		Web:       true,
 		Respond: func(embeds ...discord.Embed) error {
+			resMu.Lock()
+			defer resMu.Unlock()
 			if len(embeds) > 0 {
 				res.Title = embeds[0].Title
 				res.Description = embeds[0].Description
@@ -1203,13 +1224,19 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, asUserI
 			return nil
 		},
 		ReplyText: func(text string) error {
+			resMu.Lock()
+			defer resMu.Unlock()
 			res.Text = text
 			return nil
 		},
 	}
 	if err := ci.exec(ctx); err != nil {
+		resMu.Lock()
+		defer resMu.Unlock()
 		return res, fmt.Errorf("command failed: %v", err)
 	}
+	resMu.Lock()
+	defer resMu.Unlock()
 	return res, nil
 }
 

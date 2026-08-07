@@ -814,7 +814,7 @@ textarea.cfg-field { resize: vertical; font-family: var(--mono); font-size: 12.5
   border: 1px solid var(--hairline);
   color: var(--fg);
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 /* range slider */

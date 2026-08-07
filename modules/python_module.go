@@ -89,7 +89,7 @@ func (m *PythonModule) makeExecute(name string) func(*commands.Context) error {
 		if ctx.Web {
 			// Dashboard invocation: block until the module replies, then render
 			// the response into the virtual context (captured by the web API).
-			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String())
+			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
 			if err != nil {
 				return err
 			}
@@ -104,7 +104,7 @@ func (m *PythonModule) makeExecute(name string) func(*commands.Context) error {
 func (m *PythonModule) makeSlashExecute(name string) func(*commands.Context) error {
 	return func(ctx *commands.Context) error {
 		if ctx.Web {
-			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String())
+			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
 			if err != nil {
 				return err
 			}

@@ -4,13 +4,13 @@ M.version = "1.0.0"
 M.description = "Sample Lua module for the dashboard runner"
 M.author = "dev"
 
-function M.on_load(ctx)
+function M.on_load(M, name)
 end
 
-function M.on_unload(M)
+function M.on_unload()
 end
 
-function M.commands(M)
+function M.commands()
   return {
     {
       name = "hello",
@@ -36,4 +36,8 @@ function M.commands(M)
       end,
     },
   }
+end
+
+function M.slash_commands()
+  return {}
 end

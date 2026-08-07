@@ -3,13 +3,16 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/custombot/bot/commands"
 	"github.com/custombot/bot/modules"
 	"github.com/custombot/bot/updater"
 	"gopkg.in/yaml.v3"
@@ -351,6 +354,7 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 		Command string   `json:"command"`
 		Args    []string `json:"args"`
 		Guild   string   `json:"guild"`
+		Channel string   `json:"channel"`
 	}
 	if err := readJSON(r.Body, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -360,14 +364,13 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 		writeError(w, http.StatusBadRequest, "command required")
 		return
 	}
-	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, us.userID.String())
+	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
 	if err != nil {
-		msg := err.Error()
 		code := http.StatusBadRequest
-		if strings.Contains(msg, "insufficient permissions") || strings.Contains(msg, "cannot be executed from the web") {
+		if errors.Is(err, commands.ErrWebForbidden) || errors.Is(err, commands.ErrInsufficientPerm) {
 			code = http.StatusForbidden
 		}
-		writeError(w, code, msg)
+		writeError(w, code, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -404,7 +407,11 @@ func (m *DashboardModule) apiUpdaterCheck(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "updater not available")
 		return
 	}
-	res, err := upd.Check(context.Background())
+	// Bound the git fetch: propagate client cancellation and never let a
+	// stalled network hold the handler goroutine.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	res, err := upd.Check(ctx)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -425,11 +432,18 @@ func (m *DashboardModule) apiUpdaterApply(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusServiceUnavailable, "updater not available")
 		return
 	}
-	if err := upd.Apply(context.Background()); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	// Apply rebuilds the binary and every Go plugin — far too long for an HTTP
+	// round trip. Run it on a server-side deadline that survives the request;
+	// failures surface through the updater's status last_error (Apply sets it
+	// internally), which the settings panel displays.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		if err := upd.Apply(ctx); err != nil {
+			m.logger.Error("Dashboard: updater apply failed: %v", err)
+		}
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
 }
 
 // apiUpdaterTest posts one sample PR + one sample commit embed to the notify

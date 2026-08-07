@@ -123,7 +123,9 @@ type Interface interface {
 	// captured instead of posted to Discord. Permission checks mirror the
 	// Discord dispatcher: SuperOwnerOnly commands are ALWAYS denied from the
 	// web; OwnerOnly requires the requesting user to be owner or elevated.
-	ExecuteCommand(name string, args []string, guildID, asUserID string) (CommandResult, error)
+	// channelID is optional ("" = no channel context); when set it must be a
+	// cached channel of guildID.
+	ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error)
 }
 
 var CoreCommands []Command

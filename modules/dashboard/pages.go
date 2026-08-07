@@ -264,7 +264,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool) []settingsSection {
 	return []settingsSection{
 		sec("Bot", "Identity, ownership and the links shown by the info command.",
 			fieldRender{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
-			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678"},
+			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Owner only — elevated users cannot transfer ownership.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
 			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
 			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
 		),

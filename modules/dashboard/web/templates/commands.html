@@ -27,8 +27,9 @@
         {{if and .Usable (not .SuperOwnerOnly)}}
         <div class="cmd-run" data-command="{{.Name}}" data-guild="{{$.Content.guild}}">
           <input type="text" class="cfg-field" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
+          <input type="text" class="cfg-field cmd-run-channel" placeholder="channel ID (optional)" aria-label="Optional channel ID for {{.Name}}">
           <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
-          <div class="cmd-run-result" hidden></div>
+          <div class="cmd-run-result" role="status" aria-live="polite" hidden></div>
         </div>
         {{end}}
       </div>

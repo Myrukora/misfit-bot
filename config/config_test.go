@@ -300,8 +300,8 @@ func TestDashboardPublicURLValidation(t *testing.T) {
 }
 
 // TestLogFilePathValidation guards the log_file_path key: non-empty paths are
-// stored (relative paths stay relative — the logger joins them to the config
-// dir), empty values are rejected.
+// stored with outer whitespace trimmed (relative paths stay relative — the
+// logger joins them to the config dir), empty values are rejected.
 func TestLogFilePathValidation(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
@@ -313,6 +313,12 @@ func TestLogFilePathValidation(t *testing.T) {
 		if cfg.Logging.FilePath != v {
 			t.Errorf("log_file_path = %q, want %q", cfg.Logging.FilePath, v)
 		}
+	}
+	if err := cfg.Set("log_file_path", " logs/bot.log "); err != nil {
+		t.Fatalf("padded log_file_path rejected: %v", err)
+	}
+	if cfg.Logging.FilePath != "logs/bot.log" {
+		t.Errorf("trimmed log_file_path = %q, want %q", cfg.Logging.FilePath, "logs/bot.log")
 	}
 	if err := cfg.Set("log_file_path", "   "); err == nil {
 		t.Error("blank log_file_path accepted; want error")

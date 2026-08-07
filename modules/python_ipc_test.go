@@ -74,7 +74,7 @@ func TestPythonWebReplyRouting(t *testing.T) {
 // must fail immediately, not hang.
 func TestSendCommandFromWebFailsFastWithNoProcess(t *testing.T) {
 	p := NewPythonIPC(nil, nil)
-	if _, err := p.SendCommandFromWeb("hello", nil, "", "1"); err == nil {
+	if _, err := p.SendCommandFromWeb("hello", nil, "", "1", false); err == nil {
 		t.Fatal("expected error for nil stdin, got nil")
 	}
 }

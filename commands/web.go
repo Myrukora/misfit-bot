@@ -6,6 +6,14 @@ import (
 	"github.com/disgoorg/disgo/discord"
 )
 
+// ErrWebForbidden reports a command that can never run from the web
+// (SuperOwnerOnly commands such as eval) or a caller without permission.
+var ErrWebForbidden = errors.New("command cannot be executed from the web")
+
+// ErrInsufficientPerm reports a caller failing the OwnerOnly / RequiredPerm
+// gate for web execution.
+var ErrInsufficientPerm = errors.New("insufficient permissions")
+
 // CanExecuteWeb is the pure permission gate for web (dashboard) command
 // execution. It mirrors the Discord dispatcher's checks exactly:
 //
@@ -20,13 +28,13 @@ import (
 // session (not from Discord message context).
 func CanExecuteWeb(owner, elevated, guildOwner bool, userPerms discord.Permissions, superOwnerOnly, ownerOnly bool, requiredPerm discord.Permissions) error {
 	if superOwnerOnly {
-		return errors.New("command cannot be executed from the web")
+		return ErrWebForbidden
 	}
 	if owner || elevated {
 		return nil
 	}
 	if ownerOnly {
-		return errors.New("insufficient permissions")
+		return ErrInsufficientPerm
 	}
 	if guildOwner {
 		return nil
@@ -35,7 +43,7 @@ func CanExecuteWeb(owner, elevated, guildOwner bool, userPerms discord.Permissio
 		return nil
 	}
 	if !userPerms.Has(requiredPerm) {
-		return errors.New("insufficient permissions")
+		return ErrInsufficientPerm
 	}
 	return nil
 }
