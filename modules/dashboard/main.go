@@ -39,14 +39,15 @@ type DashboardModule struct {
 	sessions *sessionStore
 	tmpl     *templateBundle
 
-	srv     *http.Server
-	running bool
-	stopped bool           // set on unload: refuses any further startServer (kills in-flight rebindSoon)
-	serveWG sync.WaitGroup // tracks the active Serve goroutine; stopServer waits on it
-	mu      sync.Mutex     // guards Start/Stop, cfg swaps, running/stopped/srv/lastErr
-	dataDir string
-	logger  modules.Logger
-	lastErr string // last server bind error, surfaced in [p]dashboard status when not running
+	srv       *http.Server
+	running   bool
+	stopped   bool           // set on unload: refuses any further startServer (kills in-flight rebindSoon)
+	serveWG   sync.WaitGroup // tracks the active Serve goroutine; stopServer waits on it
+	mu        sync.Mutex     // guards Start/Stop, cfg swaps, running/stopped/srv/lastErr
+	restartMu sync.Mutex     // serializes the whole restartServer sequence (bind→stop→start)
+	dataDir   string
+	logger    modules.Logger
+	lastErr   string // last server bind error, surfaced in [p]dashboard status when not running
 
 	// appName caches the Developer Portal application name fetched via REST
 	// (fallback identity source when the gateway self-user cache is empty).
@@ -56,17 +57,22 @@ type DashboardModule struct {
 }
 
 // Name returns the module name.
-func (m *DashboardModule) Name() string    { return "dashboard" }
+func (m *DashboardModule) Name() string { return "dashboard" }
+
 // Version returns the module version.
 func (m *DashboardModule) Version() string { return "1.0.0" }
+
 // Description returns a one-line module summary.
 func (m *DashboardModule) Description() string {
 	return "MEE6-style web dashboard with Discord OAuth login, metrics, command catalog, and tiered config"
 }
+
 // Author returns the module author.
-func (m *DashboardModule) Author() string                         { return "custombot" }
+func (m *DashboardModule) Author() string { return "custombot" }
+
 // Dependencies returns the module names this module requires.
-func (m *DashboardModule) Dependencies() []string                 { return nil }
+func (m *DashboardModule) Dependencies() []string { return nil }
+
 // SlashCommands returns nil — the dashboard is prefix-command only.
 func (m *DashboardModule) SlashCommands() []commands.SlashCommand { return nil }
 
@@ -424,6 +430,14 @@ func isLoopbackHost(host string) bool {
 
 // startServer binds the HTTP listener and serves until stopped.
 func (m *DashboardModule) startServer() error {
+	return m.startServerWithListener(nil)
+}
+
+// startServerWithListener binds and serves. When ln is non-nil it is used
+// as-is — the caller has already proven it bindable while the previous server
+// was still running (see restartServer), so a failed bind can never take the
+// dashboard offline.
+func (m *DashboardModule) startServerWithListener(ln net.Listener) error {
 	// Resolve the listen address BEFORE taking m.mu. effectiveListen() locks
 	// m.mu internally, so calling it under m.mu would self-deadlock (sync.Mutex
 	// is non-reentrant). buildHandler() below does not touch m.mu.
@@ -450,9 +464,12 @@ func (m *DashboardModule) startServer() error {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	ln, err := net.Listen("tcp", srv.Addr) // detect address-in-use immediately
-	if err != nil {
-		return fmt.Errorf("listen %s: %w", srv.Addr, err)
+	var err error
+	if ln == nil {
+		ln, err = net.Listen("tcp", srv.Addr) // detect address-in-use immediately
+		if err != nil {
+			return fmt.Errorf("listen %s: %w", srv.Addr, err)
+		}
 	}
 	m.srv = srv
 	m.running = true
@@ -497,10 +514,48 @@ func (m *DashboardModule) stopServer() {
 	m.serveWG.Wait()
 }
 
-// restartServer stops and restarts the HTTP server.
+// restartServer rebinds the HTTP server without a downtime window: when the
+// target address differs from the current one, the new listener is created
+// (and proven bindable) BEFORE the old server is stopped. If the new address
+// can't bind, the old server keeps serving untouched and the error is
+// returned — a bad dashboard_listen can never take the dashboard offline.
+// A same-address restart (e.g. public_url-only change) is a plain in-place
+// restart: the address is already bound by the running server.
 func (m *DashboardModule) restartServer() error {
+	// Serialize the full sequence: two concurrent configuration requests must
+	// never interleave bind/stop/start — one could kill the other's freshly
+	// started server or leave a pre-bound listener open (blocking rebinds).
+	m.restartMu.Lock()
+	defer m.restartMu.Unlock()
+
+	listen := m.effectiveListen()
+	if listen == "" {
+		listen = "127.0.0.1:8080"
+	}
+	m.mu.Lock()
+	curAddr := ""
+	if m.srv != nil {
+		curAddr = m.srv.Addr
+	}
+	m.mu.Unlock()
+
+	if curAddr == listen {
+		m.stopServer()
+		return m.startServer()
+	}
+
+	// Different address: bind the NEW listener while the old server is still
+	// serving. On failure the old server keeps running — no rollback needed.
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", listen, err)
+	}
 	m.stopServer()
-	return m.startServer()
+	if err := m.startServerWithListener(ln); err != nil {
+		ln.Close() // don't leak the pre-bound listener (e.g. module stopped)
+		return err
+	}
+	return nil
 }
 
 // isRunning reports whether the HTTP server is currently serving.
@@ -513,11 +568,12 @@ func (m *DashboardModule) isRunning() bool {
 // ── WebConfigurable (dogfood + live self-config) ──────────────────────────
 
 func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
+	// listen / public_url / client_secret are intentionally NOT here — they now
+	// live in the core settings page (Dashboard + Secrets sections), which is
+	// the single obvious place to configure them. Only the fields that stay in
+	// the 0600 module config file remain self-configurable here.
 	return []modules.ConfigField{
-		{Key: "listen", Label: "Listen Address", Help: "Address the dashboard HTTP server binds to. Default 127.0.0.1:8080 (localhost only); use 0.0.0.0:8080 to accept LAN connections.", Type: modules.FieldTypeText, Scope: "global", Placeholder: "127.0.0.1:8080"},
-		{Key: "public_url", Label: "Public URL", Help: "Public base URL where the dashboard is reachable (used to build the OAuth redirect URI).", Type: modules.FieldTypeText, Scope: "global", Placeholder: "https://dashboard.example.com"},
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
-		{Key: "client_secret", Label: "OAuth Client Secret", Help: "Discord application client secret (from the Developer Portal OAuth2 page).", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of guild IDs. Comma or whitespace separated. Empty = allow all bot guilds.", Type: modules.FieldTypeTextarea, Scope: "global"},
 	}
@@ -535,10 +591,7 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 	// via the dedicated /settings page (handled in pages.go), but WebGetConfig
 	// itself always redacts to be safe, matching the WebConfigurable contract.
 	v := map[string]string{
-		"listen":         m.effectiveListen(),
-		"public_url":     m.effectivePublicURL(),
 		"client_id":      cfg.ClientID,
-		"client_secret":  redactedIfSet(m.effectiveClientSecret()),
 		"session_secret": redactedIfSet(cfg.SessionSecret),
 		"allowed_guilds": strings.Join(cfg.AllowedGuilds, ", "),
 	}

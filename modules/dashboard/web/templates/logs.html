@@ -1,6 +1,7 @@
 {{define "logs"}}{{template "header" .}}
 <h2>Logs</h2>
 <p class="muted">Tailing <code>{{.Content.path}}</code> — last {{len .Content.lines}} lines.</p>
+{{if .Content.note}}<p class="muted" style="color:var(--yellow)">{{.Content.note}}</p>{{end}}
 <div class="toolbar">
   <button class="btn btn-ghost btn-sm" id="logs-refresh">Refresh</button>
   <button class="btn btn-ghost btn-sm" id="logs-more">Load 500</button>

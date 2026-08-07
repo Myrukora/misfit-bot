@@ -2,18 +2,34 @@
 {{with .Content}}
 <h2>Settings {{if .GuildID}}<small class="muted">· {{.GuildName}} ({{.GuildID}})</small>{{else}}<small class="muted">· core / global</small>{{end}}</h2>
 
-{{if .Core}}
+{{if .Sections}}
+{{range .Sections}}
 <section class="card reveal in">
-  <h3>Core bot settings</h3>
-  <form id="core-form" class="cfg-form">
-    {{range .Core}}{{template "field" .}}{{end}}
+  <h3>{{.Title}}</h3>
+  {{if .Help}}<p class="muted section-help">{{.Help}}</p>{{end}}
+  <form class="cfg-form core-form">
+    {{range .Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
-      <button type="button" class="btn btn-blurple" id="core-save">Save core settings</button>
+      <button type="button" class="btn btn-blurple save-section">Save {{.Title}}</button>
     </div>
   </form>
 </section>
+{{end}}
 {{else}}
 <p class="muted">Showing guild-scoped settings only. Core/global settings are available to the bot owner/elevated users without a server selected.</p>
+{{end}}
+
+{{if and .Sections $.IsOwner}}
+<section class="card reveal">
+  <h3>Updater status</h3>
+  <p class="muted section-help">Live updater state; actions mirror the owner-only <code>[p]update</code> commands.</p>
+  <div class="updater-status" id="updater-status">Loading…</div>
+  <div class="inline-form">
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-check">Check now</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-apply">Update now</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-test">Send test embeds</button>
+  </div>
+</section>
 {{end}}
 
 {{if .DashboardSelf.Fields}}
@@ -40,6 +56,6 @@
 </section>
 {{end}}
 
-{{if not (or .Core .DashboardSelf.Fields .Modules)}}<p class="muted">No configurable settings here.</p>{{end}}
+{{if not (or .Sections .DashboardSelf.Fields .Modules)}}<p class="muted">No configurable settings here.</p>{{end}}
 {{end}}
 {{template "footer" .}}{{end}}

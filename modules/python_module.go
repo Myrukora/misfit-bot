@@ -86,6 +86,15 @@ func NewPythonModule(
 // The command is forwarded to the Python process via IPC.
 func (m *PythonModule) makeExecute(name string) func(*commands.Context) error {
 	return func(ctx *commands.Context) error {
+		if ctx.Web {
+			// Dashboard invocation: block until the module replies, then render
+			// the response into the virtual context (captured by the web API).
+			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
+			if err != nil {
+				return err
+			}
+			return m.renderWebReply(ctx, resp)
+		}
 		return m.ipc.SendCommand(name, ctx.Args, ctx.ChannelID, ctx.GuildID, ctx.Author.ID.String(), false)
 	}
 }
@@ -94,7 +103,29 @@ func (m *PythonModule) makeExecute(name string) func(*commands.Context) error {
 // The command is forwarded to the Python process via IPC.
 func (m *PythonModule) makeSlashExecute(name string) func(*commands.Context) error {
 	return func(ctx *commands.Context) error {
+		if ctx.Web {
+			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
+			if err != nil {
+				return err
+			}
+			return m.renderWebReply(ctx, resp)
+		}
 		return m.ipc.SendCommand(name, ctx.Args, ctx.ChannelID, ctx.GuildID, ctx.Author.ID.String(), true)
+	}
+}
+
+// renderWebReply renders a Python respond/reply_text IPC reply into the
+// virtual web context.
+func (m *PythonModule) renderWebReply(ctx *commands.Context, resp map[string]interface{}) error {
+	switch resp["type"] {
+	case "respond":
+		return ctx.Respond(discord.NewEmbed().
+			WithTitle(getString(resp, "title")).
+			WithDescription(getString(resp, "description")))
+	case "reply_text":
+		return ctx.ReplyText(getString(resp, "text"))
+	default:
+		return nil
 	}
 }
 

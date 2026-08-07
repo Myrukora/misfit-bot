@@ -128,17 +128,27 @@ def main():
         guild_id = message.get("guild_id", "")
         author_id = message.get("author_id", "")
         is_slash = message.get("is_slash", False)
+        # Dashboard-sourced invocations carry source + req_id; the context then
+        # echoes req_id in every reply so Go can route it back to the HTTP
+        # caller instead of Discord.
+        req_id = message.get("req_id", "")
+
+        def err(msg):
+            err_msg = {"type": "error", "message": msg}
+            if req_id:
+                err_msg["req_id"] = req_id
+            return err_msg
 
         cmd = cmd_lookup.get(name) or slash_lookup.get(name)
         if cmd is None:
-            ipc.send({"type": "error", "message": f"Unknown command: {name}"})
+            ipc.send(err(f"Unknown command: {name}"))
             return
 
-        ctx = Context(ipc, channel_id, guild_id, author_id, args, is_slash)
+        ctx = Context(ipc, channel_id, guild_id, author_id, args, is_slash, req_id=req_id)
         try:
             cmd.execute(ctx)
         except Exception as e:
-            ipc.send({"type": "error", "message": f"Command '{name}' failed: {e}"})
+            ipc.send(err(f"Command '{name}' failed: {e}"))
             traceback.print_exc(file=sys.stderr)
 
     def handle_event(message):

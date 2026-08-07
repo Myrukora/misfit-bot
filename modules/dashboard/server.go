@@ -142,7 +142,7 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 // flags, CSRF). Pass the page-specific payload via Content separately.
 func (m *DashboardModule) baseData(us *userSession) renderData {
 	id := m.botIdentity()
-	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: ""}
+	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: "", ShowSidebar: true}
 	if us != nil {
 		level := m.resolveLevel(us)
 		var guilds []guildOpt

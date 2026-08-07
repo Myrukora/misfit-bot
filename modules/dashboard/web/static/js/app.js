@@ -231,6 +231,8 @@
     form.querySelectorAll('.cfg-field').forEach(field => {
       const wrap = field.closest('.field');
       if (!wrap) return;
+      // Owner-only fields render disabled for elevated viewers — never submit them.
+      if (wrap.dataset.owneronly === 'true') return;
       const key = wrap.dataset.key;
       const type = wrap.dataset.type;
       let value;
@@ -248,23 +250,89 @@
     return tasks;
   }
 
-  // ── Core settings save ──────────────────────────────────────────────────
-  const coreSave = document.getElementById('core-save');
-  if (coreSave) {
-    coreSave.addEventListener('click', async () => {
-      const form = document.getElementById('core-form');
+  // ── Core settings save (per section) ───────────────────────────────────
+  document.querySelectorAll('.save-section').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const form = btn.closest('form');
       if (!form) return;
       const body = {};
       collectFields(form).forEach(t => { body[t.key] = t.value; });
-      const restore = spin(coreSave);
+      // spin() replaces the label with a spinner — capture it first so the
+      // success toast names the section.
+      const label = btn.textContent.replace('Save ', '');
+      const restore = spin(btn);
       try {
         await req('POST', '/api/settings/core', body);
-        toast('Core settings saved', 'ok');
+        toast(label + ' saved', 'ok');
       } catch (e) {
         toast('Save failed: ' + e.message, 'err');
       } finally {
         restore();
       }
+    });
+  });
+
+  // ── Updater panel (owner only) ─────────────────────────────────────────
+  const updPanel = document.getElementById('updater-status');
+  if (updPanel) {
+    const statusEl = updPanel;
+    // Build status rows with DOM nodes + textContent: repo/branch/notify/
+    // last_error are user- or git-controlled strings and must never be parsed
+    // as HTML in the owner's session.
+    const statusRow = (text, cls) => {
+      const d = document.createElement('div');
+      if (cls) d.className = cls;
+      d.textContent = text;
+      return d;
+    };
+    async function loadStatus() {
+      try {
+        const s = await req('GET', '/api/updater/status');
+        const rows = [
+          statusRow((s.enabled === 'true' ? 'enabled' : 'disabled') + ' · ' + (s.repo || 'no repo') + '@' + s.branch,
+            s.enabled === 'true' ? 'upd-ok' : 'upd-err'),
+          statusRow('interval ' + s.interval + ' · auto_pull ' + s.auto_pull + ' · notify ' + (s.notify_channel || '—')),
+          statusRow('last check ' + s.last_check + ' · last seen ' + (s.last_sha || '—')),
+        ];
+        if (s.last_error) rows.push(statusRow('last error: ' + s.last_error, 'upd-err'));
+        statusEl.replaceChildren(...rows);
+      } catch (e) {
+        statusEl.textContent = 'updater unavailable: ' + e.message;
+      }
+    }
+    loadStatus();
+    const checkBtn = document.getElementById('upd-check');
+    if (checkBtn) checkBtn.addEventListener('click', async () => {
+      const restore = spin(checkBtn);
+      try {
+        const r = await req('POST', '/api/updater/check');
+        if (r.up_to_date) toast('Up to date (' + r.local_sha.slice(0, 7) + ')', 'ok');
+        else toast(r.behind + ' new commit(s) available', 'info');
+        loadStatus();
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const applyBtn = document.getElementById('upd-apply');
+    if (applyBtn) applyBtn.addEventListener('click', async () => {
+      if (!confirm('Pull, rebuild and restart the bot now?')) return;
+      const restore = spin(applyBtn);
+      try {
+        await req('POST', '/api/updater/apply');
+        toast('Update started — the bot will rebuild and restart', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const testBtn = document.getElementById('upd-test');
+    if (testBtn) testBtn.addEventListener('click', async () => {
+      const restore = spin(testBtn);
+      try {
+        await req('POST', '/api/updater/test');
+        toast('Sample PR + commit embeds sent', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
     });
   }
 
@@ -338,6 +406,32 @@
     });
   });
 
+  // ── Command runner (Run button on /commands) ───────────────────────────
+  document.querySelectorAll('.run-cmd').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const wrap = btn.closest('.cmd-run');
+      const input = wrap.querySelector('input');
+      const result = wrap.querySelector('.cmd-run-result');
+      const command = wrap.dataset.command;
+      const guild = wrap.dataset.guild || '';
+      const args = input.value.trim() ? input.value.trim().split(/\s+/) : [];
+      const restore = spin(btn);
+      result.hidden = false;
+      result.textContent = 'Running…';
+      try {
+        const r = await req('POST', '/api/exec', { command, args, guild });
+        let out = '';
+        if (r.text) out = r.text;
+        else if (r.title || r.description) out = (r.title ? '[' + r.title + ']\n' : '') + (r.description || '');
+        result.textContent = out || '(no response)';
+      } catch (e) {
+        result.textContent = 'error: ' + e.message;
+      } finally {
+        restore();
+      }
+    });
+  });
+
   // ── Logs ───────────────────────────────────────────────────────────────
   const logBox = document.getElementById('log-box');
   if (logBox) {
@@ -347,7 +441,7 @@
       const restore = spin(btn);
       try {
         const d = await req('GET', '/api/logs?tail=' + n);
-        logBox.textContent = (d.lines || []).join('\n');
+        logBox.textContent = d.note || (d.lines || []).join('\n');
         logBox.scrollTop = logBox.scrollHeight;
         toast('Logs refreshed (' + (d.lines || []).length + ' lines)', 'info');
         restore();

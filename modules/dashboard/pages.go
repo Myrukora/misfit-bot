@@ -26,6 +26,8 @@ type fieldRender struct {
 	Entities    []entityOpt // for channel/role pickers (id+name) from the cache
 	Scope       string
 	GuildScoped bool
+	OwnerOnly   bool // true: only the bot owner may edit (secrets)
+	Locked      bool // true: rendered read-only for this viewer (OwnerOnly && viewer is not the owner)
 }
 
 type moduleConfigView struct {
@@ -33,10 +35,17 @@ type moduleConfigView struct {
 	Fields []fieldRender
 }
 
+// settingsSection groups core settings fields under a titled card.
+type settingsSection struct {
+	Title  string
+	Help   string
+	Fields []fieldRender
+}
+
 type settingsPageData struct {
 	GuildID       string
 	GuildName     string
-	Core          []fieldRender // typed, labeled core settings (nil for guild view)
+	Sections      []settingsSection // core/global settings, grouped (nil for guild view)
 	DashboardSelf moduleConfigView
 	Modules       []moduleConfigView
 }
@@ -53,12 +62,14 @@ func (m *DashboardModule) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
+	d.ShowSidebar = false // login is a standalone, centered card — no nav
 	m.tmpl.render(w, "login", d)
 }
 
 // renderSetup shows the OAuth bootstrap instructions page.
 func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
+	d.ShowSidebar = false // setup is a standalone, centered card — no nav
 	d.Content = map[string]string{
 		"public_url":   m.effectivePublicURL(),
 		"lan_url":      m.lanURL(),
@@ -189,7 +200,7 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 			data.GuildName = detail.Name
 		}
 	} else {
-		data.Core = m.coreSettingsFields()
+		data.Sections = m.coreSettingsFields(level == lvlOwner)
 	}
 
 	// Dashboard self-config (global only).
@@ -218,29 +229,67 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	m.tmpl.render(w, "settings", d)
 }
 
-// ── core settings (schema-driven) ────────────────────────────────────────
+// ── core settings (schema-driven, grouped into sections) ────────────────
 
 // coreSettingsFields renders every core bot setting as a typed, labeled field
 // through the same schema-driven "field" partial the WebConfigurable module
-// fields use. Each key maps to the input type that matches its validation in
-// config.Config.Set: a select for the log_level enum and a toggle for the
-// log_enabled boolean. Values come from coreSettingsGet() so the JSON API and
-// the page always agree.
+// fields use. Fields are grouped into titled sections (bot / logging /
+// dashboard / updater / secrets).
 //
-// Deliberately NOT exposed (dead or misleading in the UI):
+// Permission model (mirrors the Discord commands):
+//   - owner + elevated: every field except the owner-only secrets
+//   - owner only: bot token, updater token, OAuth client secret (locked for
+//     elevated viewers — rendered disabled and skipped by the JS save)
+//   - staff/regular: no core settings at all (the page is gated upstream)
+//
+// Values come from coreSettingsGet() so the JSON API and the page always
+// agree. Deliberately NOT exposed (dead or misleading in the UI):
 //   - log_channel: Discord channel logging was never implemented (file-only)
 //   - name: the header shows the live Discord name; config bot.name is only a
 //     bridge/fallback value (streaming presence URL, module contexts)
 //   - status: bot.status is never read by the bot — presence is live
-func (m *DashboardModule) coreSettingsFields() []fieldRender {
+//   - elevated_ids: managed on the dedicated /permissions page
+func (m *DashboardModule) coreSettingsFields(owner bool) []settingsSection {
 	vals := m.coreSettingsGet()
-	return []fieldRender{
-		{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
-		{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678"},
-		{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Takes effect after a restart.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
-		{Key: "log_enabled", Label: "File logging", Help: "Whether the bot writes logs to disk. Takes effect after a restart.", Type: "toggle", Value: vals["log_enabled"]},
-		{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
-		{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+	lock := func(f fieldRender) fieldRender {
+		f.Locked = f.OwnerOnly && !owner
+		return f
+	}
+	sec := func(title, help string, fs ...fieldRender) settingsSection {
+		for i := range fs {
+			fs[i] = lock(fs[i])
+		}
+		return settingsSection{Title: title, Help: help, Fields: fs}
+	}
+	return []settingsSection{
+		sec("Bot", "Identity, ownership and the links shown by the info command.",
+			fieldRender{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
+			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Owner only — elevated users cannot transfer ownership.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
+			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
+			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+		),
+		sec("Logging", "File logging (JSON, daily rotation).",
+			fieldRender{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Restart required.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
+			fieldRender{Key: "log_enabled", Label: "File logging", Help: "Whether the bot writes logs to disk. Restart required.", Type: "toggle", Value: vals["log_enabled"]},
+			fieldRender{Key: "log_file_path", Label: "Log file path", Help: "Where logs are written; the rotating writer appends a -YYYY-MM-DD suffix. Restart required.", Type: "text", Value: vals["log_file_path"], Placeholder: "logs/bot.log"},
+		),
+		sec("Dashboard", "The web dashboard itself — this page. Changes apply immediately.",
+			fieldRender{Key: "dashboard_listen", Label: "Listen address", Help: "HTTP bind address. Empty = default 127.0.0.1:8080. Use 0.0.0.0:9090 to accept LAN connections.", Type: "text", Value: vals["dashboard_listen"], Placeholder: "127.0.0.1:8080"},
+			fieldRender{Key: "dashboard_public_url", Label: "Public URL", Help: "Public base URL for the OAuth redirect (tunnel/reverse proxy). Empty = derived from the browser origin.", Type: "text", Value: vals["dashboard_public_url"], Placeholder: "https://dashboard.example.com"},
+		),
+		sec("Updater", "Self-update from the bot's GitHub repository. Actions (check / update now / test embeds) are owner-only and live under the status panel.",
+			fieldRender{Key: "updater_enabled", Label: "Enabled", Help: "Master switch for the self-updater.", Type: "toggle", Value: vals["updater_enabled"]},
+			fieldRender{Key: "updater_repo", Label: "Repository", Help: "GitHub repo in owner/name form. Empty = updater off.", Type: "text", Value: vals["updater_repo"], Placeholder: "Myrukora/misfit-bot"},
+			fieldRender{Key: "updater_branch", Label: "Branch", Help: "Branch to track.", Type: "text", Value: vals["updater_branch"], Placeholder: "main"},
+			fieldRender{Key: "updater_interval", Label: "Check interval (seconds)", Help: "How often the updater polls. Minimum 30.", Type: "number", Value: vals["updater_interval"], Min: "30", Step: "1", Placeholder: "300"},
+			fieldRender{Key: "updater_auto_pull", Label: "Auto pull", Help: "Automatically pull, rebuild and restart on new commits.", Type: "toggle", Value: vals["updater_auto_pull"]},
+			fieldRender{Key: "updater_notify_channel", Label: "Notify channel", Help: "Discord channel ID for PR/commit embeds. Empty = no notifications.", Type: "text", Value: vals["updater_notify_channel"], Placeholder: "channel ID or empty"},
+			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
+		),
+		sec("Secrets", "Credentials. Owner only — elevated users see them locked.",
+			fieldRender{Key: "token", Label: "Bot token", Help: "Discord bot token from the Developer Portal. Never displayed — leave blank to keep the current value. Restart required.", Type: "secret", Value: vals["token"], OwnerOnly: true},
+			fieldRender{Key: "oauth_client_secret", Label: "OAuth client secret", Help: "Discord app OAuth2 secret (shared with the dashboard login). Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["oauth_client_secret"], OwnerOnly: true},
+		),
 	}
 }
 
@@ -314,11 +363,13 @@ func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.R
 // ── /logs ──────────────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleLogsPage(w http.ResponseWriter, r *http.Request) {
-	lines, _ := tailLines(m.logFilePath(), 200)
-	d := m.baseData(sessionOf(r))
-	d.Content = map[string]any{
-		"path":  m.logFilePath(),
-		"lines": lines,
+	path := m.logFilePath()
+	lines, err := tailLines(path, 200)
+	note := ""
+	if err != nil {
+		lines, note = nil, "no log file yet — is file logging enabled? (logging.enabled)"
 	}
+	d := m.baseData(sessionOf(r))
+	d.Content = map[string]any{"path": path, "lines": lines, "note": note}
 	m.tmpl.render(w, "logs", d)
 }

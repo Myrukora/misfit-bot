@@ -2,14 +2,19 @@ package main
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/custombot/bot/commands"
 	"github.com/custombot/bot/modules"
+	"github.com/custombot/bot/updater"
 	"gopkg.in/yaml.v3"
 )
 
@@ -243,6 +248,16 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 		n = 1000
 	}
 	path := m.logFilePath()
+	if _, err := os.Stat(path); err != nil {
+		// No log file (file logging disabled or nothing written yet) — respond
+		// 200 with a hint instead of a 500 so the page stays usable.
+		writeJSON(w, http.StatusOK, map[string]any{
+			"path":  path,
+			"lines": []string{},
+			"note":  "no log file yet — is file logging enabled? (logging.enabled)",
+		})
+		return
+	}
 	lines, err := tailLines(path, n)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -251,26 +266,54 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": path, "lines": lines})
 }
 
-// logFilePath resolves logging.file_path from config.yml (repo-relative) back
-// to an absolute path, falling back to <configDir>/logs/bot.log.
+// logFilePath resolves the current daily-rotated log file:
+// <dir>/<basename>-YYYY-MM-DD.log. The logger writes date-suffixed files via
+// DailyRotatingWriter; the plain <basename>.log file only exists on
+// pre-rotation installs. The newest non-empty daily file wins so the log page
+// never tails a stale file or an empty file created at rotation.
 func (m *DashboardModule) logFilePath() string {
+	dir, base := m.logFileBase()
+	return resolveLogFilePath(dir, base)
+}
+
+// resolveLogFilePath picks the newest non-empty daily log file for a
+// directory + basename pair, falling back to the legacy <base>.log file.
+// Pure and testable: the glob is relative to dir, so callers may point it at
+// any directory.
+func resolveLogFilePath(dir, base string) string {
+	matches, err := filepath.Glob(filepath.Join(dir, base+"-*.log"))
+	if err == nil && len(matches) > 0 {
+		sort.Strings(matches) // ISO date suffixes sort chronologically
+		for i := len(matches) - 1; i >= 0; i-- {
+			if st, err := os.Stat(matches[i]); err == nil && st.Size() > 0 {
+				return matches[i]
+			}
+		}
+		return matches[len(matches)-1]
+	}
+	return filepath.Join(dir, base+".log")
+}
+
+// logFileBase resolves logging.file_path from config.yml into a directory and
+// a file basename (e.g. "logs/bot.log" → "logs", "bot"), defaulting to
+// <configDir>/logs/bot.log.
+func (m *DashboardModule) logFileBase() (string, string) {
+	fp := "logs/bot.log"
 	path := filepath.Join(m.ctx.Bot.GetConfigDir(), "config.yml")
-	data, err := os.ReadFile(path)
-	if err == nil {
+	if data, err := os.ReadFile(path); err == nil {
 		var c struct {
 			Logging struct {
 				FilePath string `yaml:"file_path"`
 			} `yaml:"logging"`
 		}
 		if yaml.Unmarshal(data, &c) == nil && c.Logging.FilePath != "" {
-			fp := c.Logging.FilePath
-			if filepath.IsAbs(fp) {
-				return fp
-			}
-			return filepath.Join(m.ctx.Bot.GetConfigDir(), fp)
+			fp = c.Logging.FilePath
 		}
 	}
-	return filepath.Join(m.ctx.Bot.GetConfigDir(), "logs", "bot.log")
+	if !filepath.IsAbs(fp) {
+		fp = filepath.Join(m.ctx.Bot.GetConfigDir(), fp)
+	}
+	return filepath.Dir(fp), strings.TrimSuffix(filepath.Base(fp), ".log")
 }
 
 // tailLines returns the last n lines of a file efficiently.
@@ -293,6 +336,133 @@ func tailLines(path string, n int) ([]string, error) {
 		return nil, err
 	}
 	return ring, nil
+}
+
+// ── /api/exec — universal command execution ─────────────────────────────
+
+// apiExec runs any command the requesting dashboard user may use, exactly as
+// the Discord dispatcher would gate it: SuperOwnerOnly is always blocked
+// (server-side, in ExecuteCommand), OwnerOnly requires owner/elevated, and
+// RequiredPerm commands check the user's cached perms for the given guild.
+// The response is the captured embed/text, never raw process output.
+func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *userSession) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	var body struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+		Guild   string   `json:"guild"`
+		Channel string   `json:"channel"`
+	}
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Command == "" {
+		writeError(w, http.StatusBadRequest, "command required")
+		return
+	}
+	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
+	if err != nil {
+		code := http.StatusBadRequest
+		if errors.Is(err, commands.ErrWebForbidden) || errors.Is(err, commands.ErrInsufficientPerm) {
+			code = http.StatusForbidden
+		}
+		writeError(w, code, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"title": res.Title, "description": res.Description, "color": res.Color, "text": res.Text,
+	})
+}
+
+// ── /api/updater/* (owner only) ──────────────────────────────────────────
+
+// updaterMgr returns the self-update manager (nil when unavailable).
+func (m *DashboardModule) updaterMgr() *updater.Manager {
+	upd, _ := m.ctx.Bot.GetUpdater().(*updater.Manager)
+	return upd
+}
+
+// apiUpdaterStatus returns the live updater state (repo/branch/last check/…).
+func (m *DashboardModule) apiUpdaterStatus(w http.ResponseWriter, r *http.Request) {
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	writeJSON(w, http.StatusOK, upd.Status())
+}
+
+// apiUpdaterCheck fetches from GitHub and reports how far behind the bot is.
+func (m *DashboardModule) apiUpdaterCheck(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	// Bound the git fetch: propagate client cancellation and never let a
+	// stalled network hold the handler goroutine.
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	res, err := upd.Check(ctx)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// apiUpdaterApply runs the full update pipeline (pull → rebuild → swap). The
+// bot keeps running the old code until the restart fires via OnApplied, so the
+// client gets a clean 200 before the process re-executes.
+func (m *DashboardModule) apiUpdaterApply(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	// Apply rebuilds the binary and every Go plugin — far too long for an HTTP
+	// round trip. Run it on a server-side deadline that survives the request;
+	// failures surface through the updater's status last_error (Apply sets it
+	// internally), which the settings panel displays.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		if err := upd.Apply(ctx); err != nil {
+			m.logger.Error("Dashboard: updater apply failed: %v", err)
+		}
+	}()
+	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+}
+
+// apiUpdaterTest posts one sample PR + one sample commit embed to the notify
+// channel so the owner can preview both markdown-rich formats.
+func (m *DashboardModule) apiUpdaterTest(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	upd := m.updaterMgr()
+	if upd == nil {
+		writeError(w, http.StatusServiceUnavailable, "updater not available")
+		return
+	}
+	if err := upd.NotifyTest(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // ── /api/shutdown, /api/restart ───────────────────────────────────────────
@@ -436,6 +606,36 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			m.apiLogs(w, r)
 			return
 		}
+	case "exec":
+		if meth == "POST" {
+			us := sessionOf(r)
+			if us == nil {
+				writeError(w, http.StatusForbidden, "not logged in")
+				return
+			}
+			m.apiExec(w, r, us)
+			return
+		}
+	case "updater":
+		// Owner only — mirrors the [p]update command's OwnerOnly flag. Actions
+		// rebuild and restart the bot, so elevated users never get them.
+		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
+			writeError(w, http.StatusForbidden, "owner only")
+			return
+		}
+		switch {
+		case meth == "GET" && len(parts) == 2 && parts[1] == "status":
+			m.apiUpdaterStatus(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "check":
+			m.apiUpdaterCheck(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "apply":
+			m.apiUpdaterApply(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "test":
+			m.apiUpdaterTest(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+		return
 	case "shutdown":
 		if meth == "POST" {
 			us := sessionOf(r)
