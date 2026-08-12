@@ -23,6 +23,123 @@ type cmdView struct {
 	Aliases        []string `json:"aliases"`
 	Usable         bool     `json:"usable"`
 	UsableIn       []string `json:"usable_in"`
+	// Options is the click-driven argument form schema, derived from the
+	// command's slash options (the same schema Discord's UI uses). Empty =
+	// free-form text arguments.
+	Options []argOpt `json:"options"`
+}
+
+// argOpt is one typed argument of a command's web Run form.
+type argOpt struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"` // "string" | "int" | "bool" | "channel" | "role" | "user" | "subcommand"
+	Required    bool     `json:"required"`
+	Choices     []string `json:"choices,omitempty"`
+	// Sub is set for Type == "subcommand": the nested arguments of each
+	// subcommand. Choices holds the subcommand names.
+	Sub []subArg `json:"sub,omitempty"`
+}
+
+// subArg is one subcommand's nested argument schema.
+type subArg struct {
+	Name string   `json:"name"`
+	Args []argOpt `json:"args"`
+}
+
+// optionRequired extracts the Required flag from a typed discord option.
+func optionRequired(o discord.ApplicationCommandOption) bool {
+	switch t := o.(type) {
+	case discord.ApplicationCommandOptionString:
+		return t.Required
+	case discord.ApplicationCommandOptionInt:
+		return t.Required
+	case discord.ApplicationCommandOptionFloat:
+		return t.Required
+	case discord.ApplicationCommandOptionBool:
+		return t.Required
+	case discord.ApplicationCommandOptionChannel:
+		return t.Required
+	case discord.ApplicationCommandOptionRole:
+		return t.Required
+	case discord.ApplicationCommandOptionUser:
+		return t.Required
+	case discord.ApplicationCommandOptionMentionable:
+		return t.Required
+	default:
+		return false
+	}
+}
+
+// optionSchema converts one discord option into the web form's argOpt. A
+// subcommand becomes a required string with the subcommand names as choices
+// (matching how the slash dispatcher prepends the subcommand name to args).
+func optionSchema(o discord.ApplicationCommandOption) argOpt {
+	switch t := o.(type) {
+	case discord.ApplicationCommandOptionString:
+		a := argOpt{Name: t.Name, Description: t.Description, Type: "string", Required: t.Required}
+		for _, c := range t.Choices {
+			a.Choices = append(a.Choices, c.Value)
+		}
+		return a
+	case discord.ApplicationCommandOptionInt, discord.ApplicationCommandOptionFloat:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "int", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionBool:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "bool", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionChannel:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "channel", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionRole:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "role", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionUser, discord.ApplicationCommandOptionMentionable:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "user", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionSubCommand:
+		// A subcommand is one choice of the subcommand selector; its nested
+		// options become the args shown once that subcommand is picked. The
+		// dispatched args are [subcommandName, ...nestedArgs] — matching the
+		// slash dispatcher's SubCommandName-first conversion.
+		a := argOpt{Name: "subcommand", Description: t.Description, Type: "subcommand", Required: true}
+		a.Sub = append(a.Sub, subArg{Name: t.Name, Args: optionSchemas(t.Options)})
+		a.Choices = append(a.Choices, t.Name)
+		return a
+	case discord.ApplicationCommandOptionSubCommandGroup:
+		// Sub-command groups don't map to flat positional args; skip (the
+		// caller filters empty names).
+		return argOpt{}
+	default:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "string", Required: optionRequired(o)}
+	}
+}
+
+// optionSchemas converts a command's options into web form args. Sibling
+// subcommand options are merged into ONE selector (the dispatcher branches on
+// ctx.Args[0], so a command with `ban` + `kick` must present a single choice).
+func optionSchemas(opts []discord.ApplicationCommandOption) []argOpt {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make([]argOpt, 0, len(opts))
+	subIdx := -1 // index of the merged subcommand selector, if any
+	for _, o := range opts {
+		a := optionSchema(o)
+		if a.Name == "" {
+			continue // unrenderable (e.g. subcommand group)
+		}
+		if a.Type == "subcommand" {
+			if subIdx < 0 {
+				out = append(out, a)
+				subIdx = len(out) - 1
+			} else {
+				out[subIdx].Choices = append(out[subIdx].Choices, a.Choices...)
+				out[subIdx].Sub = append(out[subIdx].Sub, a.Sub...)
+			}
+			continue
+		}
+		out = append(out, a)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // cmdUsable computes whether a command is usable for the logged-in user and in
@@ -67,14 +184,14 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 
 	var views []cmdView
 
-	addPrefix := func(c commands.Command, owner string) {
+	addPrefix := func(c commands.Command, owner string, slashOpts []discord.ApplicationCommandOption) {
 		usable, usableIn := m.cmdUsable(c.SuperOwnerOnly, c.RequiredPerm, c.OwnerOnly, us, level)
 		aliases := append([]string{}, c.Aliases...)
 		views = append(views, cmdView{
 			Name: c.Name, Description: c.Description, Usage: c.Usage, Category: c.Category,
 			ModuleOwner: owner, Kind: "prefix", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly, Aliases: aliases,
-			Usable: usable, UsableIn: usableIn,
+			Usable: usable, UsableIn: usableIn, Options: optionSchemas(slashOpts),
 		})
 	}
 	addSlash := func(c commands.SlashCommand, owner string) {
@@ -83,12 +200,18 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			Name: c.Name, Description: c.Description, Category: c.Category,
 			ModuleOwner: owner, Kind: "slash", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly,
-			Usable: usable, UsableIn: usableIn,
+			Usable: usable, UsableIn: usableIn, Options: optionSchemas(c.Options),
 		})
 	}
 
+	// Slash twins supply the arg schema for prefix rows too (same options the
+	// Discord UI would show for the command).
+	coreSlashOpts := map[string][]discord.ApplicationCommandOption{}
+	for i := range commands.CoreSlashCommands {
+		coreSlashOpts[commands.CoreSlashCommands[i].Name] = commands.CoreSlashCommands[i].Options
+	}
 	for _, c := range commands.CoreCommands {
-		addPrefix(c, "core")
+		addPrefix(c, "core", coreSlashOpts[c.Name])
 	}
 	for _, c := range commands.CoreSlashCommands {
 		addSlash(c, "core")
@@ -99,8 +222,12 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			if !ok {
 				continue
 			}
+			modSlashOpts := map[string][]discord.ApplicationCommandOption{}
+			for i := range mod.SlashCommands() {
+				modSlashOpts[mod.SlashCommands()[i].Name] = mod.SlashCommands()[i].Options
+			}
 			for _, c := range mod.Commands() {
-				addPrefix(c, mod.Name())
+				addPrefix(c, mod.Name(), modSlashOpts[c.Name])
 			}
 			for _, c := range mod.SlashCommands() {
 				addSlash(c, mod.Name())

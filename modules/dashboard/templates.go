@@ -46,14 +46,32 @@ var tmplFuncs = template.FuncMap{
 	"csvContains": csvContains,
 	"pageTitle":   pageTitle,
 	"initial":     initial,
+	"dict":        dict,
 }
 
-// csvContains reports whether opt appears in the comma-separated csv value
-// (used to render multi-select checkboxes).
+// dict builds a map from key/value pairs for template partials that need
+// more context than their own data (e.g. {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}).
+func dict(kv ...any) map[string]any {
+	m := make(map[string]any, len(kv)/2)
+	for i := 0; i+1 < len(kv); i += 2 {
+		key, ok := kv[i].(string)
+		if !ok {
+			continue
+		}
+		m[key] = kv[i+1]
+	}
+	return m
+}
+
+// csvContains reports whether opt appears in the multi-select value (options
+// are separated by commas or newlines — newlines let values contain commas,
+// e.g. the dashboard's "Guild Name, Inc. (id)" allowed-guild labels).
 func csvContains(csv, opt string) bool {
-	for _, p := range strings.Split(csv, ",") {
-		if strings.TrimSpace(p) == opt {
-			return true
+	for _, sep := range []string{",", "\n"} {
+		for _, p := range strings.Split(csv, sep) {
+			if strings.TrimSpace(p) == opt {
+				return true
+			}
 		}
 	}
 	return false

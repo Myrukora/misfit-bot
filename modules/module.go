@@ -69,10 +69,11 @@ const (
 	FieldTypeNumber   = "number"   // numeric spinner; Min/Max enforced
 	FieldTypeRange    = "range"    // slider; Min/Max/Step required
 	FieldTypeSelect   = "select"   // single-select dropdown; Options required
-	FieldTypeMulti    = "multi"    // multi-select; Options; value = comma-joined
+	FieldTypeMulti    = "multi"    // multi-select; Options; value = newline- or comma-joined (newline keeps commas legal inside option values)
 	FieldTypeSecret   = "secret"   // masked password; redacted "••••" on read
 	FieldTypeChannel  = "channel"  // Discord channel picker (guild-scoped)
 	FieldTypeRole     = "role"     // Discord role picker (guild-scoped)
+	FieldTypeUser     = "user"     // Discord member picker (guild-scoped, capped)
 )
 
 // IsWebConfigurable type-asserts a module to WebConfigurable.

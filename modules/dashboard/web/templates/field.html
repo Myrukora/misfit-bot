@@ -25,6 +25,8 @@
     {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a channel"{{if .Locked}} disabled{{end}}>{{end}}
   {{else if eq .Type "role"}}
     {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a role"{{if .Locked}} disabled{{end}}>{{end}}
+  {{else if eq .Type "user"}}
+    {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a user"{{if .Locked}} disabled{{end}}>{{end}}
   {{else}}
     <input type="text" class="cfg-field" value="{{.Value}}" placeholder="{{.Placeholder}}"{{if .Locked}} disabled{{end}}>
   {{end}}

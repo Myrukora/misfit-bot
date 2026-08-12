@@ -128,6 +128,8 @@ Users log in via Discord OAuth2 and must share at least one server with the bot.
 
 The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). The **Command execution way** setting (dashboard module settings, default `prefix`) picks which implementation is shown and executed: `prefix` runs text-command logic (prefix commands require Discord's Message Content intent to be usable in Discord), `slash` prefers the slash implementations and works without the intent. Commands that only exist in one form work regardless of the setting. Slash execution from the dashboard is best-effort: slash implementations that rely on interaction-only flows beyond the standard response helpers (`ctx.Respond` / `ctx.respond`) may produce an empty result.
 
+Run forms are **click-driven**: pick a server in the commands tab and channel/role/user arguments render as dropdowns populated from the bot's cache (member pickers cap at 1000 members, falling back to typing an ID). Argument forms come from each command's slash options — enumerable options (e.g. `status type`, `cleanup subcommand`) render as dropdowns, numbers as number inputs, booleans as yes/no. Commands without a schema fall back to free text. The settings page works the same way: with a server selected, channel/role/user fields (updater notify channel, owner ID) become pickers, and the dashboard's **Allowed Guilds** allowlist is a checkbox list of servers.
+
 ## Project Structure
 
 ```

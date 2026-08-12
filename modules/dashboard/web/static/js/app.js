@@ -239,7 +239,7 @@
       if (type === 'toggle') {
         value = field.checked ? 'true' : 'false';
       } else if (type === 'multi') {
-        value = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value).join(',');
+        value = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value).join('\n');
       } else {
         value = field.value;
       }
@@ -407,16 +407,40 @@
   });
 
   // ── Command runner (Run button on /commands) ───────────────────────────
+  // Subcommand selectors: reveal the selected subcommand's nested args.
+  document.querySelectorAll('.cmd-sub-select').forEach(sel => {
+    const toggle = () => {
+      sel.closest('.cmd-sub').querySelectorAll('.cmd-sub-group').forEach(g => {
+        g.classList.toggle('active', g.dataset.sub === sel.value);
+      });
+    };
+    sel.addEventListener('change', toggle);
+    toggle();
+  });
   document.querySelectorAll('.run-cmd').forEach(btn => {
     btn.addEventListener('click', async () => {
       const wrap = btn.closest('.cmd-run');
-      const input = wrap.querySelector('input');
-      const channelInput = wrap.querySelector('.cmd-run-channel');
       const result = wrap.querySelector('.cmd-run-result');
       const command = wrap.dataset.command;
       const guild = wrap.dataset.guild || '';
-      const channel = channelInput ? channelInput.value.trim() : '';
-      const args = input.value.trim() ? input.value.trim().split(/\s+/) : [];
+      // Channel context: dropdown (guild selected) or free text fallback.
+      const channelEl = wrap.querySelector('.cmd-run-channel');
+      const channel = channelEl ? channelEl.value.trim() : '';
+      // Typed args: option inputs in declaration order, empty ones skipped.
+      // Subcommand selectors contribute their selected subcommand name, and
+      // only the ACTIVE subcommand's nested inputs are collected.
+      const free = wrap.querySelector('.cmd-args-free');
+      let args = [];
+      if (free) {
+        args = free.value.trim() ? free.value.trim().split(/\s+/) : [];
+      } else {
+        wrap.querySelectorAll('.cmd-arg-input').forEach(inp => {
+          const group = inp.closest('.cmd-sub-group');
+          if (group && !group.classList.contains('active')) return;
+          const v = inp.value.trim();
+          if (v) args.push(v);
+        });
+      }
       const restore = spin(btn);
       result.hidden = false;
       result.textContent = 'Running…';

@@ -1,7 +1,31 @@
+{{define "cmdarg"}}
+<div class="cmd-arg" data-arg="{{.Arg.Name}}">
+  <label class="cmd-arg-label" title="{{.Arg.Description}}">{{.Arg.Name}}{{if .Arg.Required}} <em>*</em>{{end}}</label>
+  {{if eq .Arg.Type "channel"}}
+    {{if .Ctx.channels}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="channel ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "role"}}
+    {{if .Ctx.roles}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="role ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "user"}}
+    {{if .Ctx.members}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.members}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="user ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "int"}}
+    <input type="number" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
+  {{else if eq .Arg.Type "bool"}}
+    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option><option value="true">yes</option><option value="false">no</option></select>{{end}}
+  {{else if .Arg.Choices}}
+    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}">{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option>{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{end}}
+  {{else}}
+    <input type="text" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
+  {{end}}
+</div>
+{{end}}
 {{define "commands"}}{{template "header" .}}
 <h2>Commands</h2>
 <div class="toolbar">
   <div class="search-wrap"><svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="cmd-search" aria-label="Filter commands" placeholder="Filter commands…" class="cfg-field"></div>
+  {{if gt (len $.Guilds) 0}}<select class="cfg-field cmd-guild" aria-label="Server for pickers" onchange="location.href='/commands?guild='+encodeURIComponent(this.value)">
+    <option value="">All servers (type IDs)</option>
+    {{range $.Guilds}}<option value="{{.ID}}" {{if eq $.Content.guild .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+  </select>{{end}}
   {{if .Content.canRaw}}<label class="switch"><input type="checkbox" id="cmd-raw" {{if .Raw}}checked{{end}}><span class="track"><span class="knob"></span></span><span class="switch-label">show non-usable (raw)</span></label>{{end}}
 </div>
 <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} visible to you{{if .Content.guild}} in this server{{end}} · shown as {{if eq .Content.mode "slash"}}<code>/slash</code>{{else}}<code>prefix</code>{{end}} commands{{if .Content.canRaw}} (change in Settings){{end}}.</p>
@@ -26,8 +50,35 @@
         {{if .UsableIn}}<div><span class="lbl">Usable in</span> {{joinOr .UsableIn ", " "nowhere cached"}}</div>{{end}}
         {{if and .Usable (not .SuperOwnerOnly)}}
         <div class="cmd-run" data-command="{{.Name}}" data-guild="{{$.Content.guild}}">
-          <input type="text" class="cfg-field" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
+          {{if $.Content.channels}}
+          <select class="cfg-field cmd-run-channel" aria-label="Channel for {{.Name}}">
+            <option value="">— channel —</option>
+            {{range $.Content.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+          {{else}}
           <input type="text" class="cfg-field cmd-run-channel" placeholder="channel ID (optional)" aria-label="Optional channel ID for {{.Name}}">
+          {{end}}
+          {{if .Options}}
+          {{range .Options}}
+          {{if eq .Type "subcommand"}}
+          <div class="cmd-arg cmd-sub" data-arg="{{.Name}}">
+            <label class="cmd-arg-label" title="{{.Description}}">subcommand{{if .Required}} <em>*</em>{{end}}</label>
+            <select class="cfg-field cmd-arg-input cmd-sub-select" aria-label="subcommand">
+              {{range .Choices}}<option value="{{.}}">{{.}}</option>{{end}}
+            </select>
+            {{range .Sub}}
+            <div class="cmd-sub-group" data-sub="{{.Name}}">
+              {{range .Args}}{{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}{{end}}
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}
+          {{end}}
+          {{end}}
+          {{else}}
+          <input type="text" class="cfg-field cmd-args-free" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
+          {{end}}
           <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
           <div class="cmd-run-result" role="status" aria-live="polite" hidden></div>
         </div>

@@ -170,57 +170,132 @@ func (m *CleanupModule) Commands() []commands.Command {
 			Usage:        "cleanup <subcommand>",
 			Category:     "cleanup",
 			RequiredPerm: discord.PermissionManageMessages,
-			Execute: func(ctx *commands.Context) error {
-				if len(ctx.Args) == 0 {
-					return ctx.Respond(embed.New().
-						WithTitle("🧹 Cleanup").
-						WithDescription("Available subcommands:").
-						WithColor(embed.ColorInfo).
-						WithFields(
-							discord.EmbedField{Name: "messages", Value: "Delete last N messages\n`cleanup messages <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "user", Value: "Delete N messages from a user\n`cleanup user <@user> <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "text", Value: "Delete N messages containing text\n`cleanup text \"hello\" <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "bot", Value: "Delete bot and command messages\n`cleanup bot <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "self", Value: "Delete bot's own messages\n`cleanup self <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "after", Value: "Delete messages after an ID\n`cleanup after <message_id>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "before", Value: "Delete N messages before an ID\n`cleanup before <message_id> <number>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "between", Value: "Delete messages between two IDs (including the first)\n`cleanup between <id1> <id2>`", Inline: util.PtrBool(true)},
-							discord.EmbedField{Name: "duplicates", Value: "Delete duplicate messages\n`cleanup duplicates [number]`", Inline: util.PtrBool(true)},
-						).
-						WithTimestamp(time.Now()))
-				}
-
-				sub := strings.ToLower(ctx.Args[0])
-				args := ctx.Args[1:]
-
-				switch sub {
-				case "messages":
-					return m.cmdMessages(ctx, args)
-				case "user":
-					return m.cmdUser(ctx, args)
-				case "text":
-					return m.cmdText(ctx, args)
-				case "bot":
-					return m.cmdBot(ctx, args)
-				case "self":
-					return m.cmdSelf(ctx, args)
-				case "after":
-					return m.cmdAfter(ctx, args)
-				case "before":
-					return m.cmdBefore(ctx, args)
-				case "between":
-					return m.cmdBetween(ctx, args)
-				case "duplicates", "spam":
-					return m.cmdDuplicates(ctx, args)
-				default:
-					return ctx.Respond(embed.Warning("⚠️ Unknown subcommand", fmt.Sprintf("`%s` is not a valid cleanup subcommand. Use `cleanup` to see available commands.", sub)))
-				}
-			},
+			Execute:      m.dispatch,
 		},
 	}
 }
 
-func (m *CleanupModule) SlashCommands() []commands.SlashCommand { return nil }
+// SlashCommands exposes cleanup as /cleanup with nested subcommand options:
+// each subcommand carries only its own arguments (the slash dispatcher
+// prepends the subcommand name, then appends the provided options in order —
+// exactly the positional args the shared dispatch expects). The dashboard's
+// command form renders one subcommand selector with per-subcommand groups.
+func (m *CleanupModule) SlashCommands() []commands.SlashCommand {
+	intOpt := func(name, desc string, required bool) discord.ApplicationCommandOptionInt {
+		return discord.ApplicationCommandOptionInt{Name: name, Description: desc, Required: required}
+	}
+	strOpt := func(name, desc string, required bool) discord.ApplicationCommandOptionString {
+		return discord.ApplicationCommandOptionString{Name: name, Description: desc, Required: required}
+	}
+	return []commands.SlashCommand{
+		{
+			Name:         "cleanup",
+			Description:  "Message cleanup commands",
+			Category:     "cleanup",
+			RequiredPerm: discord.PermissionManageMessages,
+			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "messages", Description: "Delete the last N messages",
+					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "user", Description: "Delete N messages from a user",
+					Options: []discord.ApplicationCommandOption{
+						discord.ApplicationCommandOptionUser{Name: "user", Description: "The user", Required: true},
+						intOpt("count", "How many messages", true),
+					},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "text", Description: "Delete N messages containing text",
+					Options: []discord.ApplicationCommandOption{
+						strOpt("text", "Text to match", true),
+						intOpt("count", "How many messages", true),
+					},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "bot", Description: "Delete bot and command messages",
+					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "self", Description: "Delete the bot's own messages",
+					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "after", Description: "Delete messages after an ID",
+					Options: []discord.ApplicationCommandOption{strOpt("message_id", "Message ID", true)},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "before", Description: "Delete N messages before an ID",
+					Options: []discord.ApplicationCommandOption{
+						strOpt("message_id", "Message ID", true),
+						intOpt("count", "How many messages", true),
+					},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "between", Description: "Delete messages between two IDs (including the first)",
+					Options: []discord.ApplicationCommandOption{
+						strOpt("message_id", "First message ID", true),
+						strOpt("message_id2", "Second message ID", true),
+					},
+				},
+				discord.ApplicationCommandOptionSubCommand{
+					Name: "duplicates", Description: "Delete duplicate messages",
+					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", false)},
+				},
+			},
+			Execute: m.dispatch,
+		},
+	}
+}
+
+// dispatch runs a cleanup invocation from ctx.Args (prefix and slash share
+// this path: slash options are converted to the same positional args).
+func (m *CleanupModule) dispatch(ctx *commands.Context) error {
+	if len(ctx.Args) == 0 {
+		return ctx.Respond(embed.New().
+			WithTitle("🧹 Cleanup").
+			WithDescription("Available subcommands:").
+			WithColor(embed.ColorInfo).
+			WithFields(
+				discord.EmbedField{Name: "messages", Value: "Delete last N messages\n`cleanup messages <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "user", Value: "Delete N messages from a user\n`cleanup user <@user> <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "text", Value: "Delete N messages containing text\n`cleanup text \"hello\" <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "bot", Value: "Delete bot and command messages\n`cleanup bot <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "self", Value: "Delete bot's own messages\n`cleanup self <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "after", Value: "Delete messages after an ID\n`cleanup after <message_id>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "before", Value: "Delete N messages before an ID\n`cleanup before <message_id> <number>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "between", Value: "Delete messages between two IDs (including the first)\n`cleanup between <id1> <id2>`", Inline: util.PtrBool(true)},
+				discord.EmbedField{Name: "duplicates", Value: "Delete duplicate messages\n`cleanup duplicates [number]`", Inline: util.PtrBool(true)},
+			).
+			WithTimestamp(time.Now()))
+	}
+
+	sub := strings.ToLower(ctx.Args[0])
+	args := ctx.Args[1:]
+
+	switch sub {
+	case "messages":
+		return m.cmdMessages(ctx, args)
+	case "user":
+		return m.cmdUser(ctx, args)
+	case "text":
+		return m.cmdText(ctx, args)
+	case "bot":
+		return m.cmdBot(ctx, args)
+	case "self":
+		return m.cmdSelf(ctx, args)
+	case "after":
+		return m.cmdAfter(ctx, args)
+	case "before":
+		return m.cmdBefore(ctx, args)
+	case "between":
+		return m.cmdBetween(ctx, args)
+	case "duplicates", "spam":
+		return m.cmdDuplicates(ctx, args)
+	default:
+		return ctx.Respond(embed.Warning("⚠️ Unknown subcommand", fmt.Sprintf("`%s` is not a valid cleanup subcommand. Use `cleanup` to see available commands.", sub)))
+	}
+}
 
 func (m *CleanupModule) Dependencies() []string { return nil }
 

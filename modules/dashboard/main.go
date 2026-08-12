@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -575,7 +576,7 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 	return []modules.ConfigField{
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
 		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
-		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of guild IDs. Comma or whitespace separated. Empty = allow all bot guilds.", Type: modules.FieldTypeTextarea, Scope: "global"},
+		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of servers. Empty = allow all bot guilds. Checked servers stay accessible; unchecked ones are locked out of the dashboard.", Type: modules.FieldTypeMulti, Options: m.guildLabelOptions(), Scope: "global"},
 		{Key: "exec_mode", Label: "Command execution way", Help: "Which command implementation the Run buttons and commands tab use: prefix (text commands; requires Discord's Message Content intent) or slash (works without the intent, matches Discord's native UI).", Type: modules.FieldTypeSelect, Options: []string{"prefix", "slash"}, Scope: "global"},
 	}
 }
@@ -594,10 +595,58 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 	v := map[string]string{
 		"client_id":      cfg.ClientID,
 		"session_secret": redactedIfSet(cfg.SessionSecret),
-		"allowed_guilds": strings.Join(cfg.AllowedGuilds, ", "),
+		"allowed_guilds": strings.Join(m.guildLabels(cfg.AllowedGuilds), "\n"),
 		"exec_mode":      cfg.ExecMode,
 	}
 	return v, nil
+}
+
+// guildLabel renders "Name (ID)" for a cached guild, or the raw ID when the
+// guild isn't cached.
+func (m *DashboardModule) guildLabel(id string) string {
+	if gid, err := snowflake.Parse(id); err == nil {
+		if g, ok := m.client.Caches.Guild(gid); ok {
+			return fmt.Sprintf("%s (%s)", g.Name, id)
+		}
+	}
+	return id
+}
+
+// guildLabels maps guild IDs to picker labels.
+func (m *DashboardModule) guildLabels(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		out = append(out, m.guildLabel(id))
+	}
+	return out
+}
+
+// guildLabelOptions lists every bot guild as a "Name (ID)" picker option.
+func (m *DashboardModule) guildLabelOptions() []string {
+	var out []string
+	for g := range m.client.Caches.Guilds() {
+		out = append(out, fmt.Sprintf("%s (%s)", g.Name, g.ID.String()))
+	}
+	sort.Strings(out)
+	return out
+}
+
+// parseGuildLabels converts "Name (123456789012345678)" labels back to IDs;
+// bare values (already IDs) pass through unchanged.
+func parseGuildLabels(labels []string) []string {
+	out := make([]string, 0, len(labels))
+	for _, l := range labels {
+		l = strings.TrimSpace(l)
+		if i := strings.LastIndex(l, " ("); i > 0 && strings.HasSuffix(l, ")") {
+			id := l[i+2 : len(l)-1]
+			if _, err := snowflake.Parse(id); err == nil {
+				out = append(out, id)
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	return out
 }
 
 // execMode returns the configured command execution way ("prefix" or "slash"),
@@ -641,6 +690,11 @@ func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 		m.refreshOAuth()
 		m.sessions.clear() // invalidate existing sessions (secret changed)
 		return nil
+	case "allowed_guilds":
+		// Web UI sends "Name (ID)" labels, newline-separated (newline keeps
+		// commas legal inside guild names); convert back to IDs before the
+		// generic Set path (which splits on comma/space).
+		value = strings.Join(parseGuildLabels(strings.Split(value, "\n")), ",")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()

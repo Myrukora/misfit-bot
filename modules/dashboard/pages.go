@@ -95,14 +95,68 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	}
 	d := m.baseData(us)
 	d.Raw = raw
-	d.Content = map[string]any{
+	content := map[string]any{
 		"groups": groupCommands(views),
 		"guild":  guildID,
 		"count":  len(views),
 		"mode":   m.execMode(),
 		"canRaw": d.IsOwner || d.IsElevated,
 	}
+	// Picker entity lists for the click-driven Run forms (channels, roles,
+	// members) — populated only when a guild is selected AND the user shares
+	// it with the bot, so cached entity names don't leak to non-members.
+	if guildID != "" && m.canViewGuildEntities(us, guildID) {
+		if detail, err := m.buildGuildDetail(guildID); err == nil {
+			content["channels"] = detail.Channels
+			roles := make([]entityOpt, 0, len(detail.Roles))
+			for _, r := range detail.Roles {
+				roles = append(roles, entityOpt{ID: r.ID, Name: r.Name})
+			}
+			content["roles"] = roles
+			if detail.MemberCount <= maxMemberPicker {
+				content["members"] = m.memberOpts(guildID)
+			}
+		}
+	}
+	d.Content = content
 	m.tmpl.render(w, "commands", d)
+}
+
+// canViewGuildEntities reports whether the session may see a guild's cached
+// entities (channels/roles/members) on the commands page: the user must share
+// the guild with the bot.
+func (m *DashboardModule) canViewGuildEntities(us *userSession, guildID string) bool {
+	if us == nil {
+		return false
+	}
+	for _, g := range m.mutualGuildIDs(us) {
+		if g == guildID {
+			return true
+		}
+	}
+	return false
+}
+
+// maxMemberPicker caps the member dropdown rendered for a guild; beyond this
+// the Run forms fall back to typing a user ID (a select with tens of
+// thousands of options is worse than a text field).
+const maxMemberPicker = 1000
+
+// memberOpts lists a guild's cached members as picker options (sorted by name).
+func (m *DashboardModule) memberOpts(guildID string) []entityOpt {
+	gid, err := snowflake.Parse(guildID)
+	if err != nil {
+		return nil
+	}
+	var out []entityOpt
+	for member := range m.client.Caches.Members(gid) {
+		out = append(out, entityOpt{ID: member.User.ID.String(), Name: member.User.Username})
+		if len(out) >= maxMemberPicker {
+			break
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // ── /guild/{id} ───────────────────────────────────────────────────────────
@@ -200,8 +254,11 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 		if detail, err := m.buildGuildDetail(guildID); err == nil {
 			data.GuildName = detail.Name
 		}
-	} else {
-		data.Sections = m.coreSettingsFields(level == lvlOwner)
+	}
+	// Core/global sections render for owner/elevated on every view; the
+	// selected server (if any) only powers the channel/role/user pickers.
+	if level == lvlOwner || level == lvlElevated {
+		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID)
 	}
 
 	// Dashboard self-config (global only).
@@ -250,7 +307,7 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 //     bridge/fallback value (streaming presence URL, module contexts)
 //   - status: bot.status is never read by the bot — presence is live
 //   - elevated_ids: managed on the dedicated /permissions page
-func (m *DashboardModule) coreSettingsFields(owner bool) []settingsSection {
+func (m *DashboardModule) coreSettingsFields(owner bool, guildID string) []settingsSection {
 	vals := m.coreSettingsGet()
 	lock := func(f fieldRender) fieldRender {
 		f.Locked = f.OwnerOnly && !owner
@@ -259,13 +316,15 @@ func (m *DashboardModule) coreSettingsFields(owner bool) []settingsSection {
 	sec := func(title, help string, fs ...fieldRender) settingsSection {
 		for i := range fs {
 			fs[i] = lock(fs[i])
+			// Pickers (channel/role/user) populate from the selected server.
+			m.populateEntities(&fs[i], guildID)
 		}
 		return settingsSection{Title: title, Help: help, Fields: fs}
 	}
 	return []settingsSection{
 		sec("Bot", "Identity, ownership and the links shown by the info command.",
 			fieldRender{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
-			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Owner only — elevated users cannot transfer ownership.", Type: "text", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
+			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Pick from the selected server's members or type the ID. Owner only — elevated users cannot transfer ownership.", Type: "user", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
 			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
 			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
 		),
@@ -284,7 +343,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool) []settingsSection {
 			fieldRender{Key: "updater_branch", Label: "Branch", Help: "Branch to track.", Type: "text", Value: vals["updater_branch"], Placeholder: "main"},
 			fieldRender{Key: "updater_interval", Label: "Check interval (seconds)", Help: "How often the updater polls. Minimum 30.", Type: "number", Value: vals["updater_interval"], Min: "30", Step: "1", Placeholder: "300"},
 			fieldRender{Key: "updater_auto_pull", Label: "Auto pull", Help: "Automatically pull, rebuild and restart on new commits.", Type: "toggle", Value: vals["updater_auto_pull"]},
-			fieldRender{Key: "updater_notify_channel", Label: "Notify channel", Help: "Discord channel ID for PR/commit embeds. Empty = no notifications.", Type: "text", Value: vals["updater_notify_channel"], Placeholder: "channel ID or empty"},
+			fieldRender{Key: "updater_notify_channel", Label: "Notify channel", Help: "Discord channel for PR/commit embeds. Pick from the selected server; empty = no notifications.", Type: "channel", Value: vals["updater_notify_channel"], Placeholder: "channel ID or empty"},
 			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
 		),
 		sec("Secrets", "Credentials. Owner only — elevated users see them locked.",
@@ -311,7 +370,8 @@ func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name strin
 }
 
 // buildFieldRender turns a ConfigField + current value into a render-friendly
-// field, populating channel/role entity lists from the cache when a guild is set.
+// field, populating channel/role/user entity lists from the cache when a guild
+// is set.
 func (m *DashboardModule) buildFieldRender(f modules.ConfigField, value, guildID string) fieldRender {
 	fr := fieldRender{
 		Key:         f.Key,
@@ -333,21 +393,38 @@ func (m *DashboardModule) buildFieldRender(f modules.ConfigField, value, guildID
 	if f.Step != nil {
 		fr.Step = strconv.FormatFloat(*f.Step, 'f', -1, 64)
 	}
-	if guildID != "" && (f.Type == modules.FieldTypeChannel || f.Type == modules.FieldTypeRole) {
-		if gid, err := snowflake.Parse(guildID); err == nil {
-			if f.Type == modules.FieldTypeChannel {
-				for ch := range m.client.Caches.ChannelsForGuild(gid) {
-					fr.Entities = append(fr.Entities, entityOpt{ID: ch.ID().String(), Name: ch.Name()})
-				}
-			} else {
-				for role := range m.client.Caches.Roles(gid) {
-					fr.Entities = append(fr.Entities, entityOpt{ID: role.ID.String(), Name: role.Name})
-				}
+	m.populateEntities(&fr, guildID)
+	return fr
+}
+
+// populateEntities fills channel/role/user pickers from the guild cache when a
+// guild context is set; without one the field falls back to a text input.
+func (m *DashboardModule) populateEntities(fr *fieldRender, guildID string) {
+	if guildID == "" {
+		return
+	}
+	gid, err := snowflake.Parse(guildID)
+	if err != nil {
+		return
+	}
+	switch fr.Type {
+	case modules.FieldTypeChannel:
+		for ch := range m.client.Caches.ChannelsForGuild(gid) {
+			fr.Entities = append(fr.Entities, entityOpt{ID: ch.ID().String(), Name: ch.Name()})
+		}
+	case modules.FieldTypeRole:
+		for role := range m.client.Caches.Roles(gid) {
+			fr.Entities = append(fr.Entities, entityOpt{ID: role.ID.String(), Name: role.Name})
+		}
+	case modules.FieldTypeUser:
+		for member := range m.client.Caches.Members(gid) {
+			fr.Entities = append(fr.Entities, entityOpt{ID: member.User.ID.String(), Name: member.User.Username})
+			if len(fr.Entities) >= maxMemberPicker {
+				break
 			}
-			sort.Slice(fr.Entities, func(i, j int) bool { return fr.Entities[i].Name < fr.Entities[j].Name })
 		}
 	}
-	return fr
+	sort.Slice(fr.Entities, func(i, j int) bool { return fr.Entities[i].Name < fr.Entities[j].Name })
 }
 
 // ── /permissions ──────────────────────────────────────────────────────────

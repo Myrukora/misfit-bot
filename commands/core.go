@@ -1015,6 +1015,25 @@ func strOpt(name, desc string, required bool) discord.ApplicationCommandOptionSt
 	}
 }
 
+// strOptChoices builds a string option restricted to the given choices
+// (dropdown in Discord's UI and in the dashboard's command runner).
+func strOptChoices(name, desc string, required bool, choices ...string) discord.ApplicationCommandOptionString {
+	opts := strOpt(name, desc, required)
+	for _, c := range choices {
+		opts.Choices = append(opts.Choices, discord.ApplicationCommandOptionChoiceString{Name: c, Value: c})
+	}
+	return opts
+}
+
+// userOpt builds a USER-type option (member picker in the UI).
+func userOpt(name, desc string, required bool) discord.ApplicationCommandOptionUser {
+	return discord.ApplicationCommandOptionUser{
+		Name:        name,
+		Description: desc,
+		Required:    required,
+	}
+}
+
 func registerCoreSlashCommands() {
 	for _, cmd := range CoreCommands {
 		var opts []discord.ApplicationCommandOption
@@ -1031,8 +1050,8 @@ func registerCoreSlashCommands() {
 			}
 		case "permissions":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("action", "add/remove/list", true),
-				strOpt("user_id", "User ID", false),
+				strOptChoices("action", "add/remove/list", true, "add", "remove", "list"),
+				userOpt("user_id", "User ID", false),
 			}
 		case "eval":
 			opts = []discord.ApplicationCommandOption{
@@ -1040,16 +1059,16 @@ func registerCoreSlashCommands() {
 			}
 		case "status":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("type", "playing/watching/listening/streaming/competing/custom", true),
+				strOptChoices("type", "playing/watching/listening/streaming/competing/custom", true, "playing", "watching", "listening", "streaming", "competing", "custom"),
 				strOpt("text", "Status text", true),
 			}
 		case "logs":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("action", "enable/disable", true),
+				strOptChoices("action", "enable/disable", true, "enable", "disable"),
 			}
 		case "update":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("subcommand", "check/now/status/test/set", false),
+				strOptChoices("subcommand", "check/now/status/test/set", false, "check", "now", "status", "test", "set"),
 				strOpt("key", "Config key (with set)", false),
 				strOpt("value", "Config value (with set)", false),
 			}
