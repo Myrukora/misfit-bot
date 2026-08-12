@@ -23,6 +23,98 @@ type cmdView struct {
 	Aliases        []string `json:"aliases"`
 	Usable         bool     `json:"usable"`
 	UsableIn       []string `json:"usable_in"`
+	// Options is the click-driven argument form schema, derived from the
+	// command's slash options (the same schema Discord's UI uses). Empty =
+	// free-form text arguments.
+	Options []argOpt `json:"options"`
+}
+
+// argOpt is one typed argument of a command's web Run form.
+type argOpt struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Type        string   `json:"type"` // "string" | "int" | "bool" | "channel" | "role" | "user"
+	Required    bool     `json:"required"`
+	Choices     []string `json:"choices,omitempty"`
+}
+
+// optionRequired extracts the Required flag from a typed discord option.
+func optionRequired(o discord.ApplicationCommandOption) bool {
+	switch t := o.(type) {
+	case discord.ApplicationCommandOptionString:
+		return t.Required
+	case discord.ApplicationCommandOptionInt:
+		return t.Required
+	case discord.ApplicationCommandOptionFloat:
+		return t.Required
+	case discord.ApplicationCommandOptionBool:
+		return t.Required
+	case discord.ApplicationCommandOptionChannel:
+		return t.Required
+	case discord.ApplicationCommandOptionRole:
+		return t.Required
+	case discord.ApplicationCommandOptionUser:
+		return t.Required
+	case discord.ApplicationCommandOptionMentionable:
+		return t.Required
+	default:
+		return false
+	}
+}
+
+// optionSchema converts one discord option into the web form's argOpt. A
+// subcommand becomes a required string with the subcommand names as choices
+// (matching how the slash dispatcher prepends the subcommand name to args).
+func optionSchema(o discord.ApplicationCommandOption) argOpt {
+	switch t := o.(type) {
+	case discord.ApplicationCommandOptionString:
+		a := argOpt{Name: t.Name, Description: t.Description, Type: "string", Required: t.Required}
+		for _, c := range t.Choices {
+			a.Choices = append(a.Choices, c.Value)
+		}
+		return a
+	case discord.ApplicationCommandOptionInt, discord.ApplicationCommandOptionFloat:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "int", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionBool:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "bool", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionChannel:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "channel", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionRole:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "role", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionUser, discord.ApplicationCommandOptionMentionable:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "user", Required: optionRequired(o)}
+	case discord.ApplicationCommandOptionSubCommand:
+		var names []string
+		for _, sub := range t.Options {
+			names = append(names, sub.OptionName())
+		}
+		return argOpt{Name: t.Name, Description: t.Description, Type: "string", Required: true, Choices: names}
+	case discord.ApplicationCommandOptionSubCommandGroup:
+		// Sub-command groups don't map to flat positional args; skip (the
+		// caller filters empty names).
+		return argOpt{}
+	default:
+		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "string", Required: optionRequired(o)}
+	}
+}
+
+// optionSchemas converts a command's options into web form args.
+func optionSchemas(opts []discord.ApplicationCommandOption) []argOpt {
+	if len(opts) == 0 {
+		return nil
+	}
+	out := make([]argOpt, 0, len(opts))
+	for _, o := range opts {
+		a := optionSchema(o)
+		if a.Name == "" {
+			continue // unrenderable (e.g. subcommand group)
+		}
+		out = append(out, a)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // cmdUsable computes whether a command is usable for the logged-in user and in
@@ -67,14 +159,14 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 
 	var views []cmdView
 
-	addPrefix := func(c commands.Command, owner string) {
+	addPrefix := func(c commands.Command, owner string, slashOpts []discord.ApplicationCommandOption) {
 		usable, usableIn := m.cmdUsable(c.SuperOwnerOnly, c.RequiredPerm, c.OwnerOnly, us, level)
 		aliases := append([]string{}, c.Aliases...)
 		views = append(views, cmdView{
 			Name: c.Name, Description: c.Description, Usage: c.Usage, Category: c.Category,
 			ModuleOwner: owner, Kind: "prefix", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly, Aliases: aliases,
-			Usable: usable, UsableIn: usableIn,
+			Usable: usable, UsableIn: usableIn, Options: optionSchemas(slashOpts),
 		})
 	}
 	addSlash := func(c commands.SlashCommand, owner string) {
@@ -83,12 +175,18 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			Name: c.Name, Description: c.Description, Category: c.Category,
 			ModuleOwner: owner, Kind: "slash", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly,
-			Usable: usable, UsableIn: usableIn,
+			Usable: usable, UsableIn: usableIn, Options: optionSchemas(c.Options),
 		})
 	}
 
+	// Slash twins supply the arg schema for prefix rows too (same options the
+	// Discord UI would show for the command).
+	coreSlashOpts := map[string][]discord.ApplicationCommandOption{}
+	for i := range commands.CoreSlashCommands {
+		coreSlashOpts[commands.CoreSlashCommands[i].Name] = commands.CoreSlashCommands[i].Options
+	}
 	for _, c := range commands.CoreCommands {
-		addPrefix(c, "core")
+		addPrefix(c, "core", coreSlashOpts[c.Name])
 	}
 	for _, c := range commands.CoreSlashCommands {
 		addSlash(c, "core")
@@ -99,8 +197,12 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			if !ok {
 				continue
 			}
+			modSlashOpts := map[string][]discord.ApplicationCommandOption{}
+			for i := range mod.SlashCommands() {
+				modSlashOpts[mod.SlashCommands()[i].Name] = mod.SlashCommands()[i].Options
+			}
 			for _, c := range mod.Commands() {
-				addPrefix(c, mod.Name())
+				addPrefix(c, mod.Name(), modSlashOpts[c.Name])
 			}
 			for _, c := range mod.SlashCommands() {
 				addSlash(c, mod.Name())

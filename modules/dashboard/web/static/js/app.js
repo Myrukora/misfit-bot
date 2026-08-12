@@ -410,13 +410,23 @@
   document.querySelectorAll('.run-cmd').forEach(btn => {
     btn.addEventListener('click', async () => {
       const wrap = btn.closest('.cmd-run');
-      const input = wrap.querySelector('input');
-      const channelInput = wrap.querySelector('.cmd-run-channel');
       const result = wrap.querySelector('.cmd-run-result');
       const command = wrap.dataset.command;
       const guild = wrap.dataset.guild || '';
-      const channel = channelInput ? channelInput.value.trim() : '';
-      const args = input.value.trim() ? input.value.trim().split(/\s+/) : [];
+      // Channel context: dropdown (guild selected) or free text fallback.
+      const channelEl = wrap.querySelector('.cmd-run-channel');
+      const channel = channelEl ? channelEl.value.trim() : '';
+      // Typed args: option inputs in declaration order, empty ones skipped.
+      const free = wrap.querySelector('.cmd-args-free');
+      let args = [];
+      if (free) {
+        args = free.value.trim() ? free.value.trim().split(/\s+/) : [];
+      } else {
+        wrap.querySelectorAll('.cmd-arg-input').forEach(inp => {
+          const v = inp.value.trim();
+          if (v) args.push(v);
+        });
+      }
       const restore = spin(btn);
       result.hidden = false;
       result.textContent = 'Running…';

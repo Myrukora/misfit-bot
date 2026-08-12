@@ -33,13 +33,21 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, UsableIn: []string{"1"}, Aliases: []string{"p"}},
 		{Name: "eval", Description: "shell", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
 		{Name: "settings", Description: "x", Category: "core", ModuleOwner: "core", Kind: "slash"},
+		{Name: "cleanup", Description: "clean", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usable: true, Options: []argOpt{
+			{Name: "subcommand", Type: "string", Required: true, Choices: []string{"messages", "user"}},
+			{Name: "count", Type: "int"},
+			{Name: "target", Type: "user"},
+		}},
 	}}
 	commandsGroups = append(commandsGroups, moduleGroup{Module: "core", Categories: []catGroup{cat}})
 	commandsContent["groups"] = commandsGroups
 	commandsContent["guild"] = "1"
-	commandsContent["count"] = 3
+	commandsContent["count"] = 4
 	commandsContent["mode"] = "prefix"
 	commandsContent["canRaw"] = true
+	commandsContent["channels"] = []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "staff"}}
+	commandsContent["roles"] = []entityOpt{{ID: "r1", Name: "@everyone"}}
+	commandsContent["members"] = []entityOpt{{ID: "u1", Name: "sam"}}
 
 	guildContent := &guildDetail{
 		ID: "1", Name: "G", OwnerID: "2", MemberCount: 9,

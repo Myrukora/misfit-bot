@@ -73,6 +73,7 @@ const (
 	FieldTypeSecret   = "secret"   // masked password; redacted "••••" on read
 	FieldTypeChannel  = "channel"  // Discord channel picker (guild-scoped)
 	FieldTypeRole     = "role"     // Discord role picker (guild-scoped)
+	FieldTypeUser     = "user"     // Discord member picker (guild-scoped, capped)
 )
 
 // IsWebConfigurable type-asserts a module to WebConfigurable.
