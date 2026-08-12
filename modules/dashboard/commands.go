@@ -110,16 +110,29 @@ func optionSchema(o discord.ApplicationCommandOption) argOpt {
 	}
 }
 
-// optionSchemas converts a command's options into web form args.
+// optionSchemas converts a command's options into web form args. Sibling
+// subcommand options are merged into ONE selector (the dispatcher branches on
+// ctx.Args[0], so a command with `ban` + `kick` must present a single choice).
 func optionSchemas(opts []discord.ApplicationCommandOption) []argOpt {
 	if len(opts) == 0 {
 		return nil
 	}
 	out := make([]argOpt, 0, len(opts))
+	subIdx := -1 // index of the merged subcommand selector, if any
 	for _, o := range opts {
 		a := optionSchema(o)
 		if a.Name == "" {
 			continue // unrenderable (e.g. subcommand group)
+		}
+		if a.Type == "subcommand" {
+			if subIdx < 0 {
+				out = append(out, a)
+				subIdx = len(out) - 1
+			} else {
+				out[subIdx].Choices = append(out[subIdx].Choices, a.Choices...)
+				out[subIdx].Sub = append(out[subIdx].Sub, a.Sub...)
+			}
+			continue
 		}
 		out = append(out, a)
 	}

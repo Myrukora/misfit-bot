@@ -116,6 +116,42 @@ func TestOptionSchemaTypes(t *testing.T) {
 	}
 }
 
+// TestSiblingSubcommandsMerge verifies that ban+kick-style sibling subcommand
+// options produce ONE selector (choices [ban kick]) with per-subcommand nested
+// args, so the dispatcher's ctx.Args[0] branch always receives the chosen name.
+func TestSiblingSubcommandsMerge(t *testing.T) {
+	opts := []discord.ApplicationCommandOption{
+		discord.ApplicationCommandOptionSubCommand{
+			Name: "ban", Description: "Ban a member",
+			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionUser{Name: "user", Description: "d"},
+			},
+		},
+		discord.ApplicationCommandOptionSubCommand{
+			Name: "kick", Description: "Kick a member",
+			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionUser{Name: "user", Description: "d"},
+				discord.ApplicationCommandOptionString{Name: "reason", Description: "d"},
+			},
+		},
+		discord.ApplicationCommandOptionString{Name: "quiet", Description: "d", Required: false},
+	}
+	schema := optionSchemas(opts)
+	if len(schema) != 2 {
+		t.Fatalf("len = %d, want 2 (one merged subcommand selector + quiet)", len(schema))
+	}
+	sub := schema[0]
+	if sub.Type != "subcommand" || len(sub.Choices) != 2 || sub.Choices[0] != "ban" || sub.Choices[1] != "kick" {
+		t.Fatalf("selector = %+v, want choices [ban kick]", sub)
+	}
+	if len(sub.Sub) != 2 || sub.Sub[0].Name != "ban" || sub.Sub[1].Name != "kick" {
+		t.Fatalf("Sub = %+v, want [ban kick] nested groups", sub.Sub)
+	}
+	if len(sub.Sub[0].Args) != 1 || len(sub.Sub[1].Args) != 2 {
+		t.Errorf("nested arg counts = %d/%d, want 1/2", len(sub.Sub[0].Args), len(sub.Sub[1].Args))
+	}
+}
+
 // TestSubcommandWebArgs simulates the browser form for a nested-subcommand
 // command: the dispatched args must start with the subcommand NAME, followed
 // by the selected nested arguments (mirroring the slash dispatcher).

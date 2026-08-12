@@ -10,9 +10,9 @@
   {{else if eq .Arg.Type "int"}}
     <input type="number" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
   {{else if eq .Arg.Type "bool"}}
-    <select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>
+    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option><option value="true">yes</option><option value="false">no</option></select>{{end}}
   {{else if .Arg.Choices}}
-    <select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}">{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}">{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option>{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{end}}
   {{else}}
     <input type="text" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
   {{end}}
