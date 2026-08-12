@@ -235,6 +235,10 @@
       if (wrap.dataset.owneronly === 'true') return;
       const key = wrap.dataset.key;
       const type = wrap.dataset.type;
+      // Per-field guild context: guild-scoped fields carry their server,
+      // global fields submit with an empty guild (the API rejects global
+      // keys posted with a guild).
+      const guild = wrap.dataset.guild || form.dataset.guild || '';
       let value;
       if (type === 'toggle') {
         value = field.checked ? 'true' : 'false';
@@ -245,7 +249,7 @@
       }
       // Skip secrets that were left blank (keep existing value).
       if (type === 'secret' && value === '') return;
-      tasks.push({ key, value });
+      tasks.push({ key, value, guildID: guild });
     });
     return tasks;
   }
@@ -341,8 +345,7 @@
     btn.addEventListener('click', async () => {
       const form = btn.closest('form');
       const mod = form.dataset.module;
-      const guild = form.dataset.guild || '';
-      const tasks = collectFields(form).map(t => ({ guildID: guild, key: t.key, value: t.value }));
+      const tasks = collectFields(form).map(t => ({ guildID: t.guildID, key: t.key, value: t.value }));
       const restore = spin(btn);
       try {
         for (const t of tasks) {

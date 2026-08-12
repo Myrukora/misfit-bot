@@ -1,5 +1,5 @@
 {{define "field"}}
-<div class="field" data-key="{{.Key}}" data-type="{{.Type}}"{{if .Locked}} data-owneronly="true"{{end}}>
+<div class="field" data-key="{{.Key}}" data-type="{{.Type}}" data-guild="{{.GuildID}}"{{if .Locked}} data-owneronly="true"{{end}}>
   <div class="field-label"><label>{{.Label}}</label><span class="scope scope-{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}">{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}</span></div>
   {{if .Help}}<p class="help">{{.Help}}{{if .Locked}} <em>Owner only — elevated users cannot change this.</em>{{end}}</p>{{end}}
   {{if eq .Type "toggle"}}

@@ -680,12 +680,14 @@ func init() {
 					backupFile += ".yml"
 				}
 
-				// Check for --confirm flag
+				// Check for --confirm flag (also accepts a trailing true/yes —
+				// the /backup restore confirm:true slash option and the
+				// dashboard's confirm switch both arrive as a positional arg).
 				hasConfirm := false
 				for _, arg := range ctx.Args[1:] {
-					if strings.ToLower(arg) == "--confirm" {
+					switch strings.ToLower(arg) {
+					case "--confirm", "true", "yes":
 						hasConfirm = true
-						break
 					}
 				}
 
@@ -1034,24 +1036,49 @@ func userOpt(name, desc string, required bool) discord.ApplicationCommandOptionU
 	}
 }
 
+// boolOpt builds a BOOLEAN option (yes/no switch in the UI).
+func boolOpt(name, desc string, required bool) discord.ApplicationCommandOptionBool {
+	return discord.ApplicationCommandOptionBool{
+		Name:        name,
+		Description: desc,
+		Required:    required,
+	}
+}
+
+// subOpt builds a nested subcommand option. The slash dispatcher prepends the
+// subcommand name to the dispatched args, then appends the provided options in
+// declaration order — exactly the positional args the prefix handlers expect.
+func subOpt(name, desc string, opts ...discord.ApplicationCommandOption) discord.ApplicationCommandOptionSubCommand {
+	return discord.ApplicationCommandOptionSubCommand{
+		Name:        name,
+		Description: desc,
+		Options:     opts,
+	}
+}
+
 func registerCoreSlashCommands() {
 	for _, cmd := range CoreCommands {
 		var opts []discord.ApplicationCommandOption
 
 		switch cmd.Name {
+		case "help":
+			opts = []discord.ApplicationCommandOption{
+				strOpt("command", "Command name to show details for", false),
+			}
 		case "load", "unload", "reload":
 			opts = []discord.ApplicationCommandOption{
 				strOpt("module", "Module name or 'all'", true),
 			}
 		case "set":
 			opts = []discord.ApplicationCommandOption{
-				strOpt("key", "Setting key", true),
+				strOptChoices("key", "Setting key", true, "prefix", "token", "owner_id", "name", "tos_url", "privacy_url", "log_level", "log_enabled", "dashboard_listen", "dashboard_public_url", "oauth_client_secret"),
 				strOpt("value", "Setting value", true),
 			}
 		case "permissions":
 			opts = []discord.ApplicationCommandOption{
-				strOptChoices("action", "add/remove/list", true, "add", "remove", "list"),
-				userOpt("user_id", "User ID", false),
+				subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
+				subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
+				subOpt("list", "List elevated users"),
 			}
 		case "eval":
 			opts = []discord.ApplicationCommandOption{
@@ -1066,11 +1093,25 @@ func registerCoreSlashCommands() {
 			opts = []discord.ApplicationCommandOption{
 				strOptChoices("action", "enable/disable", true, "enable", "disable"),
 			}
+		case "backup":
+			opts = []discord.ApplicationCommandOption{
+				subOpt("create", "Create a new config backup"),
+				subOpt("verify", "Validate a backup file", strOpt("filename", "Backup filename (optional .yml extension)", true)),
+				subOpt("restore", "Restore config from a backup (destructive — confirm required)", strOpt("filename", "Backup filename (optional .yml extension)", true), boolOpt("confirm", "I understand this overwrites config.yml", false)),
+				subOpt("list", "List existing backups"),
+			}
+		case "ratelimit":
+			opts = []discord.ApplicationCommandOption{
+				subOpt("status", "Check a user's rate limit status", userOpt("user", "The user", true)),
+				subOpt("reset", "Reset a user's rate limit", userOpt("user", "The user", true)),
+			}
 		case "update":
 			opts = []discord.ApplicationCommandOption{
-				strOptChoices("subcommand", "check/now/status/test/set", false, "check", "now", "status", "test", "set"),
-				strOpt("key", "Config key (with set)", false),
-				strOpt("value", "Config value (with set)", false),
+				subOpt("check", "Check for new commits"),
+				subOpt("now", "Pull, rebuild and restart the bot"),
+				subOpt("status", "Show updater status"),
+				subOpt("test", "Send sample PR + commit embeds"),
+				subOpt("set", "Set an updater config value", strOpt("key", "Config key: enabled, repo, branch, token, interval, auto_pull, notify_channel", true), strOpt("value", "Config value", true)),
 			}
 		}
 

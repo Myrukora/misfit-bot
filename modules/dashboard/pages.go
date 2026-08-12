@@ -26,8 +26,13 @@ type fieldRender struct {
 	Entities    []entityOpt // for channel/role pickers (id+name) from the cache
 	Scope       string
 	GuildScoped bool
-	OwnerOnly   bool // true: only the bot owner may edit (secrets)
-	Locked      bool // true: rendered read-only for this viewer (OwnerOnly && viewer is not the owner)
+	// GuildID is the guild context for THIS field's value: set for
+	// guild-scoped fields when a server is selected, empty for global
+	// fields (their entity pickers use the selected server only as a
+	// lookup context — see populateEntities).
+	GuildID   string
+	OwnerOnly bool // true: only the bot owner may edit (secrets)
+	Locked    bool // true: rendered read-only for this viewer (OwnerOnly && viewer is not the owner)
 }
 
 type moduleConfigView struct {
@@ -238,6 +243,15 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	level := m.resolveLevel(us)
 	guildID := r.URL.Query().Get("guild")
 
+	// No explicit guild: auto-select the first manageable server so the
+	// channel/role/user pickers have a context out of the box (instead of
+	// raw-ID text fields). The selector can switch back to "All servers".
+	if guildID == "" {
+		if mg := m.manageableGuildIDs(us); len(mg) > 0 {
+			guildID = mg[0]
+		}
+	}
+
 	if guildID != "" {
 		if !m.canManageGuild(us, guildID) {
 			http.Error(w, "403 Forbidden — you may not manage this guild", http.StatusForbidden)
@@ -261,11 +275,10 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID)
 	}
 
-	// Dashboard self-config (global only).
-	if guildID == "" {
-		if wc, ok := m.webCfg("dashboard"); ok {
-			data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, "")
-		}
+	// Dashboard self-config + module configs: global fields always (owner/
+	// elevated), guild-scoped fields merged in when a server is selected.
+	if wc, ok := m.webCfg("dashboard"); ok {
+		data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, guildID)
 	}
 
 	for _, name := range m.ctx.Bot.GetLoadedModuleNames() {
@@ -354,17 +367,30 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string) []setti
 }
 
 // buildModuleView produces the filtered, redacted field renders for a module.
+// Global fields always render for owner/elevated (per-field GuildID = "");
+// guild-scoped fields render when a server is selected. This keeps every
+// configurable field visible on one page regardless of the picker context.
 func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name string, us *userSession, level, guildID string) moduleConfigView {
-	vals, _ := m.moduleConfigRead(wc, us, guildID, level)
 	mv := moduleConfigView{Name: name}
-	for _, f := range wc.WebConfigSchema() {
-		if guildID != "" && !f.GuildScoped {
-			continue
+	// Global fields: owner/elevated only (mirrors moduleConfigRead's gate).
+	if level == lvlOwner || level == lvlElevated {
+		gvals, _ := m.moduleConfigRead(wc, us, "", level)
+		for _, f := range wc.WebConfigSchema() {
+			if f.GuildScoped {
+				continue
+			}
+			mv.Fields = append(mv.Fields, m.buildFieldRender(f, gvals[f.Key], ""))
 		}
-		if guildID == "" && f.GuildScoped {
-			continue
+	}
+	// Guild-scoped fields: rendered with the selected server as context.
+	if guildID != "" {
+		gvals, _ := m.moduleConfigRead(wc, us, guildID, level)
+		for _, f := range wc.WebConfigSchema() {
+			if !f.GuildScoped {
+				continue
+			}
+			mv.Fields = append(mv.Fields, m.buildFieldRender(f, gvals[f.Key], guildID))
 		}
-		mv.Fields = append(mv.Fields, m.buildFieldRender(f, vals[f.Key], guildID))
 	}
 	return mv
 }
@@ -384,6 +410,9 @@ func (m *DashboardModule) buildFieldRender(f modules.ConfigField, value, guildID
 		Scope:       f.Scope,
 		GuildScoped: f.GuildScoped,
 	}
+	if f.GuildScoped {
+		fr.GuildID = guildID
+	}
 	if f.Min != nil {
 		fr.Min = strconv.FormatFloat(*f.Min, 'f', -1, 64)
 	}
@@ -400,7 +429,7 @@ func (m *DashboardModule) buildFieldRender(f modules.ConfigField, value, guildID
 // populateEntities fills channel/role/user pickers from the guild cache when a
 // guild context is set; without one the field falls back to a text input.
 func (m *DashboardModule) populateEntities(fr *fieldRender, guildID string) {
-	if guildID == "" {
+	if guildID == "" || m.client == nil {
 		return
 	}
 	gid, err := snowflake.Parse(guildID)
