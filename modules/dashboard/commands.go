@@ -27,6 +27,10 @@ type cmdView struct {
 	// command's slash options (the same schema Discord's UI uses). Empty =
 	// free-form text arguments.
 	Options []argOpt `json:"options"`
+	// FreeArgs is true when the command takes arguments but has no option
+	// schema: render the free-text fallback box. Zero-arg commands render
+	// neither (Run executes with no arguments).
+	FreeArgs bool `json:"free_args"`
 }
 
 // argOpt is one typed argument of a command's web Run form.
@@ -174,6 +178,13 @@ func (m *DashboardModule) cmdUsable(superOnly bool, reqPerm discord.Permissions,
 	return len(usableIn) > 0, usableIn
 }
 
+// freeArgsNeeded reports whether a command without an option schema still
+// takes untyped positional arguments (usage contains <arg> or [opt]
+// placeholders). Zero-arg commands render neither a form nor a free-text box.
+func freeArgsNeeded(usage string, hasOptions bool) bool {
+	return !hasOptions && strings.ContainsAny(usage, "<[")
+}
+
 // buildCommandCatalog builds the raw catalog (every command). Caller filters to
 // those usable by the user unless `raw` is requested by an elevated/owner user.
 func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
@@ -192,6 +203,7 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			ModuleOwner: owner, Kind: "prefix", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly, Aliases: aliases,
 			Usable: usable, UsableIn: usableIn, Options: optionSchemas(slashOpts),
+			FreeArgs: freeArgsNeeded(c.Usage, len(slashOpts) > 0),
 		})
 	}
 	addSlash := func(c commands.SlashCommand, owner string) {
@@ -201,6 +213,8 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			ModuleOwner: owner, Kind: "slash", RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly,
 			Usable: usable, UsableIn: usableIn, Options: optionSchemas(c.Options),
+			// Slash commands can't carry untyped args — no free-text box.
+			FreeArgs: false,
 		})
 	}
 

@@ -76,7 +76,7 @@
           {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}
           {{end}}
           {{end}}
-          {{else}}
+          {{else if .FreeArgs}}
           <input type="text" class="cfg-field cmd-args-free" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
           {{end}}
           <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
