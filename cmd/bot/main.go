@@ -478,14 +478,24 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		return
 	}
 
+	// Defer the interaction FIRST: slash commands may do slow REST work
+	// (e.g. cleanup's bulk deletes) and Discord only allows ~3 seconds for
+	// the initial callback. All responses below go out as follow-up messages
+	// on the deferred "thinking" response; error embeds are auto-deleted by
+	// removing their follow-up message after the usual delay.
+	if err := event.DeferCreateMessage(false); err != nil {
+		Log.Error("Failed to defer slash command /%s: %v", cmdName, err)
+		return
+	}
+
 	// Auto-delete: only error-colored (red) embeds vanish, after 7s. Every
 	// other slash response (success/info/warning/usage/plain text) stays.
-	scheduleInteractionAutoDelete := func(embeds []discord.Embed) {
+	scheduleInteractionAutoDelete := func(embeds []discord.Embed, msgID snowflake.ID) {
 		if !isErrorResponse(embeds) {
 			return
 		}
 		time.AfterFunc(errorAutoDeleteDelay, func() {
-			_ = Client.Rest.DeleteInteractionResponse(event.Client().ApplicationID, event.Token())
+			_ = Client.Rest.DeleteFollowupMessage(event.Client().ApplicationID, event.Token(), msgID)
 		})
 	}
 
@@ -497,17 +507,17 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		Args:      args,
 		IsSlash:   true,
 		Respond: func(embeds ...discord.Embed) error {
-			err := event.Respond(discord.InteractionResponseTypeCreateMessage, discord.MessageCreate{Embeds: embeds})
+			msg, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{Embeds: embeds})
 			if err != nil {
 				Log.Error("Slash command respond failed for /%s: %v", cmdName, err)
 			} else {
-				scheduleInteractionAutoDelete(embeds)
+				scheduleInteractionAutoDelete(embeds, msg.ID)
 			}
 			return err
 		},
 		ReplyText: func(text string) error {
 			// Plain-text replies aren't error embeds, so they never auto-delete.
-			err := event.Respond(discord.InteractionResponseTypeCreateMessage, discord.MessageCreate{
+			_, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{
 				Content: text,
 			})
 			if err != nil {

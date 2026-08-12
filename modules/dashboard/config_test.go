@@ -78,11 +78,12 @@ func TestOptionSchemaTypes(t *testing.T) {
 		{"role", discord.ApplicationCommandOptionRole{Name: "r", Description: "d", Required: false}, "role", false, nil},
 		{"user", discord.ApplicationCommandOptionUser{Name: "u", Description: "d", Required: true}, "user", true, nil},
 		{"subcommand", discord.ApplicationCommandOptionSubCommand{
-			Name: "sub", Description: "d",
+			Name: "ban", Description: "d",
 			Options: []discord.ApplicationCommandOption{
-				discord.ApplicationCommandOptionString{Name: "x", Description: "d"},
+				discord.ApplicationCommandOptionUser{Name: "user", Description: "d"},
+				discord.ApplicationCommandOptionString{Name: "reason", Description: "d"},
 			},
-		}, "string", true, []string{"x"}},
+		}, "subcommand", true, []string{"ban"}},
 	}
 	for _, c := range cases {
 		got := optionSchema(c.opt)
@@ -104,6 +105,56 @@ func TestOptionSchemaTypes(t *testing.T) {
 				}
 			}
 		}
+		if c.name == "subcommand" {
+			if len(got.Sub) != 1 || got.Sub[0].Name != "ban" {
+				t.Fatalf("subcommand: Sub = %+v, want [{ban ...}]", got.Sub)
+			}
+			if len(got.Sub[0].Args) != 2 || got.Sub[0].Args[0].Type != "user" || got.Sub[0].Args[1].Type != "string" {
+				t.Errorf("subcommand: nested args = %+v, want [user, string]", got.Sub[0].Args)
+			}
+		}
+	}
+}
+
+// TestSubcommandWebArgs simulates the browser form for a nested-subcommand
+// command: the dispatched args must start with the subcommand NAME, followed
+// by the selected nested arguments (mirroring the slash dispatcher).
+func TestSubcommandWebArgs(t *testing.T) {
+	opts := []discord.ApplicationCommandOption{
+		discord.ApplicationCommandOptionSubCommand{
+			Name: "ban", Description: "Ban a member",
+			Options: []discord.ApplicationCommandOption{
+				discord.ApplicationCommandOptionUser{Name: "user", Description: "d"},
+				discord.ApplicationCommandOptionString{Name: "reason", Description: "d"},
+			},
+		},
+	}
+	schema := optionSchemas(opts)
+	if len(schema) != 1 || schema[0].Type != "subcommand" || schema[0].Choices[0] != "ban" {
+		t.Fatalf("schema = %+v, want subcommand selector with choice 'ban'", schema)
+	}
+	// Browser collection: subcommand select value first, then the active
+	// group's non-empty inputs (app.js behavior).
+	selected := map[string]string{"subcommand": "ban", "user": "123", "reason": ""}
+	var args []string
+	for _, item := range schema {
+		if v, ok := selected[item.Name]; ok && v != "" {
+			args = append(args, v)
+		}
+		for _, sub := range item.Sub {
+			if sub.Name != selected[item.Name] {
+				continue
+			}
+			for _, nested := range sub.Args {
+				if v := selected[nested.Name]; v != "" {
+					args = append(args, v)
+				}
+			}
+		}
+	}
+	want := []string{"ban", "123"}
+	if len(args) != len(want) || args[0] != want[0] || args[1] != want[1] {
+		t.Fatalf("args = %v, want %v (subcommand name first, then nested)", args, want)
 	}
 }
 

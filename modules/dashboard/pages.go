@@ -103,9 +103,9 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		"canRaw": d.IsOwner || d.IsElevated,
 	}
 	// Picker entity lists for the click-driven Run forms (channels, roles,
-	// members) — populated only when a guild is selected so the dropdowns
-	// resolve against real cached entities.
-	if guildID != "" {
+	// members) — populated only when a guild is selected AND the user shares
+	// it with the bot, so cached entity names don't leak to non-members.
+	if guildID != "" && m.canViewGuildEntities(us, guildID) {
 		if detail, err := m.buildGuildDetail(guildID); err == nil {
 			content["channels"] = detail.Channels
 			roles := make([]entityOpt, 0, len(detail.Roles))
@@ -120,6 +120,21 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	}
 	d.Content = content
 	m.tmpl.render(w, "commands", d)
+}
+
+// canViewGuildEntities reports whether the session may see a guild's cached
+// entities (channels/roles/members) on the commands page: the user must share
+// the guild with the bot.
+func (m *DashboardModule) canViewGuildEntities(us *userSession, guildID string) bool {
+	if us == nil {
+		return false
+	}
+	for _, g := range m.mutualGuildIDs(us) {
+		if g == guildID {
+			return true
+		}
+	}
+	return false
 }
 
 // maxMemberPicker caps the member dropdown rendered for a guild; beyond this

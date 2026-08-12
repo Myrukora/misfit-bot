@@ -33,9 +33,18 @@ type cmdView struct {
 type argOpt struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
-	Type        string   `json:"type"` // "string" | "int" | "bool" | "channel" | "role" | "user"
+	Type        string   `json:"type"` // "string" | "int" | "bool" | "channel" | "role" | "user" | "subcommand"
 	Required    bool     `json:"required"`
 	Choices     []string `json:"choices,omitempty"`
+	// Sub is set for Type == "subcommand": the nested arguments of each
+	// subcommand. Choices holds the subcommand names.
+	Sub []subArg `json:"sub,omitempty"`
+}
+
+// subArg is one subcommand's nested argument schema.
+type subArg struct {
+	Name string   `json:"name"`
+	Args []argOpt `json:"args"`
 }
 
 // optionRequired extracts the Required flag from a typed discord option.
@@ -84,11 +93,14 @@ func optionSchema(o discord.ApplicationCommandOption) argOpt {
 	case discord.ApplicationCommandOptionUser, discord.ApplicationCommandOptionMentionable:
 		return argOpt{Name: o.OptionName(), Description: o.OptionDescription(), Type: "user", Required: optionRequired(o)}
 	case discord.ApplicationCommandOptionSubCommand:
-		var names []string
-		for _, sub := range t.Options {
-			names = append(names, sub.OptionName())
-		}
-		return argOpt{Name: t.Name, Description: t.Description, Type: "string", Required: true, Choices: names}
+		// A subcommand is one choice of the subcommand selector; its nested
+		// options become the args shown once that subcommand is picked. The
+		// dispatched args are [subcommandName, ...nestedArgs] — matching the
+		// slash dispatcher's SubCommandName-first conversion.
+		a := argOpt{Name: "subcommand", Description: t.Description, Type: "subcommand", Required: true}
+		a.Sub = append(a.Sub, subArg{Name: t.Name, Args: optionSchemas(t.Options)})
+		a.Choices = append(a.Choices, t.Name)
+		return a
 	case discord.ApplicationCommandOptionSubCommandGroup:
 		// Sub-command groups don't map to flat positional args; skip (the
 		// caller filters empty names).

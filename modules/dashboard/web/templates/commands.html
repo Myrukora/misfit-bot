@@ -1,3 +1,23 @@
+{{define "cmdarg"}}
+<div class="cmd-arg" data-arg="{{.Arg.Name}}">
+  <label class="cmd-arg-label" title="{{.Arg.Description}}">{{.Arg.Name}}{{if .Arg.Required}} <em>*</em>{{end}}</label>
+  {{if eq .Arg.Type "channel"}}
+    {{if .Ctx.channels}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="channel ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "role"}}
+    {{if .Ctx.roles}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="role ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "user"}}
+    {{if .Ctx.members}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.members}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="user ID" aria-label="{{.Arg.Name}}">{{end}}
+  {{else if eq .Arg.Type "int"}}
+    <input type="number" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
+  {{else if eq .Arg.Type "bool"}}
+    <select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>
+  {{else if .Arg.Choices}}
+    <select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}">{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>
+  {{else}}
+    <input type="text" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
+  {{end}}
+</div>
+{{end}}
 {{define "commands"}}{{template "header" .}}
 <h2>Commands</h2>
 <div class="toolbar">
@@ -40,24 +60,21 @@
           {{end}}
           {{if .Options}}
           {{range .Options}}
-          <div class="cmd-arg" data-arg="{{.Name}}">
-            <label class="cmd-arg-label" title="{{.Description}}">{{.Name}}{{if .Required}} <em>*</em>{{end}}</label>
-            {{if eq .Type "channel"}}
-              {{if $.Content.channels}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range $.Content.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="channel ID" aria-label="{{.Name}}">{{end}}
-            {{else if eq .Type "role"}}
-              {{if $.Content.roles}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range $.Content.roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="role ID" aria-label="{{.Name}}">{{end}}
-            {{else if eq .Type "user"}}
-              {{if $.Content.members}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range $.Content.members}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="user ID" aria-label="{{.Name}}">{{end}}
-            {{else if eq .Type "int"}}
-              <input type="number" class="cfg-field cmd-arg-input" placeholder="{{.Description}}" aria-label="{{.Name}}">
-            {{else if eq .Type "bool"}}
-              <select class="cfg-field cmd-arg-input" aria-label="{{.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>
-            {{else if .Choices}}
-              <select class="cfg-field cmd-arg-input" aria-label="{{.Name}}">{{range .Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>
-            {{else}}
-              <input type="text" class="cfg-field cmd-arg-input" placeholder="{{.Description}}" aria-label="{{.Name}}">
+          {{if eq .Type "subcommand"}}
+          <div class="cmd-arg cmd-sub" data-arg="{{.Name}}">
+            <label class="cmd-arg-label" title="{{.Description}}">subcommand{{if .Required}} <em>*</em>{{end}}</label>
+            <select class="cfg-field cmd-arg-input cmd-sub-select" aria-label="subcommand">
+              {{range .Choices}}<option value="{{.}}">{{.}}</option>{{end}}
+            </select>
+            {{range .Sub}}
+            <div class="cmd-sub-group" data-sub="{{.Name}}">
+              {{range .Args}}{{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}{{end}}
+            </div>
             {{end}}
           </div>
+          {{else}}
+          {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}
+          {{end}}
           {{end}}
           {{else}}
           <input type="text" class="cfg-field cmd-args-free" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
