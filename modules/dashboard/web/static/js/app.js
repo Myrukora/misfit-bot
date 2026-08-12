@@ -239,7 +239,7 @@
       if (type === 'toggle') {
         value = field.checked ? 'true' : 'false';
       } else if (type === 'multi') {
-        value = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value).join(',');
+        value = Array.from(wrap.querySelectorAll('.multi input:checked')).map(c => c.value).join('\n');
       } else {
         value = field.value;
       }

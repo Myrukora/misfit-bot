@@ -63,12 +63,15 @@ func dict(kv ...any) map[string]any {
 	return m
 }
 
-// csvContains reports whether opt appears in the comma-separated csv value
-// (used to render multi-select checkboxes).
+// csvContains reports whether opt appears in the multi-select value (options
+// are separated by commas or newlines — newlines let values contain commas,
+// e.g. the dashboard's "Guild Name, Inc. (id)" allowed-guild labels).
 func csvContains(csv, opt string) bool {
-	for _, p := range strings.Split(csv, ",") {
-		if strings.TrimSpace(p) == opt {
-			return true
+	for _, sep := range []string{",", "\n"} {
+		for _, p := range strings.Split(csv, sep) {
+			if strings.TrimSpace(p) == opt {
+				return true
+			}
 		}
 	}
 	return false

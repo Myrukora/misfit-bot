@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
@@ -224,5 +225,29 @@ func TestParseGuildLabels(t *testing.T) {
 		if got[i] != want[i] {
 			t.Errorf("[%d] = %q, want %q", i, got[i], want[i])
 		}
+	}
+}
+
+// TestAllowedGuildsLabelRoundTrip covers the web save path for labels whose
+// guild NAMES contain commas: the newline-separated wire format must keep each
+// label intact and extract exactly the trailing ID.
+func TestAllowedGuildsLabelRoundTrip(t *testing.T) {
+	wire := "Dev, Ops (123456789012345678)\nMisfit's Tavern (876543210987654321)"
+	var labels []string
+	for _, part := range strings.Split(wire, "\n") {
+		if part = strings.TrimSpace(part); part != "" {
+			labels = append(labels, part)
+		}
+	}
+	ids := parseGuildLabels(labels)
+	want := []string{"123456789012345678", "876543210987654321"}
+	if len(ids) != len(want) || ids[0] != want[0] || ids[1] != want[1] {
+		t.Fatalf("ids = %v, want %v (comma inside guild name must not split the label)", ids, want)
+	}
+	// The generic Set path then splits the comma-joined IDs — IDs never
+	// contain commas, so the stored allowlist round-trips exactly.
+	joined := strings.Join(ids, ",")
+	if got := strings.FieldsFunc(joined, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '	' }); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("Set-split = %v, want %v", got, want)
 	}
 }

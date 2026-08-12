@@ -595,7 +595,7 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 	v := map[string]string{
 		"client_id":      cfg.ClientID,
 		"session_secret": redactedIfSet(cfg.SessionSecret),
-		"allowed_guilds": strings.Join(m.guildLabels(cfg.AllowedGuilds), ", "),
+		"allowed_guilds": strings.Join(m.guildLabels(cfg.AllowedGuilds), "\n"),
 		"exec_mode":      cfg.ExecMode,
 	}
 	return v, nil
@@ -691,9 +691,10 @@ func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 		m.sessions.clear() // invalidate existing sessions (secret changed)
 		return nil
 	case "allowed_guilds":
-		// Web UI sends "Name (ID)" labels (comma-joined); convert back to IDs
-		// before the generic Set path (which splits on comma/space).
-		value = strings.Join(parseGuildLabels(strings.Split(value, ",")), ",")
+		// Web UI sends "Name (ID)" labels, newline-separated (newline keeps
+		// commas legal inside guild names); convert back to IDs before the
+		// generic Set path (which splits on comma/space).
+		value = strings.Join(parseGuildLabels(strings.Split(value, "\n")), ",")
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
