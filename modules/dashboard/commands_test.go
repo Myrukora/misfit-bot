@@ -89,3 +89,25 @@ func TestDedupeForModeOrderAndDupes(t *testing.T) {
 		t.Errorf("a kind = %q, want prefix (preferred even though slash came first)", out[0].Kind)
 	}
 }
+
+func TestDedupeForModeMatchesDispatchPrecedence(t *testing.T) {
+	// Registration order mirrors ExecuteCommand's resolution precedence:
+	// core prefix, core slash, then modules in load order. A module named
+	// "cleanup" sorts BEFORE "core" lexically, so a presentation-order dedupe
+	// would pick the module's "ping" while Run executes core's — dedupeForMode
+	// must follow dispatch order, not lexical owner order.
+	views := []cmdView{
+		{Name: "ping", Kind: "prefix", ModuleOwner: "core"},
+		{Name: "ping", Kind: "slash", ModuleOwner: "core"},
+		{Name: "ping", Kind: "prefix", ModuleOwner: "cleanup"},
+		{Name: "ping", Kind: "slash", ModuleOwner: "cleanup"},
+	}
+	out := dedupeForMode(views, "prefix")
+	if len(out) != 1 || out[0].ModuleOwner != "core" || out[0].Kind != "prefix" {
+		t.Fatalf("prefix mode: got %+v, want core prefix ping", out)
+	}
+	out = dedupeForMode(views, "slash")
+	if len(out) != 1 || out[0].ModuleOwner != "core" || out[0].Kind != "slash" {
+		t.Fatalf("slash mode: got %+v, want core slash ping", out)
+	}
+}

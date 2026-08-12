@@ -23,8 +23,9 @@ type DashboardConfig struct {
 	AllowedGuilds []string `yaml:"allowed_guilds"`
 	// ExecMode picks which command implementation the dashboard's Run button
 	// executes and which kind the commands tab displays: "prefix" (default) or
-	// "slash". Prefix works without Discord's Message Content intent; slash
-	// mirrors what users type in Discord natively.
+	// "slash". Prefix text commands REQUIRE Discord's Message Content intent
+	// to be usable in Discord; slash works without it and mirrors what users
+	// type natively.
 	ExecMode string `yaml:"exec_mode"`
 }
 
@@ -62,7 +63,7 @@ func loadConfig(dir string) (*DashboardConfig, error) {
 	if c.AllowedGuilds == nil {
 		c.AllowedGuilds = []string{}
 	}
-	if c.ExecMode == "" {
+	if c.ExecMode != "slash" {
 		c.ExecMode = "prefix"
 	}
 	return c, nil

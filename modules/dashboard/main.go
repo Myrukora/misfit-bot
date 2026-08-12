@@ -576,7 +576,7 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
 		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of guild IDs. Comma or whitespace separated. Empty = allow all bot guilds.", Type: modules.FieldTypeTextarea, Scope: "global"},
-		{Key: "exec_mode", Label: "Command execution way", Help: "Which command implementation the Run buttons and commands tab use: prefix (text commands, works without Message Content intent) or slash (matches Discord's native UI).", Type: modules.FieldTypeSelect, Options: []string{"prefix", "slash"}, Scope: "global"},
+		{Key: "exec_mode", Label: "Command execution way", Help: "Which command implementation the Run buttons and commands tab use: prefix (text commands; requires Discord's Message Content intent) or slash (works without the intent, matches Discord's native UI).", Type: modules.FieldTypeSelect, Options: []string{"prefix", "slash"}, Scope: "global"},
 	}
 }
 

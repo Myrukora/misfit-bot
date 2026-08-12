@@ -108,7 +108,17 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 		}
 	}
 
-	// stable order: module owner, then category, then name
+	// NOT sorted here on purpose: the registration order mirrors
+	// ExecuteCommand's resolution precedence (core prefix, core slash, then
+	// modules in load order), and dedupeForMode relies on it to pick the same
+	// command the Run button would actually execute. Presentation sorting
+	// happens in filterCatalog AFTER dedupe.
+	return views
+}
+
+// sortViews orders the catalog for presentation: module owner, then category,
+// then name.
+func sortViews(views []cmdView) {
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].ModuleOwner != views[j].ModuleOwner {
 			return views[i].ModuleOwner < views[j].ModuleOwner
@@ -118,7 +128,6 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 		}
 		return views[i].Name < views[j].Name
 	})
-	return views
 }
 
 // filterCatalog hides unusable commands unless the caller is elevated+ and
@@ -131,7 +140,10 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 	if us != nil {
 		level = m.resolveLevel(us)
 	}
+	// Dedupe on the registration order (dispatch precedence) so the displayed
+	// entry is the one ExecuteCommand resolves, then sort for presentation.
 	all := dedupeForMode(m.buildCommandCatalog(us), m.execMode())
+	sortViews(all)
 	includeAll := raw && (level == lvlOwner || level == lvlElevated)
 
 	out := make([]cmdView, 0, len(all))
