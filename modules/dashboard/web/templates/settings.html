@@ -4,7 +4,7 @@
 <div class="toolbar">
   <p class="muted">Channel / role / user pickers below populate from the selected server.</p>
   {{if gt (len $.Guilds) 0}}<select class="cfg-field" aria-label="Server for pickers" onchange="location.href='/settings?guild='+encodeURIComponent(this.value)">
-    <option value="">All servers (type IDs)</option>
+    <option value="all">All servers (type IDs)</option>
     {{range $.Guilds}}<option value="{{.ID}}" {{if eq $.Content.GuildID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
   </select>{{end}}
 </div>

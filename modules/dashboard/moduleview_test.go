@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/custombot/bot/modules"
@@ -41,6 +42,32 @@ func (mockWebConfig) WebGetConfig(guildID string) (map[string]string, error) {
 	return map[string]string{"global_key": "g", "guild_key": "x"}, nil
 }
 func (mockWebConfig) WebSetConfig(guildID, key, value string) error { return nil }
+
+// TestFieldDataGuildPins the per-field data-guild attribute contract that the
+// JS collectFields nullish fallback relies on: global fields render an
+// EXPLICIT empty data-guild (so they submit guildID="" even inside a form
+// with a selected guild), guild-scoped fields carry their guild.
+func TestFieldDataGuildPins(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	render := func(fr fieldRender) string {
+		var sb strings.Builder
+		if err := b.tmpl.ExecuteTemplate(&sb, "field", fr); err != nil {
+			t.Fatalf("field partial: %v", err)
+		}
+		return sb.String()
+	}
+	global := render(fieldRender{Key: "g", Label: "Global", Type: "text", Value: "x"})
+	if !strings.Contains(global, `data-guild=""`) {
+		t.Errorf("global field must render explicit data-guild=\"\", got: %s", global)
+	}
+	guildScoped := render(fieldRender{Key: "gs", Label: "Guild", Type: "text", Value: "y", GuildScoped: true, GuildID: "123"})
+	if !strings.Contains(guildScoped, `data-guild="123"`) {
+		t.Errorf("guild-scoped field must render data-guild=\"123\", got: %s", guildScoped)
+	}
+}
 
 // TestBuildModuleViewGlobalOwner pins that global fields render for
 // owner/elevated WITHOUT a guild selected (the settings page must keep the

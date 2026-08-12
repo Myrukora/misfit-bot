@@ -146,7 +146,11 @@ func TestCoreSlashSetKeyChoices(t *testing.T) {
 	for _, c := range s.Choices {
 		found[c.Value] = true
 	}
-	for _, want := range []string{"prefix", "token", "owner_id", "log_level", "dashboard_listen", "oauth_client_secret"} {
+	// Full config.Set key list (config/config.go Set) — the dropdown must
+	// not omit valid keys (Lemma review: curated subsets mislead owners).
+	for _, want := range []string{"prefix", "token", "owner_id", "log_level", "dashboard_listen", "oauth_client_secret",
+		"log_file_path", "modules_auto_load", "updater_enabled", "updater_repo", "updater_branch",
+		"updater_token", "updater_interval", "updater_auto_pull", "updater_notify_channel"} {
 		if !found[want] {
 			t.Errorf("set key choices missing %q", want)
 		}

@@ -236,9 +236,10 @@
       const key = wrap.dataset.key;
       const type = wrap.dataset.type;
       // Per-field guild context: guild-scoped fields carry their server,
-      // global fields submit with an empty guild (the API rejects global
-      // keys posted with a guild).
-      const guild = wrap.dataset.guild || form.dataset.guild || '';
+      // global fields render data-guild="" (empty string) — nullish
+      // fallback keeps that explicit empty, so global fields always submit
+      // an empty guildID (the API rejects global keys posted with a guild).
+      const guild = wrap.dataset.guild ?? form.dataset.guild ?? '';
       let value;
       if (type === 'toggle') {
         value = field.checked ? 'true' : 'false';

@@ -683,8 +683,11 @@ func init() {
 				// Check for --confirm flag (also accepts a trailing true/yes —
 				// the /backup restore confirm:true slash option and the
 				// dashboard's confirm switch both arrive as a positional arg).
+				// Scan from Args[2:] so the filename itself (Args[1]) can never
+				// be mistaken for confirmation (backup restore true would
+				// otherwise restore "true.yml" without --confirm).
 				hasConfirm := false
-				for _, arg := range ctx.Args[1:] {
+				for _, arg := range ctx.Args[2:] {
 					switch strings.ToLower(arg) {
 					case "--confirm", "true", "yes":
 						hasConfirm = true
@@ -1071,7 +1074,7 @@ func registerCoreSlashCommands() {
 			}
 		case "set":
 			opts = []discord.ApplicationCommandOption{
-				strOptChoices("key", "Setting key", true, "prefix", "token", "owner_id", "name", "tos_url", "privacy_url", "log_level", "log_enabled", "dashboard_listen", "dashboard_public_url", "oauth_client_secret"),
+				strOptChoices("key", "Setting key (full config.Set list)", true, "prefix", "token", "owner_id", "name", "tos_url", "privacy_url", "log_level", "log_enabled", "log_file_path", "modules_auto_load", "dashboard_listen", "dashboard_public_url", "oauth_client_secret", "updater_enabled", "updater_repo", "updater_branch", "updater_token", "updater_interval", "updater_auto_pull", "updater_notify_channel"),
 				strOpt("value", "Setting value", true),
 			}
 		case "permissions":
