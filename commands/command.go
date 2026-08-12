@@ -38,7 +38,7 @@ type Context struct {
 	Author    discord.User
 	Args      []string
 	IsSlash   bool
-	Web       bool // true: invoked from the web dashboard (virtual context)
+	Web       bool   // true: invoked from the web dashboard (virtual context)
 	MessageID string // invoking message ID (prefix commands only; "" for slash)
 	Respond   func(embeds ...discord.Embed) error
 	ReplyText func(text string) error
@@ -124,9 +124,20 @@ type Interface interface {
 	// Discord dispatcher: SuperOwnerOnly commands are ALWAYS denied from the
 	// web; OwnerOnly requires the requesting user to be owner or elevated.
 	// channelID is optional ("" = no channel context); when set it must be a
-	// cached channel of guildID.
-	ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error)
+	// cached channel of guildID. kind selects which implementation wins when
+	// both prefix and slash exist for a name: ExecKindPrefix (default) or
+	// ExecKindSlash; commands that only exist in the other kind still resolve.
+	ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (CommandResult, error)
 }
+
+// ExecKind values select which command implementation ExecuteCommand resolves
+// first. Prefix mode mirrors the prefix dispatcher; slash mode prefers the
+// slash implementations (falling back to prefix for commands that only exist
+// in prefix form).
+const (
+	ExecKindPrefix = "prefix"
+	ExecKindSlash  = "slash"
+)
 
 var CoreCommands []Command
 var CoreSlashCommands []SlashCommand

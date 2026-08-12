@@ -126,6 +126,8 @@ The web dashboard runs in-process as a module. Setup:
 
 Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `[p]help`).
 
+The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). The **Command execution way** setting (dashboard module settings, default `prefix`) picks which implementation is shown and executed: `prefix` runs text-command logic (works without the Message Content intent), `slash` prefers the slash implementations and mirrors what users type in Discord. Commands that only exist in one form work regardless of the setting.
+
 ## Project Structure
 
 ```

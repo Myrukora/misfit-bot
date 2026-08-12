@@ -99,6 +99,7 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		"groups": groupCommands(views),
 		"guild":  guildID,
 		"count":  len(views),
+		"mode":   m.execMode(),
 		"canRaw": d.IsOwner || d.IsElevated,
 	}
 	m.tmpl.render(w, "commands", d)

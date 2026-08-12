@@ -38,6 +38,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsContent["groups"] = commandsGroups
 	commandsContent["guild"] = "1"
 	commandsContent["count"] = 3
+	commandsContent["mode"] = "prefix"
 	commandsContent["canRaw"] = true
 
 	guildContent := &guildDetail{

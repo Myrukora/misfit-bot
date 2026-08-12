@@ -122,13 +122,16 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 }
 
 // filterCatalog hides unusable commands unless the caller is elevated+ and
-// requests `raw` (e.g. an elevated user inspecting super-owner commands).
+// requests `raw` (e.g. an elevated user inspecting super-owner commands), and
+// collapses the catalog to ONE entry per command name — the configured
+// execution way (prefix/slash) wins, with a fallback to the other kind for
+// commands that only exist in one form.
 func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, guildID string) []cmdView {
 	level := lvlRegular
 	if us != nil {
 		level = m.resolveLevel(us)
 	}
-	all := m.buildCommandCatalog(us)
+	all := dedupeForMode(m.buildCommandCatalog(us), m.execMode())
 	includeAll := raw && (level == lvlOwner || level == lvlElevated)
 
 	out := make([]cmdView, 0, len(all))
@@ -142,6 +145,47 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 		}
 		c.Usable = usable
 		out = append(out, c)
+	}
+	return out
+}
+
+// dedupeForMode collapses a catalog to one entry per command name, preferring
+// the given execution kind ("prefix" or "slash"). Commands that only exist in
+// the other kind keep their entry, so nothing disappears from the catalog.
+// Order follows the first occurrence of each name in views.
+func dedupeForMode(views []cmdView, mode string) []cmdView {
+	type pick struct {
+		pref, fallback cmdView
+		hasPref        bool
+		hasFallback    bool
+	}
+	var order []string
+	byName := map[string]*pick{}
+	for _, v := range views {
+		p, ok := byName[v.Name]
+		if !ok {
+			p = &pick{}
+			byName[v.Name] = p
+			order = append(order, v.Name)
+		}
+		if v.Kind == mode {
+			if !p.hasPref {
+				p.pref = v
+				p.hasPref = true
+			}
+		} else if !p.hasFallback {
+			p.fallback = v
+			p.hasFallback = true
+		}
+	}
+	out := make([]cmdView, 0, len(order))
+	for _, name := range order {
+		p := byName[name]
+		if p.hasPref {
+			out = append(out, p.pref)
+		} else {
+			out = append(out, p.fallback)
+		}
 	}
 	return out
 }
