@@ -411,15 +411,17 @@
     btn.addEventListener('click', async () => {
       const wrap = btn.closest('.cmd-run');
       const input = wrap.querySelector('input');
+      const channelInput = wrap.querySelector('.cmd-run-channel');
       const result = wrap.querySelector('.cmd-run-result');
       const command = wrap.dataset.command;
       const guild = wrap.dataset.guild || '';
+      const channel = channelInput ? channelInput.value.trim() : '';
       const args = input.value.trim() ? input.value.trim().split(/\s+/) : [];
       const restore = spin(btn);
       result.hidden = false;
       result.textContent = 'Running…';
       try {
-        const r = await req('POST', '/api/exec', { command, args, guild });
+        const r = await req('POST', '/api/exec', { command, args, guild, channel });
         let out = '';
         if (r.text) out = r.text;
         else if (r.title || r.description) out = (r.title ? '[' + r.title + ']\n' : '') + (r.description || '');

@@ -576,6 +576,7 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
 		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of guild IDs. Comma or whitespace separated. Empty = allow all bot guilds.", Type: modules.FieldTypeTextarea, Scope: "global"},
+		{Key: "exec_mode", Label: "Command execution way", Help: "Which command implementation the Run buttons and commands tab use: prefix (text commands; requires Discord's Message Content intent) or slash (works without the intent, matches Discord's native UI).", Type: modules.FieldTypeSelect, Options: []string{"prefix", "slash"}, Scope: "global"},
 	}
 }
 
@@ -594,8 +595,20 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 		"client_id":      cfg.ClientID,
 		"session_secret": redactedIfSet(cfg.SessionSecret),
 		"allowed_guilds": strings.Join(cfg.AllowedGuilds, ", "),
+		"exec_mode":      cfg.ExecMode,
 	}
 	return v, nil
+}
+
+// execMode returns the configured command execution way ("prefix" or "slash"),
+// defaulting to prefix when unset or invalid.
+func (m *DashboardModule) execMode() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg.ExecMode == "slash" {
+		return "slash"
+	}
+	return "prefix"
 }
 
 // WebSetConfig applies one WebConfigurable field to the dashboard config.

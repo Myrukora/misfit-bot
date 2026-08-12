@@ -364,7 +364,7 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 		writeError(w, http.StatusBadRequest, "command required")
 		return
 	}
-	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
+	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String(), m.execMode())
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, commands.ErrWebForbidden) || errors.Is(err, commands.ErrInsufficientPerm) {

@@ -1124,7 +1124,7 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 // The Discord rate limiter is intentionally NOT applied here: the web already
 // has auth + CSRF + per-command permission checks, and sharing the command
 // budget between Discord and the web would let Discord spam block the UI.
-func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (commands.CommandResult, error) {
+func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (commands.CommandResult, error) {
 	var res commands.CommandResult
 	if asUserID == "" {
 		return res, fmt.Errorf("no user specified")
@@ -1147,41 +1147,57 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		}
 	}
 
-	// Resolve the command exactly like the prefix dispatcher: core prefix
-	// commands (by name or alias), then core slash commands, then modules.
-	// Prefix and slash commands carry the same permission fields, so both are
-	// flattened into a common view for the gate below.
+	// Resolve the command by the requested execution way. Slash mode prefers
+	// slash implementations (core, then module); prefix mode mirrors the
+	// prefix dispatcher (core prefix, core slash, module prefix). Either way
+	// the other kind is searched as a fallback, so commands that only exist
+	// in one form stay reachable from the web.
 	type cmdInfo struct {
 		superOwnerOnly, ownerOnly bool
 		requiredPerm              discord.Permissions
 		isSlash                   bool
 		exec                      func(*commands.Context) error
 	}
-	var ci *cmdInfo
-	for i := range commands.CoreCommands {
-		c := &commands.CoreCommands[i]
-		if c.Name == name || util.ContainsStr(c.Aliases, name) {
-			ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
-			break
-		}
-	}
-	if ci == nil {
-		for i := range commands.CoreSlashCommands {
-			c := &commands.CoreSlashCommands[i]
-			if c.Name == name {
-				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, true, c.Execute}
-				break
-			}
-		}
-	}
-	if ci == nil {
-		modCmds := ModMgr.AllCommands()
-		for i := range modCmds {
-			c := &modCmds[i]
+	findPrefix := func(cmds []commands.Command) *cmdInfo {
+		for i := range cmds {
+			c := &cmds[i]
 			if c.Name == name || util.ContainsStr(c.Aliases, name) {
-				ci = &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
-				break
+				return &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
 			}
+		}
+		return nil
+	}
+	findSlash := func(cmds []commands.SlashCommand) *cmdInfo {
+		for i := range cmds {
+			c := &cmds[i]
+			if c.Name == name {
+				return &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, true, c.Execute}
+			}
+		}
+		return nil
+	}
+	var ci *cmdInfo
+	if kind == commands.ExecKindSlash {
+		ci = findSlash(commands.CoreSlashCommands)
+		if ci == nil {
+			ci = findSlash(ModMgr.AllSlashCommands())
+		}
+		if ci == nil {
+			ci = findPrefix(commands.CoreCommands)
+		}
+		if ci == nil {
+			ci = findPrefix(ModMgr.AllCommands())
+		}
+	} else {
+		ci = findPrefix(commands.CoreCommands)
+		if ci == nil {
+			ci = findSlash(commands.CoreSlashCommands)
+		}
+		if ci == nil {
+			ci = findPrefix(ModMgr.AllCommands())
+		}
+		if ci == nil {
+			ci = findSlash(ModMgr.AllSlashCommands())
 		}
 	}
 	if ci == nil {

@@ -108,7 +108,17 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 		}
 	}
 
-	// stable order: module owner, then category, then name
+	// NOT sorted here on purpose: the registration order mirrors
+	// ExecuteCommand's resolution precedence (core prefix, core slash, then
+	// modules in load order), and dedupeForMode relies on it to pick the same
+	// command the Run button would actually execute. Presentation sorting
+	// happens in filterCatalog AFTER dedupe.
+	return views
+}
+
+// sortViews orders the catalog for presentation: module owner, then category,
+// then name.
+func sortViews(views []cmdView) {
 	sort.SliceStable(views, func(i, j int) bool {
 		if views[i].ModuleOwner != views[j].ModuleOwner {
 			return views[i].ModuleOwner < views[j].ModuleOwner
@@ -118,17 +128,22 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 		}
 		return views[i].Name < views[j].Name
 	})
-	return views
 }
 
 // filterCatalog hides unusable commands unless the caller is elevated+ and
-// requests `raw` (e.g. an elevated user inspecting super-owner commands).
+// requests `raw` (e.g. an elevated user inspecting super-owner commands), and
+// collapses the catalog to ONE entry per command name — the configured
+// execution way (prefix/slash) wins, with a fallback to the other kind for
+// commands that only exist in one form.
 func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, guildID string) []cmdView {
 	level := lvlRegular
 	if us != nil {
 		level = m.resolveLevel(us)
 	}
-	all := m.buildCommandCatalog(us)
+	// Dedupe on the registration order (dispatch precedence) so the displayed
+	// entry is the one ExecuteCommand resolves, then sort for presentation.
+	all := dedupeForMode(m.buildCommandCatalog(us), m.execMode())
+	sortViews(all)
 	includeAll := raw && (level == lvlOwner || level == lvlElevated)
 
 	out := make([]cmdView, 0, len(all))
@@ -142,6 +157,47 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 		}
 		c.Usable = usable
 		out = append(out, c)
+	}
+	return out
+}
+
+// dedupeForMode collapses a catalog to one entry per command name, preferring
+// the given execution kind ("prefix" or "slash"). Commands that only exist in
+// the other kind keep their entry, so nothing disappears from the catalog.
+// Order follows the first occurrence of each name in views.
+func dedupeForMode(views []cmdView, mode string) []cmdView {
+	type pick struct {
+		pref, fallback cmdView
+		hasPref        bool
+		hasFallback    bool
+	}
+	var order []string
+	byName := map[string]*pick{}
+	for _, v := range views {
+		p, ok := byName[v.Name]
+		if !ok {
+			p = &pick{}
+			byName[v.Name] = p
+			order = append(order, v.Name)
+		}
+		if v.Kind == mode {
+			if !p.hasPref {
+				p.pref = v
+				p.hasPref = true
+			}
+		} else if !p.hasFallback {
+			p.fallback = v
+			p.hasFallback = true
+		}
+	}
+	out := make([]cmdView, 0, len(order))
+	for _, name := range order {
+		p := byName[name]
+		if p.hasPref {
+			out = append(out, p.pref)
+		} else {
+			out = append(out, p.fallback)
+		}
 	}
 	return out
 }
