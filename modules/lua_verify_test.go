@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/custombot/bot/commands"
@@ -16,7 +17,8 @@ func TestHelloLuaLoadsAndRuns(t *testing.T) {
 	}
 	defer log.Close()
 	loader := NewLuaLoader(nil, log, "", nil)
-	mod, err := loader.Load("hello.lua")
+	// hello lives at modules/Lua/hello/hello.lua (test cwd = modules/).
+	mod, err := loader.Load(filepath.Join("Lua", "hello", "hello.lua"))
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -28,10 +30,15 @@ func TestHelloLuaLoadsAndRuns(t *testing.T) {
 	}
 	var title, desc, text string
 	ctx := &commands.Context{
-		Author:    discord.User{ID: snowflake.MustParse("1")},
-		Web:       true,
-		Args:      []string{},
-		Respond:   func(embeds ...discord.Embed) error { if len(embeds) > 0 { title, desc = embeds[0].Title, embeds[0].Description }; return nil },
+		Author: discord.User{ID: snowflake.MustParse("1")},
+		Web:    true,
+		Args:   []string{},
+		Respond: func(embeds ...discord.Embed) error {
+			if len(embeds) > 0 {
+				title, desc = embeds[0].Title, embeds[0].Description
+			}
+			return nil
+		},
 		ReplyText: func(s string) error { text = s; return nil },
 	}
 	cmds := mod.Commands()

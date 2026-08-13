@@ -12,7 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DashboardConfig is persisted as module_configs/dashboard/config.yml.
+// DashboardConfig is persisted as config.yml next to the module
+// (modules/Go/dashboard/config.yml, 0600).
 // It holds the OAuth client secret, so the file is written with 0600.
 type DashboardConfig struct {
 	Listen        string   `yaml:"listen"`
@@ -40,6 +41,51 @@ func defaultConfig() *DashboardConfig {
 
 // cfgPath resolves the module config file path.
 func cfgPath(dir string) string { return filepath.Join(dir, "config.yml") }
+
+// migrateLegacyConfig performs the one-time move of the dashboard config from
+// the pre-restructure location (<bot config dir>/module_configs/dashboard/
+// config.yml) into the module's own folder. It only runs when the new file
+// does not exist yet (fresh installs skip it), and it never deletes the
+// legacy file — the owner can clean it up after confirming the migration.
+// Returns whether a migration happened.
+func migrateLegacyConfig(dataDir, botConfigDir string) (bool, error) {
+	dest := cfgPath(dataDir)
+	if _, err := os.Stat(dest); err == nil {
+		return false, nil // already migrated / fresh install
+	} else if !os.IsNotExist(err) {
+		return false, err // unexpected stat error — surface it, don't guess
+	}
+	src := filepath.Join(botConfigDir, "module_configs", "dashboard", "config.yml")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil // no legacy config
+		}
+		return false, err
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return false, err
+	}
+	// Create the destination EXCLUSIVELY: a config created by another
+	// process between the Stat above and here must never be overwritten.
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if os.IsExist(err) {
+		return false, nil // another process migrated first — treat as skipped
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(dest) // never leave a partial file blocking a retry
+		return false, err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(dest)
+		return false, err
+	}
+	return true, nil
+}
 
 // loadConfig reads the module config, creating defaults when the file is missing.
 func loadConfig(dir string) (*DashboardConfig, error) {

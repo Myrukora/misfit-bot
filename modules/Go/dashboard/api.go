@@ -44,9 +44,14 @@ type moduleConfigSchema struct {
 	Fields []modules.ConfigField `json:"fields"`
 }
 
-// readJSON decodes a JSON body with a sane size guard.
+// maxJSONBody bounds every dashboard JSON request body (config writes, exec,
+// presence). An authenticated client must not be able to force unbounded
+// allocations in the bot process.
+const maxJSONBody = 1 << 20 // 1 MiB
+
+// readJSON decodes a JSON body with a size guard.
 func readJSON(r io.Reader, v any) error {
-	return json.NewDecoder(r).Decode(v)
+	return json.NewDecoder(io.LimitReader(r, maxJSONBody)).Decode(v)
 }
 
 // ── /api/me ───────────────────────────────────────────────────────────────
@@ -178,6 +183,10 @@ func (m *DashboardModule) apiGuild(w http.ResponseWriter, r *http.Request, id st
 	gid, err := snowflake.Parse(id)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid guild id")
+		return
+	}
+	if m.client == nil {
+		writeError(w, http.StatusServiceUnavailable, "bot client not ready")
 		return
 	}
 	g, ok := m.client.Caches.Guild(gid)
@@ -420,6 +429,14 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		}
 		if ownerOnly[k] && !owner {
 			results[k] = "skipped (owner only)"
+			continue
+		}
+		// Secrets come back redacted as "••••••••" and the UI leaves blank
+		// secrets untouched — never persist the redaction marker or an empty
+		// value as the real secret.
+		if (k == "token" || k == "updater_token" || k == "oauth_client_secret") &&
+			(v == "" || v == redactedIfSet(v)) {
+			results[k] = "unchanged"
 			continue
 		}
 		if err := m.ctx.Bot.SetConfig(k, v); err != nil {

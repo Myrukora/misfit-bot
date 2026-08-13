@@ -55,6 +55,15 @@ type DashboardModule struct {
 	appNameMu sync.Mutex
 	appName   string
 	appNameAt time.Time
+
+	// coreConfig memo: config.yml is small but re-reading + re-parsing it on
+	// every page render (effectiveListen/effectivePublicURL/redirectBaseURL)
+	// is wasteful; a 2s TTL keeps rebind/presence reads responsive while
+	// avoiding per-request disk I/O. invalidateCoreConfig drops it after a
+	// config write so changes apply immediately.
+	coreCfgMu   sync.Mutex
+	coreCfgMemo *config.Config
+	coreCfgAt   time.Time
 }
 
 // Name returns the module name.
@@ -88,6 +97,16 @@ func (m *DashboardModule) OnLoad(ctx *modules.Context) error {
 	// Resolve the raw disgo client for cache/gateway/metrics access.
 	if c, ok := ctx.Bot.GetClient().(*bot.Client); ok {
 		m.client = c
+	}
+
+	// One-time migration: pre-restructure installs kept the dashboard config
+	// at <config dir>/module_configs/dashboard/config.yml. Move it into the
+	// module's own folder so session_secret / allowed_guilds survive (a fresh
+	// config would regenerate the session secret and drop the allowlist).
+	if migrated, err := migrateLegacyConfig(ctx.DataDir, ctx.Bot.GetConfigDir()); err != nil {
+		m.logger.Warn("Dashboard: legacy config migration failed (module continues with defaults): %v", err)
+	} else if migrated {
+		m.logger.Info("Dashboard: migrated config from module_configs/dashboard/config.yml to %s", cfgPath(ctx.DataDir))
 	}
 
 	cfg, err := loadConfig(ctx.DataDir)
@@ -181,15 +200,34 @@ func (m *DashboardModule) refreshOAuth() {
 // config). This is how the owner pins the listen port from the core config
 // instead of the module's own file — e.g. when 8080 is already taken and the
 // dashboard can't start to be reconfigured via the web.
+//
+// The result is memoized for 2s (see the struct comment) — callers invoke this
+// on every request path. Write paths call invalidateCoreConfig so live changes
+// (dashboard_listen/oauth secrets via [p]set or the web) apply immediately.
 func (m *DashboardModule) coreConfig() *config.Config {
 	if m.ctx == nil || m.ctx.Bot == nil {
 		return nil
+	}
+	m.coreCfgMu.Lock()
+	defer m.coreCfgMu.Unlock()
+	if m.coreCfgMemo != nil && time.Since(m.coreCfgAt) < 2*time.Second {
+		return m.coreCfgMemo
 	}
 	cfg, err := config.Load(m.ctx.Bot.GetConfigDir())
 	if err != nil {
 		return nil
 	}
+	m.coreCfgMemo = cfg
+	m.coreCfgAt = time.Now()
 	return cfg
+}
+
+// invalidateCoreConfig drops the memoized core config after a write so the
+// next read reflects the new file immediately.
+func (m *DashboardModule) invalidateCoreConfig() {
+	m.coreCfgMu.Lock()
+	m.coreCfgMemo = nil
+	m.coreCfgMu.Unlock()
 }
 
 // effectiveListen returns the bind address, preferring the core config's
@@ -449,12 +487,23 @@ func (m *DashboardModule) startServerWithListener(ln net.Listener) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.stopped {
+		if ln != nil {
+			ln.Close()
+		}
 		return fmt.Errorf("module is stopped")
 	}
 	if m.running {
+		// Already serving: the caller-supplied listener must not leak —
+		// close it so the port is not left bound with no server accepting.
+		if ln != nil {
+			ln.Close()
+		}
 		return nil
 	}
 	if m.client == nil {
+		if ln != nil {
+			ln.Close()
+		}
 		return fmt.Errorf("bot client unavailable")
 	}
 	handler := m.buildHandler()
@@ -462,6 +511,7 @@ func (m *DashboardModule) startServerWithListener(ln net.Listener) error {
 		Addr:              listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
@@ -675,18 +725,21 @@ func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 		if err := m.ctx.Bot.SetConfig("dashboard_listen", value); err != nil {
 			return err
 		}
+		m.invalidateCoreConfig()
 		m.rebindSoon(key)
 		return nil
 	case "public_url":
 		if err := m.ctx.Bot.SetConfig("dashboard_public_url", value); err != nil {
 			return err
 		}
+		m.invalidateCoreConfig()
 		m.rebindSoon(key)
 		return nil
 	case "client_secret":
 		if err := m.ctx.Bot.SetConfig("oauth_client_secret", value); err != nil {
 			return err
 		}
+		m.invalidateCoreConfig()
 		m.refreshOAuth()
 		m.sessions.clear() // invalidate existing sessions (secret changed)
 		return nil
@@ -839,12 +892,14 @@ func (m *DashboardModule) cmdDashboardSet(ctx *commands.Context, args []string) 
 		if err := m.ctx.Bot.SetConfig("dashboard_"+key, value); err != nil {
 			return ctx.Respond(embed.Error("❌ Error", err.Error()))
 		}
+		m.invalidateCoreConfig()
 		m.rebindSoon(key)
 		return ctx.Respond(embed.Success("✅ Set", "`"+key+"` written to config.yml — rebinding listener on `"+m.effectiveListen()+"`."))
 	case "client_secret":
 		if err := m.ctx.Bot.SetConfig("oauth_client_secret", value); err != nil {
 			return ctx.Respond(embed.Error("❌ Error", err.Error()))
 		}
+		m.invalidateCoreConfig()
 		m.refreshOAuth()
 		m.sessions.clear() // invalidate existing sessions (secret changed)
 		return ctx.Respond(embed.Success("✅ Set", "`client_secret` written to config.yml (`oauth:` section). Future OAuth-using modules read it from there too."))
@@ -875,6 +930,7 @@ func (m *DashboardModule) cmdDashboardLAN(ctx *commands.Context) error {
 	if err := m.ctx.Bot.SetConfig("dashboard_listen", target); err != nil {
 		return ctx.Respond(embed.Error("❌ Error", err.Error()))
 	}
+	m.invalidateCoreConfig()
 	// A localhost-only public_url would keep url/status reporting a URL that
 	// only works on this machine; a real public_url (tunnel/domain) is kept.
 	// The listener rebind happens only after every config update succeeded.

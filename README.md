@@ -94,13 +94,15 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 
 ## Modules
 
-Modules are hot-loadable at runtime; the loader auto-detects the language by file layout:
+Modules are hot-loadable at runtime; modules live in language folders under `modules/`:
 
-- **Go** — `modules/<name>.so` (built with `go build -buildmode=plugin`)
-- **Lua** — `modules/<name>.lua`
-- **Python** — `modules/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
+- **Go** — `modules/Go/<name>/<name>.so` (built with `go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/`)
+- **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
+- **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
-In-repo examples: `modules/hello.lua`, `modules/hello_py/`, `modules/cleanup/` (9-subcommand message cleanup), `modules/voice.go` (the `VoiceManager` API), and `modules/dashboard/` (the web dashboard — a full module dogfooding the `WebConfigurable` contract).
+Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked.
+
+In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `modules/Go/cleanup/` (9-subcommand message cleanup), `modules/voice.go` (the `VoiceManager` API), and `modules/Go/dashboard/` (the web dashboard — a full module dogfooding the `WebConfigurable` contract).
 
 A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes.
 
@@ -139,12 +141,14 @@ misfit-bot/
 ├── config/                # YAML config load/save/validate
 ├── embed/                 # Discord embed helpers
 ├── logger/                # Async JSON logging (stdout + file)
-├── modules/               # Module interface + Go/Lua/Python loaders
-│   ├── dashboard/         # Web dashboard module (.so)
-│   ├── cleanup/           # Message cleanup module (.so)
+├── modules/               # Module loaders + per-language module folders
+│   ├── Go/                # Go plugin modules (dashboard, cleanup)
+│   │   ├── dashboard/     # Web dashboard module (.so)
+│   │   └── cleanup/       # Message cleanup module (.so)
+│   ├── Lua/               # Lua modules (hello/)
+│   ├── Python/            # Python modules (hello_py/)
 │   ├── voice.go           # VoiceManager API for modules
-│   ├── hello.lua          # Lua example module
-│   └── hello_py/          # Python example module
+│   └── lua_loader.go …    # Loader infrastructure (lua/python bridges, ipc)
 ├── onboarding/            # First-run setup wizard
 ├── permissions/           # Three-tier permission system
 ├── ratelimit/             # Per-user rate limiting
@@ -159,7 +163,7 @@ misfit-bot/
 
 ```bash
 go build -o bot ./cmd/bot/                                     # build the bot
-go build -buildmode=plugin -o modules/name.so modules/name/    # build a Go module
+go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/  # build a Go module
 go test ./...                                                  # run all tests
 go vet ./...                                                   # static analysis
 ```

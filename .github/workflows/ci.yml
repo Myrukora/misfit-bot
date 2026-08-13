@@ -34,5 +34,5 @@ jobs:
 
       - name: Build Go plugin modules
         run: |
-          go build -buildmode=plugin -o /tmp/cleanup.so ./modules/cleanup/
-          go build -buildmode=plugin -o /tmp/dashboard.so ./modules/dashboard/
+          go build -buildmode=plugin -o /tmp/cleanup.so ./modules/Go/cleanup/
+          go build -buildmode=plugin -o /tmp/dashboard.so ./modules/Go/dashboard/

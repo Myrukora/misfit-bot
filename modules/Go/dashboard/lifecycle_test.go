@@ -68,6 +68,25 @@ func TestRestartServerLifecycle(t *testing.T) {
 	if !m.isRunning() {
 		t.Fatal("expected server running after restart")
 	}
+	// Different-address path: rebind on a NEW address while the old server
+	// serves, exercising bind-new-listener → stop → startServerWithListener
+	// (including the caller-supplied listener close on early returns).
+	m.mu.Lock()
+	m.cfg.Listen = "localhost:0" // distinct from 127.0.0.1:0 → different-address branch
+	m.mu.Unlock()
+	done = make(chan error, 1)
+	go func() { done <- m.restartServer() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("restartServer (different address): %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("restartServer (different address) deadlocked")
+	}
+	if !m.isRunning() {
+		t.Fatal("expected server running after different-address restart")
+	}
 	m.stopServer()
 	if m.isRunning() {
 		t.Fatal("server still running after stopServer")

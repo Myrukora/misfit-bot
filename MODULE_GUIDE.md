@@ -27,32 +27,45 @@ A Go shared library (`.so`) loaded at runtime that adds commands, slash commands
 
 **Go modules:**
 ```
-modules/
+modules/Go/
 └── mymodule/
     ├── main.go          # Module entry point
     ├── commands.go      # Commands (optional)
     ├── handlers.go      # Event handlers (optional)
-    └── config.go        # Config (optional)
+    ├── config.go        # Config (optional)
+    └── dashboard.go     # Dashboard integration (optional) — WebConfigurable
 ```
 
 **Python modules:**
 ```
-modules/
+modules/Python/
 └── mymodule/
     ├── main.py          # Module entry point (must define `module` global)
+    ├── dashboard.py     # Dashboard integration (optional) — web_schema + web_get/set
     └── requirements.txt # Optional dependencies (auto-installed to per-module venv)
 ```
 
 **Lua modules:**
 ```
-modules/
-└── mymodule.lua         # Single-file Lua script
+modules/Lua/
+└── mymodule/
+    ├── mymodule.lua      # Module script
+    └── mymodule.dashboard.lua # Dashboard integration (optional) — table `D`
 ```
+
+> **Dashboard integration is a separate file by convention.** The module's
+> logic lives in its own script(s); the dashboard settings panel lives in a
+> dedicated integration file (`dashboard.go` / `dashboard.py` /
+> `<name>.dashboard.lua`). **No integration file ⇒ no dashboard integration**:
+> the Settings page shows no panel for the module and the config API refuses
+> writes. Everything is rendered purely from the file's schema — the
+> dashboard code never changes. See
+> [Dashboard integration script](#dashboard-integration-script).
 
 ## Minimum Viable Module
 
 ```go
-// modules/hello/main.go
+// modules/Go/hello/main.go
 package main
 
 import (
@@ -96,18 +109,18 @@ func New() modules.Module { return &HelloModule{} }
 
 **Build:**
 ```bash
-go build -buildmode=plugin -o modules/hello.so modules/hello/main.go
+go build -buildmode=plugin -o modules/Go/hello/hello.so ./modules/Go/hello/
 ```
 
 **Load:**
-```
+```bash
 [p]load hello
 ```
 
 ### Python Module Example
 
 ```python
-# modules/hello_py/main.py
+# modules/Python/hello_py/main.py
 from custombot import Module, Command, SlashCommand
 
 
@@ -199,7 +212,7 @@ func (m *MyModule) OnLoad(ctx *modules.Context) error {
 |-------|------|-------------|
 | `BotName` | `string` | Bot's configured name |
 | `OwnerID` | `string` | Bot owner's Discord user ID |
-| `DataDir` | `string` | Per-module config dir (`module_configs/<name>/`) |
+| `DataDir` | `string` | The module's own folder (`modules/Go/<name>/`, `modules/Python/<name>/`, `modules/Lua/<name>/`) — configs/saves/logs live next to the module |
 | `Logger` | `modules.Logger` | Logger (Debug/Info/Warn/Error) |
 | `Rest` | `rest.Rest` | Discord REST API client |
 | `Bot` | `commands.Interface` | Bot function access |
@@ -546,7 +559,9 @@ func ptrBool(b bool) *bool { return &b }
 
 ## Module Configuration
 
-Modules can have their own config in `module_configs/<name>/`:
+Modules can have their own config next to the module — `ctx.DataDir` is the
+module's own folder (`modules/Go/<name>/`, `modules/Python/<name>/`,
+`modules/Lua/<name>/`):
 
 ```go
 func (m *MyModule) OnLoad(ctx *modules.Context) error {
@@ -705,8 +720,8 @@ func (m *WelcomeModule) OnLoad(ctx *modules.Context) error {
 ## Building & Loading
 
 ```bash
-# Build module
-go build -buildmode=plugin -o modules/<name>.so modules/<name>/main.go
+# Build module (Go plugin; output lives next to the source, gitignored)
+go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/
 
 # Load in Discord
 [p]load <name>
@@ -753,7 +768,7 @@ go build -buildmode=plugin -o modules/<name>.so modules/<name>/main.go
 
 ## Example: A long-running background service — the Web Dashboard module
 
-The dashboard (`modules/dashboard/`) is the reference for two patterns at once:
+The dashboard (`modules/Go/dashboard/`) is the reference for two patterns at once:
 running a **non-command background service inside a module**, and enabling
 **web-editable settings** via the optional `WebConfigurable` contract.
 
@@ -779,7 +794,7 @@ func (m *DashboardModule) OnUnload() error { m.stopServer(); return nil }
 Build a multi-file module with the **package path** (not a single `main.go`):
 
 ```bash
-go build -buildmode=plugin -o modules/dashboard.so ./modules/dashboard/
+go build -buildmode=plugin -o modules/Go/dashboard/dashboard.so ./modules/Go/dashboard/
 ```
 
 ### Exposing settings on the dashboard (`modules.WebConfigurable`)
@@ -793,6 +808,19 @@ returns and reads/writes through `WebGetConfig`/`WebSetConfig`.
 
 This is **opt-in and additive** — modules that don't implement it are simply
 unaffected (no panel shown).
+
+**Where the integration lives (per module type):**
+
+| Module type | Integration file | What it declares |
+|-------------|------------------|------------------|
+| Go | `modules/Go/<name>/dashboard.go` (any file in the package) | The three methods below, on the module type |
+| Python | `modules/Python/<name>/dashboard.py` | `web_schema` list + `web_get_config(guild_id)` + `web_set_config(guild_id, key, value)` |
+| Lua | `modules/Lua/<name>/<name>.dashboard.lua` | Global table `D` with `D.schema` + `D.get(guild_id)` + `D.set(guild_id, key, value)` |
+
+**No integration file ⇒ no dashboard integration.** The Settings page shows
+nothing for the module and the config API rejects writes. Lua/Python modules
+don't need any Go code — the bot's wrappers implement `WebConfigurable`
+themselves and forward reads/writes to your script.
 
 #### The contract (3 methods)
 
@@ -838,7 +866,7 @@ schema only describes the UI. So don't set `Value`; return values from `WebGetCo
 | `FieldTypeNumber` | `number` | Number input | Honor `Min`/`Max`/`Step`. |
 | `FieldTypeRange` | `range` | Slider | `Min`/`Max`/`Step` required. |
 | `FieldTypeSelect` | `select` | Dropdown | One of `Options`. |
-| `FieldTypeMulti` | `multi` | Multi-select | Comma-joined, parse it yourself. |
+| `FieldTypeMulti` | `multi` | Multi-select | Newline- or comma-joined (the web UI joins with `\n`; commas stay legal inside option values). |
 | `FieldTypeSecret` | `secret` | Password input | **Redacted to `••••`** on read unless the caller is the bot owner. Never echoed back to non-owners. |
 | `FieldTypeChannel` | `channel` | Channel picker | Implies guild scope; populated from cache. |
 | `FieldTypeRole` | `role` | Role picker | Implies guild scope; populated from cache. |
@@ -952,7 +980,7 @@ func (m *StarboardModule) WebSetConfig(guildID, key, value string) error {
         return fmt.Errorf("unknown field %q", key)
     }
     m.cfgs[guildID] = c
-    return m.persist(guildID) // write to module_configs/starboard/<guildID-or-global>.yml
+    return m.persist(guildID) // write to <DataDir>/<guildID-or-global>.yml (the module's own folder)
 }
 
 func (m *StarboardModule) persist(guildID string) error {
@@ -969,7 +997,7 @@ the starboard module — with the owner/elevated able to edit all of them and a
 guild's staff able to edit the `GuildScoped` ones for their guild.
 
 ```bash
-go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
+go build -buildmode=plugin -o modules/Go/starboard/starboard.so ./modules/Go/starboard/
 [p]load starboard
 ```
 
@@ -977,7 +1005,8 @@ go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
 
 - **Values are strings over the wire.** Booleans arrive as `"true"`/`"false"`,
   numbers as `"3"` — parse them yourself in `WebSetConfig`. Same for `multi`:
-  you get a comma-joined string of the selected `Options`.
+  you get a newline- or comma-joined string of the selected `Options` (split
+  on either; newlines keep commas legal inside option values).
 - **`secret` fields are auto-redacted** to `••••` on read by the dashboard
   (see `redactedIfSet` in `main.go`). The `secret` `<input>` is rendered with
   **no `value` attribute**, and the frontend skips blank secret fields on save
@@ -988,17 +1017,18 @@ go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
 - **`channel` / `role` values** are raw snowflake strings (no `<#>` wrapping).
   They imply guild scope — you'll receive them with a non-empty `guildID`.
 - **Persists whenever you want.** You own your storage. The convention is
-  `module_configs/<name>/` (your `DataDir`), file mode `0600` if it may hold
-  secrets. The dashboard keeps only its cookie-signing `session_secret` and
-  the `allowed_guilds` allowlist in `module_configs/dashboard/config.yml`
-  (`0600`); its OAuth **`client_secret`** lives in core `config.yml` under
-  the shared `oauth:` section (see below).
+  your module's own folder (`ctx.DataDir` = `modules/Go/<name>/`,
+  `modules/Python/<name>/`, `modules/Lua/<name>/`), file mode `0600` if it
+  may hold secrets. The dashboard keeps only its cookie-signing
+  `session_secret` and the `allowed_guilds` allowlist in
+  `modules/Go/dashboard/config.yml` (`0600`); its OAuth **`client_secret`**
+  lives in core `config.yml` under the shared `oauth:` section (see below).
 - **Don't block.** `WebGetConfig`/`WebSetConfig` run on HTTP goroutines inside the
   bot process, so keep them fast. They're wrapped in the dashboard's panic-recovery
   middleware (a panic → 500 JSON) but a slow call still ties up the request.
 - **Dogfooding reference.** The dashboard module implements `WebConfigurable`
   itself to configure its own OAuth `client_secret`, `client_id`, `listen`, and
-  `public_url` — read `modules/dashboard/config.go` and `main.go` (look for
+  `public_url` — read `modules/Go/dashboard/config.go` and `main.go` (look for
   `WebConfigSchema`) for a real, shipping implementation of every field type.
   Note where each persists: `listen`/`public_url`/`client_secret` route to
   the **core `config.yml`** (`dashboard:` and `oauth:` sections, via
@@ -1008,7 +1038,80 @@ go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
   module config → default/fallback) as the pattern when a setting should be
   pinnable from the main config.
 
-See `modules/dashboard/README.md` for the dashboard-specific setup flow
+See `modules/Go/dashboard/README.md` for the dashboard-specific setup flow
 (OAuth, `[p]dashboard set …`, the `dashboard:` **and** `oauth:` sections of
 the main `config.yml`) and the full RBAC table for who sees which config
 sections.
+
+#### Python example — `modules/Python/starboard_py/dashboard.py`
+
+Same starboard settings, declared in Python. The runner imports this file
+next to `main.py`; the field dict keys mirror `ConfigField` exactly. Raise an
+exception from `web_set_config` to reject a value (shown in the browser).
+
+```python
+# modules/Python/starboard_py/dashboard.py
+VALUES = {"enabled": "true", "threshold": "3", "tone": "info", "emoji": "⭐"}
+
+web_schema = [
+    {"key": "enabled", "label": "Enabled", "type": "toggle", "scope": "global"},
+    {"key": "threshold", "label": "Reaction threshold", "type": "range",
+     "min": 1, "max": 50, "step": 1, "scope": "guild", "guild_scoped": True},
+    {"key": "emoji", "label": "Reaction emoji", "type": "text",
+     "placeholder": "⭐", "scope": "guild", "guild_scoped": True},
+    {"key": "tone", "label": "Embed style", "type": "select",
+     "options": ["info", "fancy"], "scope": "guild", "guild_scoped": True},
+    {"key": "api_key", "label": "External API key", "type": "secret", "scope": "global"},
+]
+
+def web_get_config(guild_id):
+    return dict(VALUES)
+
+def web_set_config(guild_id, key, value):
+    if key == "tone" and value not in ("info", "fancy"):
+        raise ValueError("unknown style")
+    if key == "threshold":
+        n = int(value)
+        if n < 1:
+            raise ValueError("threshold must be ≥ 1")
+    VALUES[key] = value
+    # persist wherever you like — e.g. a JSON/YAML file in the module dir
+```
+
+No Go code, no rebuild — dropping `dashboard.py` next to `main.py` and
+reloading the module is all it takes. Remove it and the panel disappears.
+
+#### Lua example — `modules/Lua/starboard/starboard.dashboard.lua`
+
+```lua
+-- modules/Lua/starboard/starboard.dashboard.lua  (next to starboard.lua)
+D = {}
+D.schema = {
+  {key = "enabled",   label = "Enabled",  type = "toggle", scope = "global"},
+  {key = "threshold", label = "Reaction threshold", type = "range",
+   min = 1, max = 50, step = 1, scope = "guild", guild_scoped = true},
+  {key = "emoji",     label = "Reaction emoji", type = "text",
+   placeholder = "⭐", scope = "guild", guild_scoped = true},
+  {key = "tone",      label = "Embed style", type = "select",
+   options = {"info", "fancy"}, scope = "guild", guild_scoped = true},
+}
+
+local vals = {enabled = "true", threshold = "3", tone = "info", emoji = "⭐"}
+
+D.get = function(guild_id)
+  return vals
+end
+
+D.set = function(guild_id, key, value)
+  if key == "tone" and value ~= "info" and value ~= "fancy" then
+    return "unknown style"   -- non-nil return = error shown in the browser
+  end
+  vals[key] = value
+  return nil
+end
+```
+
+The script runs in its own Lua state; `ctx.log`/`ctx.log_error` and
+`ctx.data_dir` (the module config dir, for persistence) are available.
+`*.dashboard.lua` files are never treated as modules themselves (AutoLoad,
+`[p]load all`, and the available-modules list all skip them).

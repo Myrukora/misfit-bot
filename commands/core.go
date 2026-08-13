@@ -317,33 +317,14 @@ func init() {
 			}
 			target := ctx.Args[0]
 			if target == "all" {
-				modulesDir := filepath.Join(ctx.Bot.GetConfigDir(), "modules")
-				entries, err := os.ReadDir(modulesDir)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read modules directory: %v", err)))
-				}
+				// Single discovery source: the configured modules path (respects
+				// a custom modules.path AND the Go/Lua/Python layout). Scanning
+				// GetConfigDir()/modules directly would miss every candidate on
+				// installs with a customized path.
 				loaded := 0
-				for _, entry := range entries {
-					name := entry.Name()
-					switch {
-					case strings.HasSuffix(name, ".so"):
-						name = strings.TrimSuffix(name, ".so")
-					case strings.HasSuffix(name, ".lua"):
-						name = strings.TrimSuffix(name, ".lua")
-					case entry.IsDir():
-						// Python module: directory with main.py. Skip hidden dirs
-						// and the per-module venv directory.
-						if strings.HasPrefix(name, ".") {
-							continue
-						}
-						if _, err := os.Stat(filepath.Join(modulesDir, name, "main.py")); err != nil {
-							continue
-						}
-					default:
-						continue
-					}
+				for _, name := range ctx.Bot.GetAvailableModuleNames() {
 					if err := ctx.Bot.LoadModule(name); err != nil {
-						continue
+						continue // already loaded or failed — count only successes
 					}
 					loaded++
 				}

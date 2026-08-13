@@ -55,6 +55,25 @@ func safeParseChannelID(s string) (snowflake.ID, error) {
 	return id, nil
 }
 
+// maxCleanupCount caps how many messages one cleanup request may target.
+// Discord's 14-day fetch window means a huge count just turns into a long
+// blocking REST loop; 1000 is far beyond any real moderation need.
+const maxCleanupCount = 1000
+
+// parseCount parses a positive count and rejects values above maxCleanupCount
+// so a ManageMessages user cannot stall command processing with a huge
+// pagination run.
+func parseCount(s string) (int, error) {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("number must be a positive integer")
+	}
+	if n > maxCleanupCount {
+		return 0, fmt.Errorf("number must be at most %d", maxCleanupCount)
+	}
+	return n, nil
+}
+
 func (m *CleanupModule) fetchMessages(channelID snowflake.ID, number int, before snowflake.ID, check func(discord.Message) bool) ([]discord.Message, error) {
 	cutoff := time.Now().UTC().Add(-twoWeeks)
 	var collected []discord.Message
@@ -103,12 +122,15 @@ func isBulkDeleteUnsupported(err error) bool {
 	return restErr.Response != nil && restErr.Response.StatusCode == http.StatusBadRequest
 }
 
-func (m *CleanupModule) bulkDelete(channelID snowflake.ID, ids []snowflake.ID) error {
+func (m *CleanupModule) bulkDelete(channelID snowflake.ID, ids []snowflake.ID) (failed int, _ error) {
 	if len(ids) == 0 {
-		return nil
+		return 0, nil
 	}
 	if len(ids) == 1 {
-		return m.deleteSingle(channelID, ids[0])
+		if err := m.deleteSingle(channelID, ids[0]); err != nil {
+			return 1, err
+		}
+		return 0, nil
 	}
 	// disgo passes the whole slice through in ONE request, but Discord's
 	// bulk-delete endpoint caps at 100 — chunk to stay within the limit.
@@ -124,7 +146,7 @@ func (m *CleanupModule) bulkDelete(channelID snowflake.ID, ids []snowflake.ID) e
 			// 14 days) can still be deleted individually. Leave the loop on
 			// permission/rate-limit errors instead of spamming single deletes.
 			if !isBulkDeleteUnsupported(err) {
-				return err
+				return 0, err
 			}
 			m.ctx.Logger.Warn("Bulk delete rejected (%d messages), falling back to single deletes: %v", len(batch), err)
 			fallback = append(fallback, batch...)
@@ -133,9 +155,10 @@ func (m *CleanupModule) bulkDelete(channelID snowflake.ID, ids []snowflake.ID) e
 	for _, id := range fallback {
 		if dErr := m.deleteSingle(channelID, id); dErr != nil {
 			m.ctx.Logger.Warn("Failed to delete message", "id", id.String(), "error", dErr)
+			failed++
 		}
 	}
-	return nil
+	return failed, nil
 }
 
 func (m *CleanupModule) deleteSingle(channelID, msgID snowflake.ID) error {
@@ -144,8 +167,9 @@ func (m *CleanupModule) deleteSingle(channelID, msgID snowflake.ID) error {
 
 // done reports the deletion result. The invoking command message is usually
 // inside the deleted range (it is the newest message in the channel), so it
-// is excluded from the reported count for honesty.
-func (m *CleanupModule) done(ctx *commands.Context, ids []snowflake.ID) {
+// is excluded from the reported count for honesty. failed counts individual
+// deletes that errored — reported instead of claiming a full success.
+func (m *CleanupModule) done(ctx *commands.Context, ids []snowflake.ID, failed int) {
 	count := len(ids)
 	if invoking, err := parseSnowflake(ctx.MessageID); err == nil {
 		for _, id := range ids {
@@ -155,8 +179,12 @@ func (m *CleanupModule) done(ctx *commands.Context, ids []snowflake.ID) {
 			}
 		}
 	}
-	if count <= 0 {
+	if count <= 0 && failed == 0 {
 		ctx.Respond(embed.Info("🧹 Cleanup", "No messages to delete (might be too old or already deleted)."))
+		return
+	}
+	if failed > 0 {
+		ctx.Respond(embed.Warning("🧹 Cleanup", fmt.Sprintf("Deleted **%d** messages (**%d** failed).", count, failed)))
 		return
 	}
 	ctx.Respond(embed.Success("🧹 Cleanup", fmt.Sprintf("Deleted **%d** messages.", count)))
@@ -303,9 +331,9 @@ func (m *CleanupModule) cmdMessages(ctx *commands.Context, args []string) error 
 	if len(args) == 0 {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup messages <number>`"))
 	}
-	number, err := strconv.Atoi(args[0])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	number, err := parseCount(args[0])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -322,10 +350,11 @@ func (m *CleanupModule) cmdMessages(ctx *commands.Context, args []string) error 
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -334,9 +363,9 @@ func (m *CleanupModule) cmdUser(ctx *commands.Context, args []string) error {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup user <@user> <number>`"))
 	}
 	targetID := util.ExtractID(args[0])
-	number, err := strconv.Atoi(args[1])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	number, err := parseCount(args[1])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -360,10 +389,11 @@ func (m *CleanupModule) cmdUser(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -372,9 +402,15 @@ func (m *CleanupModule) cmdText(ctx *commands.Context, args []string) error {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup text \"hello\" <number>`"))
 	}
 	text := strings.Trim(args[0], `"`)
-	number, err := strconv.Atoi(args[1])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	// An empty filter matches EVERY message (strings.Contains(msg, "") is
+	// always true) — reject it so `cleanup text ""` cannot become an
+	// unrestricted deletion.
+	if text == "" {
+		return ctx.Respond(embed.Warning("⚠️ Usage", "Text to match cannot be empty."))
+	}
+	number, err := parseCount(args[1])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -393,10 +429,11 @@ func (m *CleanupModule) cmdText(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -404,9 +441,9 @@ func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup bot <number>`"))
 	}
-	number, err := strconv.Atoi(args[0])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	number, err := parseCount(args[0])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -431,10 +468,11 @@ func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -442,9 +480,9 @@ func (m *CleanupModule) cmdSelf(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup self <number>`"))
 	}
-	number, err := strconv.Atoi(args[0])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	number, err := parseCount(args[0])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -461,11 +499,15 @@ func (m *CleanupModule) cmdSelf(ctx *commands.Context, args []string) error {
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
+	failed := 0
 	for _, msg := range toDelete {
 		ids = append(ids, msg.ID)
-		_ = m.deleteSingle(channelID, msg.ID)
+		if err := m.deleteSingle(channelID, msg.ID); err != nil {
+			m.ctx.Logger.Warn("Failed to delete message", "id", msg.ID.String(), "error", err)
+			failed++
+		}
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -494,10 +536,11 @@ func (m *CleanupModule) cmdAfter(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -509,9 +552,9 @@ func (m *CleanupModule) cmdBefore(ctx *commands.Context, args []string) error {
 	if err != nil {
 		return ctx.Respond(embed.Warning("⚠️ Usage", "Invalid message ID."))
 	}
-	number, err := strconv.Atoi(args[1])
-	if err != nil || number <= 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+	number, err := parseCount(args[1])
+	if err != nil {
+		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
@@ -528,10 +571,11 @@ func (m *CleanupModule) cmdBefore(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
@@ -569,19 +613,20 @@ func (m *CleanupModule) cmdBetween(ctx *commands.Context, args []string) error {
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 
 func (m *CleanupModule) cmdDuplicates(ctx *commands.Context, args []string) error {
 	number := 50
 	if len(args) > 0 {
-		n, err := strconv.Atoi(args[0])
-		if err != nil || n <= 0 {
-			return ctx.Respond(embed.Warning("⚠️ Usage", "Number must be a positive integer."))
+		n, err := parseCount(args[0])
+		if err != nil {
+			return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
 		}
 		number = n
 	}
@@ -620,10 +665,11 @@ func (m *CleanupModule) cmdDuplicates(ctx *commands.Context, args []string) erro
 		ids = append(ids, msg.ID)
 	}
 
-	if err := m.bulkDelete(channelID, ids); err != nil {
+	failed, err := m.bulkDelete(channelID, ids)
+	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
-	m.done(ctx, ids)
+	m.done(ctx, ids, failed)
 	return nil
 }
 

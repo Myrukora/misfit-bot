@@ -41,7 +41,11 @@ func (m *DashboardModule) resolveLevel(us *userSession) string {
 	if m.ctx.Bot.IsElevated(id) {
 		return lvlElevated
 	}
-	if len(m.manageableGuildIDs(us)) > 0 {
+	// NOTE: must NOT call manageableGuildIDs here — it checks owner/elevated
+	// itself, and calling resolveLevel from it would recurse forever for
+	// staff/regular sessions (staff/regular check each other without a base
+	// case). managedMutualGuildIDs never consults resolveLevel.
+	if len(m.managedMutualGuildIDs(us)) > 0 {
 		return lvlStaff
 	}
 	return lvlRegular
@@ -71,12 +75,16 @@ func (m *DashboardModule) allBotGuildList() []string {
 	return out
 }
 
-// allowed enforces the optional allowed_guilds allowlist.
+// allowed enforces the optional allowed_guilds allowlist (cfg read under m.mu
+// — the allowlist is swapped from gateway goroutines via cmdDashboardSet).
 func (m *DashboardModule) allowed(guildID string) bool {
-	if len(m.cfg.AllowedGuilds) == 0 {
+	m.mu.Lock()
+	list := m.cfg.AllowedGuilds
+	m.mu.Unlock()
+	if len(list) == 0 {
 		return true
 	}
-	for _, a := range m.cfg.AllowedGuilds {
+	for _, a := range list {
 		if a == guildID {
 			return true
 		}
@@ -85,18 +93,30 @@ func (m *DashboardModule) allowed(guildID string) bool {
 }
 
 // refreshGuilds re-fetches the user's OAuth guilds occasionally to limit API
-// calls while keeping dynamic membership roughly current.
+// calls while keeping dynamic membership roughly current. The session mutex
+// is only held for the cache check and the store — never across the OAuth
+// network call (a slow Discord response would otherwise stall every page for
+// that user, since userOAuthGuilds/baseData wait on the same lock).
 func (m *DashboardModule) refreshGuilds(us *userSession) {
-	if us == nil || m.oauth == nil {
+	if us == nil {
+		return
+	}
+	oa := m.oauthClient()
+	if oa == nil {
 		return
 	}
 	us.mu.Lock()
-	defer us.mu.Unlock()
-	if time.Since(us.guildsAt) < guildCacheTTL && len(us.oauthGuilds) > 0 {
+	fresh := time.Since(us.guildsAt) < guildCacheTTL && len(us.oauthGuilds) > 0
+	us.mu.Unlock()
+	if fresh {
 		return
 	}
-	guilds, err := m.oauth.GetGuilds(us.oauth)
+	guilds, err := oa.GetGuilds(us.oauth)
+	us.mu.Lock()
+	defer us.mu.Unlock()
 	if err != nil {
+		// Keep the stale cache (if any); log so a broken token is diagnosable.
+		m.logger.Warn("dashboard: refresh OAuth guilds failed: %v", err)
 		return
 	}
 	us.oauthGuilds = guilds
@@ -132,14 +152,26 @@ func (m *DashboardModule) mutualGuildIDs(us *userSession) []string {
 
 // manageableGuildIDs returns the guilds this user can manage from the dashboard:
 // owner/elevated manage every bot guild; otherwise the subset of mutual guilds
-// where the user owns the guild or has ManageGuild/Administrator.
+// where the user owns the guild or has ManageGuild/Administrator. It never
+// calls resolveLevel (see resolveLevel's NOTE) — owner/elevated are tested
+// directly so the two functions cannot recurse into each other.
 func (m *DashboardModule) manageableGuildIDs(us *userSession) []string {
 	if us == nil {
 		return nil
 	}
-	level := m.resolveLevel(us)
-	if level == lvlOwner || level == lvlElevated {
+	id := us.userID.String()
+	if m.ctx.Bot.IsOwner(id) || m.ctx.Bot.IsElevated(id) {
 		return m.allBotGuildList()
+	}
+	return m.managedMutualGuildIDs(us)
+}
+
+// managedMutualGuildIDs returns the mutual guilds where the user owns the
+// guild or holds ManageGuild/Administrator. It never consults resolveLevel,
+// so it is safe to call from resolveLevel itself.
+func (m *DashboardModule) managedMutualGuildIDs(us *userSession) []string {
+	if us == nil {
+		return nil
 	}
 	m.refreshGuilds(us)
 	botSet := m.botGuildIDs()

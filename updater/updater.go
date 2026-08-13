@@ -40,8 +40,8 @@ type Logger interface {
 // CheckResult is the outcome of a [Manager.Check].
 type CheckResult struct {
 	UpToDate  bool     `json:"up_to_date"`
-	Behind    int      `json:"behind"`     // commits behind the remote branch
-	NewSHAs   []string `json:"new_shas"`   // abbreviated new SHAs, newest first (max 10)
+	Behind    int      `json:"behind"`   // commits behind the remote branch
+	NewSHAs   []string `json:"new_shas"` // abbreviated new SHAs, newest first (max 10)
 	LocalSHA  string   `json:"local_sha"`
 	RemoteSHA string   `json:"remote_sha"`
 }
@@ -392,31 +392,32 @@ func (m *Manager) Apply(ctx context.Context) error {
 	return nil
 }
 
-// rebuildPlugins rebuilds every Go plugin source directory (modules/<name>/
-// containing main.go) into modules/<name>.so, matching the bot's Go version
-// by construction.
+// rebuildPlugins rebuilds every Go plugin source directory (modules/Go/<name>/
+// containing main.go) into modules/Go/<name>/<name>.so, matching the bot's Go
+// version by construction.
 func (m *Manager) rebuildPlugins(ctx context.Context) {
-	modulesDir := filepath.Join(m.Dir, "modules")
-	entries, err := os.ReadDir(modulesDir)
+	goDir := filepath.Join(m.Dir, "modules", "Go")
+	entries, err := os.ReadDir(goDir)
 	if err != nil {
-		m.Logger.Warn("Updater: cannot scan modules dir for plugin rebuild: %v", err)
+		m.Logger.Warn("Updater: cannot scan Go module dir for plugin rebuild: %v", err)
 		return
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
-		mainGo := filepath.Join(modulesDir, e.Name(), "main.go")
+		name := e.Name()
+		mainGo := filepath.Join(goDir, name, "main.go")
 		if _, err := os.Stat(mainGo); err != nil {
 			continue // lua/python modules don't need a build
 		}
 		cmd := exec.CommandContext(ctx, "go", "build", "-buildmode=plugin",
-			"-o", filepath.Join(modulesDir, e.Name()+".so"), "./modules/"+e.Name()+"/")
+			"-o", filepath.Join(goDir, name, name+".so"), "./modules/Go/"+name+"/")
 		cmd.Dir = m.Dir
 		if out, err := cmd.CombinedOutput(); err != nil {
-			m.Logger.Warn("Updater: plugin rebuild failed for %s: %v (%s)", e.Name(), err, strings.TrimSpace(string(out)))
+			m.Logger.Warn("Updater: plugin rebuild failed for %s: %v (%s)", name, err, strings.TrimSpace(string(out)))
 		} else {
-			m.Logger.Info("Updater: rebuilt plugin %s", e.Name())
+			m.Logger.Info("Updater: rebuilt plugin %s", name)
 		}
 	}
 }

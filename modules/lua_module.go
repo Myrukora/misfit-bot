@@ -21,6 +21,10 @@ type LuaModule struct {
 	mu          sync.Mutex
 	commands    []commands.Command
 	slashCmds   []commands.SlashCommand
+	// Optional dashboard integration (modules/<name>.dashboard.lua). Nil =
+	// no dashboard integration; HasWebConfig() reports the opt-in state.
+	webCfg *luaWebConfig
+	webMu  sync.Mutex
 }
 
 // NewLuaModule creates a new Lua module wrapper.
@@ -57,6 +61,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	// Load and execute the Lua script
 	if err := m.L.DoFile(m.path); err != nil {
 		m.L.Close()
+		m.L = nil // never leave a closed state behind for later cleanup
 		return fmt.Errorf("failed to load Lua script %s: %w", m.path, err)
 	}
 
@@ -64,12 +69,14 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	mod := m.L.GetGlobal("M")
 	if mod == lua.LNil {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s does not define module table 'M'", m.path)
 	}
 
 	modTable, ok := mod.(*lua.LTable)
 	if !ok {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s: 'M' is not a table", m.path)
 	}
 
@@ -81,6 +88,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 
 	if m.name == "" {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s: M.name is required", m.path)
 	}
 
@@ -94,6 +102,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 				Protect: true,
 			}, modTable, lua.LString(m.name)); err != nil {
 				m.L.Close()
+				m.L = nil
 				return fmt.Errorf("Lua script %s: on_load failed: %w", m.path, err)
 			}
 		}
@@ -108,6 +117,15 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	// Wire event callbacks registered via ctx.on_event during on_load
 	if ctx.Events != nil {
 		m.registerEventCallbacks(ctx.Events)
+	}
+
+	// Load the optional dashboard integration script (modules/<name>.dashboard.lua).
+	// A missing script simply means no dashboard settings panel; a broken one
+	// fails the module load so the author notices immediately.
+	if err := m.loadWebConfig(ctx); err != nil {
+		m.L.Close()
+		m.L = nil
+		return fmt.Errorf("dashboard integration: %w", err)
 	}
 
 	return nil
@@ -141,6 +159,8 @@ func (m *LuaModule) OnUnload() error {
 
 	m.L.Close()
 	m.L = nil
+	// Close the dashboard script's state (if any).
+	m.closeWebConfig()
 	return nil
 }
 
