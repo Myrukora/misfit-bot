@@ -62,22 +62,37 @@ A modular Discord bot in Go that hot-loads `.so` plugin files at runtime using G
 ├── go.sum
 ├── bot                       # Compiled binary
 ├── config.yml                # Runtime config
-├── modules/                  # .so plugins, .lua scripts, Python module dirs go here
-│   └── dashboard/             # Web dashboard plugin (HTTP server module; implements WebConfigurable)
-│       ├── main.go            # Module + [p]dashboard command + Start/Stop + WebConfigurable dogfood
-│       ├── config.go          # DashboardConfig (module_configs/dashboard/config.yml, 0600)
-│       ├── auth.go            # OAuth2 login, signed session cookies, mutual-guild enforcement
-│       ├── acl.go            # 4 RBAC tiers (owner/elevated/staff/regular) + route guards
-│       ├── commands.go        # Command catalog filtered via canUse (mirrors [p]help)
-│       ├── metrics.go        # Live metrics snapshot from cache + runtime
-│       ├── api.go / api2.go   # Tiered JSON API (settings/modules/logs/perms presence…)
-│       ├── pages.go           # Server-rendered MEE6-like HTML pages
-│       ├── server.go          # HTTP server + middleware (panic-recovery mandatory) + router
-│       ├── templates.go       # go:embed templates + render()/FuncMap
-│       ├── static.go         # go:embed static assets
-│       ├── templates_test.go  # Template render coverage (no Discord needed)
-│       └── web/{templates,static}/  # Embedded HTML/CSS/JS
-├── module_configs/           # Per-module YAML configs
+├── modules/                  # Module loader infrastructure (Go) + per-language module folders
+│   ├── module.go             # Module interface, Manager (load/unload via plugin package)
+│   ├── lua_loader.go         # Lua module loader
+│   ├── lua_module.go         # Lua module wrapper (implements Module interface)
+│   ├── lua_bridge.go         # Go-Lua bridge (ctx object, logging, bot info)
+│   ├── lua_webconfig.go      # Lua dashboard integration (<name>.dashboard.lua → WebConfigurable)
+│   ├── python_loader.go      # Python module loader (spawns process, waits for ready)
+│   ├── python_module.go      # Python module wrapper (implements Module interface)
+│   ├── python_bridge.go      # Go-Python bridge (IPC callbacks → Discord Rest)
+│   ├── python_ipc.go         # IPC protocol (stdin/stdout JSON messaging)
+│   ├── python_venv.go        # Per-module venv + pip install management
+│   ├── Go/                   # Go plugin modules (each a package dir with main.go)
+│   │   ├── dashboard/        # Web dashboard plugin (HTTP server; WebConfigurable dogfood)
+│   │   │   ├── main.go       # Module + [p]dashboard command + Start/Stop + WebConfigurable dogfood
+│   │   │   ├── config.go     # DashboardConfig (config.yml next to the module, 0600)
+│   │   │   ├── auth.go       # OAuth2 login, signed session cookies, mutual-guild enforcement
+│   │   │   ├── acl.go        # 4 RBAC tiers (owner/elevated/staff/regular) + route guards
+│   │   │   ├── commands.go   # Command catalog filtered via canUse (mirrors [p]help)
+│   │   │   ├── metrics.go    # Live metrics snapshot from cache + runtime
+│   │   │   ├── api.go / api2.go # Tiered JSON API (settings/modules/logs/perms presence…)
+│   │   │   ├── pages.go      # Server-rendered MEE6-like HTML pages
+│   │   │   ├── server.go     # HTTP server + middleware (panic-recovery mandatory) + router
+│   │   │   ├── templates.go  # go:embed templates + render()/FuncMap
+│   │   │   ├── static.go     # go:embed static assets
+│   │   │   ├── templates_test.go # Template render coverage (no Discord needed)
+│   │   │   └── web/{templates,static}/ # Embedded HTML/CSS/JS
+│   │   └── cleanup/          # Message cleanup module (9 subcommands)
+│   ├── Lua/                  # Lua modules (each a folder: <name>/<name>.lua, optional <name>.dashboard.lua)
+│   │   └── hello/            # Lua example module
+│   └── Python/               # Python modules (each a folder with main.py, optional dashboard.py)
+│       └── hello_py/         # Python example module
 ├── loaded_modules.json       # Module persistence (auto-managed)
 └── logs/
     └── bot.log               # JSON log output
@@ -88,7 +103,7 @@ A modular Discord bot in Go that hot-loads `.so` plugin files at runtime using G
 ### Entry Point (`cmd/bot/main.go`)
 
 Startup sequence:
-1. Auto-creates `modules/`, `module_configs/`, `logs/`
+1. Auto-creates `modules/` (+ `Go/`, `Lua/`, `Python/` subfolders) and `logs/`
 2. Checks for `config.yml` — runs onboarding if missing
 3. Creates logger, permission manager, module manager
 4. Connects to Discord via disgo with `FlagMembers` + `FlagRoles` cache
@@ -257,7 +272,7 @@ Module context:
 type Context struct {
     BotName string
     OwnerID string
-    DataDir string          // module_configs/<name>/
+    DataDir string          // the module's own folder (modules/Go|Lua|Python/<name>/)
     Logger  Logger
     Rest    rest.Rest
     Bot     commands.Interface
@@ -309,7 +324,7 @@ Available hooks:
 
 ### Lua Modules
 
-Single `.lua` files in `modules/`. Loaded by `LuaLoader` using gopher-lua.
+Single `.lua` files in `modules/Lua/<name>/`. Loaded by `LuaLoader` using gopher-lua.
 
 **Lua module format:** Script defines a global table `M` with fields `name`, `version`, `description`, `author`, and functions `on_load(M, name)`, `on_unload(M)`, `commands(M)`, `slash_commands(M)`. Each command table has `name`, `description`, `usage`, `category`, `execute(M)`.
 
@@ -321,7 +336,7 @@ Single `.lua` files in `modules/`. Loaded by `LuaLoader` using gopher-lua.
 
 ### Python Modules
 
-Directories in `modules/` containing `main.py` + optional `requirements.txt`. Loaded by `PythonLoader` via subprocess IPC.
+Directories in `modules/Python/<name>/` containing `main.py` + optional `requirements.txt`. Loaded by `PythonLoader` via subprocess IPC.
 
 **Python module format:** `main.py` imports from `custombot` (Module, Command, SlashCommand), defines a Module subclass, and assigns `module = MyModule()` as a global. The runner script (`sdk/python/custombot/runner.py`) imports the user's `main.py`, extracts the `module` global, sets up IPC, sends a `ready` message with module metadata + commands, and dispatches `init`/`command`/`event`/`shutdown` messages.
 
@@ -459,8 +474,7 @@ Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS U
 go build -o bot ./cmd/bot/         # Build bot
 ./bot                              # Run (onboarding if no config)
 ./bot --no-modules                 # Skip all module loading
-go build -buildmode=plugin -o modules/name.so modules/name/main.go  # Build single-file module
-go build -buildmode=plugin -o modules/dashboard.so ./modules/dashboard/  # Build multi-file module (use package path)
+go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/  # Build a Go plugin module (single- or multi-file)
 go vet ./...                       # Vet
 ```
 
@@ -505,7 +519,7 @@ go vet ./...                       # Vet
 - Backup verification — `[p]backup create|verify|restore|list` with YAML validation and confirmation required for restore
 - Module dependencies — `Dependencies() []string` method on Module interface, checked at load time, fails if dependency missing
 - Python graceful shutdown — 5-second timeout for graceful shutdown, then force kill
-- Web dashboard module (`modules/dashboard/`) — MEE6-style, role-tiered web dashboard as a hot-loadable `.so` plugin:
+- Web dashboard module (`modules/Go/dashboard/`) — MEE6-style, role-tiered web dashboard as a hot-loadable `.so` plugin:
   - Discord OAuth2 login via disgo `oauth2` (reused, **no new deps**) with signed session cookies (HMAC-SHA256), in-memory sessions, and a **mutual-guild login restriction** (the OAuth user must share ≥1 server with the bot).
   - **4 RBAC tiers** computed per request: `owner` > `elevated` > `staff` (manages ≥1 mutual guild via ManageGuild/Admin/owner) > `regular`. **All config is hidden from non-staff** at both the nav and API-middleware layers.
   - **Live metrics** (guild/member/channel/role counts, gateway latency, uptime, module counts, runtime MemStats) auto-refresh every 5s.
@@ -534,7 +548,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 2. **Lua bridge unrestricted `ctx.api()` and `ctx.http()`** — The bot is private; only the owner writes Lua modules. Full Discord API and arbitrary HTTP access is intentional for development flexibility. Before public module distribution, add URL allowlisting and endpoint whitelisting.
 3. **`[p]eval` shell command execution** — Protected by `SuperOwnerOnly` (bot owner only). Will be **removed entirely** before production launch. Kept in for development convenience only.
 4. **Branch + PR workflow, no direct commits to `main`** — The repo (`Myrukora/misfit-bot`, public since 2026-08-06) uses the branch workflow: `git checkout -b <feature>` → commit → `gh pr create` → **owner review + approval → merge**. PRs from collaborators require the owner's manual approval; the owner's own PRs are exempt (GitHub forbids self-approval). The bot only ever pulls `main` (fast-forward) — PR-only merges keep every GitHub merge strategy fast-forward-compatible. Server-side enforcement is provided by the `main-protection` ruleset (free for public repos): only the owner can push to `main`; PRs require an approval from Lemma-Agent (code owner). The workflow is otherwise enforced by convention.
-5. **Updater GitHub token in gitignored `config.yml`** — The bot authenticates to its private repo via `updater.token`, injected per git invocation via `http.extraheader` (never persisted to `.git/config`). The token never appears in any commit; `config.yml`, `module_configs/`, `updater_state.json`, `loaded_modules.json`, binaries and venvs are all gitignored. If the gh token is ever rotated, update `updater.token` (`[p]update set token <pat>`).
+5. **Updater GitHub token in gitignored `config.yml`** — The bot authenticates to its private repo via `updater.token`, injected per git invocation via `http.extraheader` (never persisted to `.git/config`). The token never appears in any commit; `config.yml`, module runtime data (`modules/{Go,Lua,Python}/*/{config*.yml,data,logs}` + `*.so`), `updater_state.json`, `loaded_modules.json`, binaries and venvs are all gitignored. If the gh token is ever rotated, update `updater.token` (`[p]update set token <pat>`).
 
 ## Key Gotchas
 
@@ -571,5 +585,5 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 31. **Dashboard OAuth reused disgo `oauth2`** — no new dependencies. `oauth2.New(id, secret, oauth2.WithStateController(oauth2.NewStateController()))`; scopes `identify`+`guilds`. Sessions are in-memory only (lost on restart — users just log in again). Default `listen` is `127.0.0.1:8080`; `[p]dashboard lan` binds all interfaces for LAN access, and the redirect URI follows the browser's origin when `public_url` is unset. Expose remotely via a reverse proxy/tunnel (cloudflared/nginx) and set `public_url` accordingly (Discord requires HTTPS redirect URIs outside localhost).
 32. **`WebConfigurable` is opt-in & additive** — modules that don't implement it are unaffected (dashboard shows no config UI for them). The dashboard type-asserts each loaded module via `modules.IsWebConfigurable(mod)` and renders settings purely from `WebConfigSchema()`. `secret` fields are redacted to `••••` on read unless the caller is the owner.
 33. **Dashboard config hidden from non-staff** — `regular` users (in a mutual guild but managing none) get 403 on `/settings`, `/modules`, `/permissions`, `/logs` and every mutating `POST /api/*` endpoint; the nav hides those links too. Staff see only their manageable guilds' guild-scoped module fields + their usable commands.
-34. **`[p]dashboard` before web login** — the owner-only Discord command is the only way to set `client_secret` before OAuth works. `client_secret` is written to core `config.yml` (`oauth:` section — the shared Discord-app credential) via `[p]dashboard set client_secret <secret>`; `listen`/`public_url` go to core `config.yml` (`dashboard:` section). All three can also be set by hand in `config.yml`. `session_secret` (the cookie-signing key, auto-generated) and `allowed_guilds` stay in `module_configs/dashboard/config.yml` (mode 0600, the only remaining dashboard secret). `[p]dashboard url` prints the redirect URI to register in the Developer Portal (or the auto-detected LAN URL when `public_url` is unset); `[p]dashboard lan` binds `0.0.0.0:<port>` for LAN access. **A bind failure (e.g. 8080 in use) does NOT fail `OnLoad`** — the module stays loaded so the owner can rebind via `[p]dashboard set listen <addr>` + `[p]dashboard restart`, or by editing `config.yml` and `[p]reload dashboard`. Effective listen = core `dashboard.listen` if set, else the module config `listen`, else `127.0.0.1:8080`; a URL-shaped value (`http://host:port/`) is normalized to `host:port` at write and bind time (`NormalizeListen`).
-35. **Dashboard integration is a separate file per module, and absence = no integration** — Go modules declare `WebConfigurable` in their own `dashboard.go`; Lua modules add `modules/<name>.dashboard.lua` (global table `D` with `schema`/`get`/`set`, its own Lua state, `ctx.data_dir` available); Python modules add `dashboard.py` next to `main.py` (`web_schema` + `web_get_config`/`web_set_config`, imported by the runner, IPC `web_get_config`/`web_set_config` messages). No file ⇒ no settings panel and no config API writes. `*.dashboard.lua` files are NOT modules: AutoLoad, `[p]load all`, `GetAvailableModuleNames`, and `DiscoverLuaModules` all skip them (`IsLuaDashboardScript`), and `LuaLoader.Load` rejects them with a clear error. Lua `min`/`max`/`step` are presence-based (0 values survive); Python config values are coerced to strings in Go (bools → "true"/"false").
+34. **`[p]dashboard` before web login** — the owner-only Discord command is the only way to set `client_secret` before OAuth works. `client_secret` is written to core `config.yml` (`oauth:` section — the shared Discord-app credential) via `[p]dashboard set client_secret <secret>`; `listen`/`public_url` go to core `config.yml` (`dashboard:` section). All three can also be set by hand in `config.yml`. `session_secret` (the cookie-signing key, auto-generated) and `allowed_guilds` stay in `modules/Go/dashboard/config.yml` (mode 0600, the only remaining dashboard secret). `[p]dashboard url` prints the redirect URI to register in the Developer Portal (or the auto-detected LAN URL when `public_url` is unset); `[p]dashboard lan` binds `0.0.0.0:<port>` for LAN access. **A bind failure (e.g. 8080 in use) does NOT fail `OnLoad`** — the module stays loaded so the owner can rebind via `[p]dashboard set listen <addr>` + `[p]dashboard restart`, or by editing `config.yml` and `[p]reload dashboard`. Effective listen = core `dashboard.listen` if set, else the module config `listen`, else `127.0.0.1:8080`; a URL-shaped value (`http://host:port/`) is normalized to `host:port` at write and bind time (`NormalizeListen`).
+35. **Dashboard integration is a separate file per module, and absence = no integration** — Go modules declare `WebConfigurable` in their own `dashboard.go`; Lua modules add `modules/Lua/<name>/<name>.dashboard.lua` (global table `D` with `schema`/`get`/`set`, its own Lua state, `ctx.data_dir` available); Python modules add `dashboard.py` next to `main.py` (`web_schema` + `web_get_config`/`web_set_config`, imported by the runner, IPC `web_get_config`/`web_set_config` messages). No file ⇒ no settings panel and no config API writes. `*.dashboard.lua` files are NOT modules: AutoLoad, `[p]load all`, `GetAvailableModuleNames`, and `DiscoverLuaModules` all skip them (`IsLuaDashboardScript`), and `LuaLoader.Load` rejects them with a clear error. Lua `min`/`max`/`step` are presence-based (0 values survive); Python config values are coerced to strings in Go (bools → "true"/"false").

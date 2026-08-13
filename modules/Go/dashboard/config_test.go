@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -249,5 +250,60 @@ func TestAllowedGuildsLabelRoundTrip(t *testing.T) {
 	joined := strings.Join(ids, ",")
 	if got := strings.FieldsFunc(joined, func(r rune) bool { return r == ',' || r == ' ' || r == '\n' || r == '	' }); len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("Set-split = %v, want %v", got, want)
+	}
+}
+
+// TestMigrateLegacyConfig pins the one-time migration from the pre-restructure
+// module_configs/ layout into the module's own folder: it copies only when the
+// new file is missing, never overwrites, and preserves 0600.
+func TestMigrateLegacyConfig(t *testing.T) {
+	botDir := t.TempDir()
+	legacy := filepath.Join(botDir, "module_configs", "dashboard")
+	if err := os.MkdirAll(legacy, 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacyFile := filepath.Join(legacy, "config.yml")
+	if err := os.WriteFile(legacyFile, []byte("session_secret: legacy-secret\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Fresh data dir + legacy present → migrates, 0600 preserved.
+	dataDir := filepath.Join(t.TempDir(), "modules", "Go", "dashboard")
+	migrated, err := migrateLegacyConfig(dataDir, botDir)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if !migrated {
+		t.Fatal("want migration to happen")
+	}
+	data, err := os.ReadFile(cfgPath(dataDir))
+	if err != nil {
+		t.Fatalf("read migrated config: %v", err)
+	}
+	if string(data) != "session_secret: legacy-secret\n" {
+		t.Fatalf("migrated content = %q", data)
+	}
+	if fi, _ := os.Stat(cfgPath(dataDir)); fi.Mode().Perm() != 0600 {
+		t.Fatalf("migrated file mode = %v, want 0600", fi.Mode().Perm())
+	}
+
+	// 2. New file already exists → no migration, no overwrite.
+	existing := filepath.Join(t.TempDir(), "modules", "Go", "dashboard")
+	os.MkdirAll(existing, 0755)
+	os.WriteFile(cfgPath(existing), []byte("listen: 127.0.0.1:9090\n"), 0600)
+	migrated, err = migrateLegacyConfig(existing, botDir)
+	if err != nil || migrated {
+		t.Fatalf("want no migration (new file exists), got migrated=%v err=%v", migrated, err)
+	}
+	data, _ = os.ReadFile(cfgPath(existing))
+	if string(data) != "listen: 127.0.0.1:9090\n" {
+		t.Fatalf("existing config was overwritten: %q", data)
+	}
+
+	// 3. No legacy file anywhere → no migration, no error.
+	clean := t.TempDir()
+	migrated, err = migrateLegacyConfig(filepath.Join(clean, "data"), clean)
+	if err != nil || migrated {
+		t.Fatalf("want no migration (no legacy), got migrated=%v err=%v", migrated, err)
 	}
 }

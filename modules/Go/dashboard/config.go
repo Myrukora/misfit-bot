@@ -42,6 +42,33 @@ func defaultConfig() *DashboardConfig {
 // cfgPath resolves the module config file path.
 func cfgPath(dir string) string { return filepath.Join(dir, "config.yml") }
 
+// migrateLegacyConfig performs the one-time move of the dashboard config from
+// the pre-restructure location (<bot config dir>/module_configs/dashboard/
+// config.yml) into the module's own folder. It only runs when the new file
+// does not exist yet (fresh installs skip it), and it never deletes the
+// legacy file — the owner can clean it up after confirming the migration.
+// Returns whether a migration happened.
+func migrateLegacyConfig(dataDir, botConfigDir string) (bool, error) {
+	if _, err := os.Stat(cfgPath(dataDir)); err == nil {
+		return false, nil // already migrated / fresh install
+	}
+	src := filepath.Join(botConfigDir, "module_configs", "dashboard", "config.yml")
+	data, err := os.ReadFile(src)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil // no legacy config
+		}
+		return false, err
+	}
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(cfgPath(dataDir), data, 0600); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // loadConfig reads the module config, creating defaults when the file is missing.
 func loadConfig(dir string) (*DashboardConfig, error) {
 	c := defaultConfig()

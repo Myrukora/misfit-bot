@@ -90,6 +90,16 @@ func (m *DashboardModule) OnLoad(ctx *modules.Context) error {
 		m.client = c
 	}
 
+	// One-time migration: pre-restructure installs kept the dashboard config
+	// at <config dir>/module_configs/dashboard/config.yml. Move it into the
+	// module's own folder so session_secret / allowed_guilds survive (a fresh
+	// config would regenerate the session secret and drop the allowlist).
+	if migrated, err := migrateLegacyConfig(ctx.DataDir, ctx.Bot.GetConfigDir()); err != nil {
+		m.logger.Warn("Dashboard: legacy config migration failed (module continues with defaults): %v", err)
+	} else if migrated {
+		m.logger.Info("Dashboard: migrated config from module_configs/dashboard/config.yml to %s", cfgPath(ctx.DataDir))
+	}
+
 	cfg, err := loadConfig(ctx.DataDir)
 	if err != nil {
 		return fmt.Errorf("load dashboard config: %w", err)
