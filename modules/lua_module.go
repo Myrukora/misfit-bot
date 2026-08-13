@@ -21,6 +21,10 @@ type LuaModule struct {
 	mu          sync.Mutex
 	commands    []commands.Command
 	slashCmds   []commands.SlashCommand
+	// Optional dashboard integration (modules/<name>.dashboard.lua). Nil =
+	// no dashboard integration; LuaModule does not implement WebConfigurable.
+	webCfg *luaWebConfig
+	webMu  sync.Mutex
 }
 
 // NewLuaModule creates a new Lua module wrapper.
@@ -110,6 +114,14 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 		m.registerEventCallbacks(ctx.Events)
 	}
 
+	// Load the optional dashboard integration script (modules/<name>.dashboard.lua).
+	// A missing script simply means no dashboard settings panel; a broken one
+	// fails the module load so the author notices immediately.
+	if err := m.loadWebConfig(ctx); err != nil {
+		m.L.Close()
+		return fmt.Errorf("dashboard integration: %w", err)
+	}
+
 	return nil
 }
 
@@ -141,6 +153,8 @@ func (m *LuaModule) OnUnload() error {
 
 	m.L.Close()
 	m.L = nil
+	// Close the dashboard script's state (if any).
+	m.closeWebConfig()
 	return nil
 }
 

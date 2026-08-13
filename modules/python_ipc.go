@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -53,6 +54,25 @@ type PythonReadyInfo struct {
 	Commands      []PythonCommand
 	SlashCommands []PythonSlashCommand
 	EventHandlers []string
+	// Dashboard integration (optional dashboard.py): HasWebConfig is true
+	// only when the module directory contains dashboard.py.
+	HasWebConfig bool
+	WebSchema    []PythonWebField
+}
+
+// PythonWebField is one dashboard settings field declared by dashboard.py.
+type PythonWebField struct {
+	Key         string   `json:"key"`
+	Label       string   `json:"label"`
+	Help        string   `json:"help"`
+	Type        string   `json:"type"`
+	Scope       string   `json:"scope"`
+	GuildScoped bool     `json:"guild_scoped"`
+	Placeholder string   `json:"placeholder"`
+	Options     []string `json:"options"`
+	Min         *float64 `json:"min"`
+	Max         *float64 `json:"max"`
+	Step        *float64 `json:"step"`
 }
 
 // PythonCommand represents a command definition from Python.
@@ -269,6 +289,87 @@ func (p *PythonIPC) nextReqSeq() int64 {
 	return atomic.AddInt64(&webReqSeq, 1)
 }
 
+// SendWebGetConfig asks the module's dashboard integration for the current
+// values of all schema fields (guildID "" = global scope) and waits for the
+// web_config_response reply (5s timeout).
+func (p *PythonIPC) SendWebGetConfig(guildID string) (map[string]string, error) {
+	resp, err := p.sendWebConfig(map[string]interface{}{
+		"type":     "web_get_config",
+		"guild_id": guildID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	if vals, ok := resp["values"].(map[string]interface{}); ok {
+		for k, v := range vals {
+			// The wire is string-typed; convert whatever the module returned
+			// (bools/numbers are legal from Python's web_get_config).
+			switch t := v.(type) {
+			case string:
+				out[k] = t
+			case bool:
+				out[k] = strconv.FormatBool(t)
+			case float64:
+				out[k] = strconv.FormatFloat(t, 'f', -1, 64)
+			case nil:
+				out[k] = ""
+			default:
+				out[k] = fmt.Sprint(t)
+			}
+		}
+	}
+	return out, nil
+}
+
+// SendWebSetConfig writes one field through the module's dashboard
+// integration (guildID "" = global scope) and waits for the reply.
+func (p *PythonIPC) SendWebSetConfig(guildID, key, value string) error {
+	_, err := p.sendWebConfig(map[string]interface{}{
+		"type":     "web_set_config",
+		"guild_id": guildID,
+		"key":      key,
+		"value":    value,
+	})
+	return err
+}
+
+// sendWebConfig sends a dashboard-config request and waits for the correlated
+// web_config_response (req_id, 5s timeout). Mirrors SendCommandFromWeb.
+func (p *PythonIPC) sendWebConfig(msg map[string]interface{}) (map[string]interface{}, error) {
+	reqID := fmt.Sprintf("webcfg-%d-%d", time.Now().UnixNano(), p.nextReqSeq())
+	ch := make(chan map[string]interface{}, 1)
+	p.pendingMu.Lock()
+	if p.pending == nil {
+		p.pending = map[string]chan map[string]interface{}{}
+	}
+	p.pending[reqID] = ch
+	p.pendingMu.Unlock()
+	defer func() {
+		p.pendingMu.Lock()
+		delete(p.pending, reqID)
+		p.pendingMu.Unlock()
+	}()
+
+	msg["req_id"] = reqID
+	if err := p.Send(msg); err != nil {
+		return nil, err
+	}
+
+	select {
+	case resp, ok := <-ch:
+		if !ok {
+			return nil, fmt.Errorf("python module stopped during dashboard config request")
+		}
+		if errStr := getString(resp, "error"); errStr != "" {
+			return nil, fmt.Errorf("%s", errStr)
+		}
+		return resp, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("python module timed out answering dashboard config request")
+	}
+}
+
 // SendEvent sends an event to the Python process.
 func (p *PythonIPC) SendEvent(name string, data interface{}) error {
 	return p.Send(map[string]interface{}{
@@ -382,6 +483,9 @@ func (p *PythonIPC) handleMessage(message map[string]interface{}) {
 		p.handleHTTPRequest(message)
 	case "voice":
 		p.handleVoice(message)
+	case "web_config_response":
+		// Route to the pending dashboard-config waiter (req_id-correlated).
+		p.deliverWeb(message)
 	default:
 		p.logger.Error("Unknown Python message type: %s", msgType)
 	}
@@ -439,6 +543,49 @@ func (p *PythonIPC) handleReady(message map[string]interface{}) {
 			if handler, ok := h.(string); ok {
 				info.EventHandlers = append(info.EventHandlers, handler)
 			}
+		}
+	}
+
+	// Parse dashboard integration (optional dashboard.py).
+	if has, ok := message["has_web_config"].(bool); ok {
+		info.HasWebConfig = has
+	}
+	if fields, ok := message["web_schema"].([]interface{}); ok {
+		for _, f := range fields {
+			fm, ok := f.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			wf := PythonWebField{
+				Key:         getString(fm, "key"),
+				Label:       getString(fm, "label"),
+				Help:        getString(fm, "help"),
+				Type:        getString(fm, "type"),
+				Scope:       getString(fm, "scope"),
+				GuildScoped: getBool(fm, "guild_scoped"),
+				Placeholder: getString(fm, "placeholder"),
+			}
+			if opts, ok := fm["options"].([]interface{}); ok {
+				for _, o := range opts {
+					if s, ok := o.(string); ok {
+						wf.Options = append(wf.Options, s)
+					}
+				}
+			}
+			for _, numKey := range []string{"min", "max", "step"} {
+				if v, ok := fm[numKey].(float64); ok {
+					pv := v
+					switch numKey {
+					case "min":
+						wf.Min = &pv
+					case "max":
+						wf.Max = &pv
+					case "step":
+						wf.Step = &pv
+					}
+				}
+			}
+			info.WebSchema = append(info.WebSchema, wf)
 		}
 	}
 

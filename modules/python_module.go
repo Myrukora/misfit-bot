@@ -26,6 +26,11 @@ type PythonModule struct {
 	hooks         *EventHooks
 	mu            sync.Mutex
 	loaded        bool
+	// Dashboard integration (optional dashboard.py in the module dir). When
+	// HasWebConfig is false the module has NO dashboard integration and
+	// PythonModule does not implement WebConfigurable.
+	hasWebConfig bool
+	webSchema    []ConfigField
 }
 
 // NewPythonModule creates a new Python module from the ready info.
@@ -44,6 +49,24 @@ func NewPythonModule(
 		ipc:           ipc,
 		bridge:        bridge,
 		eventHandlers: info.EventHandlers,
+		hasWebConfig:  info.HasWebConfig,
+	}
+
+	// Cache the dashboard integration schema (declared by dashboard.py).
+	for _, wf := range info.WebSchema {
+		m.webSchema = append(m.webSchema, ConfigField{
+			Key:         wf.Key,
+			Label:       wf.Label,
+			Help:        wf.Help,
+			Type:        wf.Type,
+			Scope:       wf.Scope,
+			GuildScoped: wf.GuildScoped,
+			Placeholder: wf.Placeholder,
+			Options:     wf.Options,
+			Min:         wf.Min,
+			Max:         wf.Max,
+			Step:        wf.Step,
+		})
 	}
 
 	// Fall back to directory name if module didn't provide a name
@@ -522,4 +545,36 @@ func (m *PythonModule) SlashCommands() []commands.SlashCommand {
 // Dependencies returns the module's dependencies (always empty for Python modules).
 func (m *PythonModule) Dependencies() []string {
 	return nil
+}
+
+// ── Dashboard integration (WebConfigurable, optional) ─────────────────────
+//
+// Implemented ONLY when the module directory contains dashboard.py
+// (hasWebConfig). The schema was declared there and shipped in the ready
+// message; reads/writes round-trip through the Python process via IPC.
+
+// WebConfigSchema returns the field list declared by dashboard.py.
+func (m *PythonModule) WebConfigSchema() []ConfigField {
+	if !m.hasWebConfig {
+		return nil
+	}
+	return m.webSchema
+}
+
+// WebGetConfig reads the current values through dashboard.py's
+// web_get_config(guild_id) (guildID "" = global scope).
+func (m *PythonModule) WebGetConfig(guildID string) (map[string]string, error) {
+	if !m.hasWebConfig {
+		return nil, fmt.Errorf("no dashboard integration")
+	}
+	return m.ipc.SendWebGetConfig(guildID)
+}
+
+// WebSetConfig writes one value through dashboard.py's
+// web_set_config(guild_id, key, value). Errors from Python are returned as-is.
+func (m *PythonModule) WebSetConfig(guildID, key, value string) error {
+	if !m.hasWebConfig {
+		return fmt.Errorf("no dashboard integration")
+	}
+	return m.ipc.SendWebSetConfig(guildID, key, value)
 }

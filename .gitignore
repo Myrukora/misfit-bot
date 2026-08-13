@@ -18,14 +18,26 @@ config_backup_*.yml
 config_pre_restore_*.yml
 
 # Runtime/bot-generated state (never commit)
-# module_configs may hold API keys/secrets (e.g. dashboard session_secret)
-module_configs/
+# Module runtime data lives INSIDE each module's folder (modules/<lang>/<name>/):
+# source is tracked, the module's own configs/saves/logs are ignored.
 bot.new
 bot.old
 updater_state.json
 config_pre_restore_*.yml
 .pi/
 .tmp/
+
+# Module runtime data (configs, saves, logs) inside module folders.
+# A module with other data filenames can add its own .gitignore in its folder.
+modules/Go/*/config*.yml
+modules/Go/*/data/
+modules/Go/*/logs/
+modules/Python/*/config*.yml
+modules/Python/*/data/
+modules/Python/*/logs/
+modules/Lua/*/config*.yml
+modules/Lua/*/data/
+modules/Lua/*/logs/
 
 # Bot binary (root-anchored: must NOT match cmd/bot/)
 /bot
@@ -34,8 +46,8 @@ config_pre_restore_*.yml
 loaded_modules.json
 
 # Python module venvs and caches
-modules/*/.venv/
-modules/*/__pycache__/
+modules/Python/*/.venv/
+modules/Python/*/__pycache__/
 # Python SDK caches
 __pycache__/
 *.pyc
@@ -53,5 +65,5 @@ __pycache__/
 .DS_Store
 
 # Built plugin binaries (artifacts, not source)
-modules/*.so
+modules/Go/*/*.so
 *.so

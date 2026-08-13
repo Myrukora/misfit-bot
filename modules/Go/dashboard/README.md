@@ -12,7 +12,7 @@ already in `go.mod`.
 
 ```bash
 # from the repo root
-go build -buildmode=plugin -o modules/dashboard.so ./modules/dashboard/
+go build -buildmode=plugin -o modules/Go/dashboard/dashboard.so ./modules/Go/dashboard/
 ./bot                       # then, in Discord:
 [p]load dashboard
 [p]dashboard status
@@ -41,7 +41,7 @@ There are two places the listen address can come from, in this priority:
    Then `[p]reload dashboard` (or restart the bot) picks it up. You can also set
    it from Discord with `[p]dashboard set listen 127.0.0.1:9090`, which writes
    this same `config.yml` key.
-2. **Module config** — `module_configs/dashboard/config.yml`'s `listen`/
+2. **Module config** — `modules/Go/dashboard/config.yml`'s `listen`/
    `public_url` (used only when the core `config.yml` `dashboard:` section is
    empty).
 
@@ -113,7 +113,7 @@ register each redirect URI you actually use.
 the bot's application ID, available in-process as `ctx.Bot.GetClient().(*bot.Client).ApplicationID`)` — nothing to fill in.
 `session_secret` is auto-generated (32 random bytes) on first run and stored in
 the dashboard's own config file. The dashboard's module config file
-`module_configs/dashboard/config.yml` is written with mode `0600`; these days it
+`modules/Go/dashboard/config.yml` is written with mode `0600`; these days it
 holds only the `session_secret`, the `allowed_guilds` allowlist, and a
 backwards-compatible fallback for `client_id`/`client_secret`. The OAuth
 `client_secret` itself now lives in core `config.yml:oauth:` so other modules
@@ -234,7 +234,7 @@ and the `<meta name="csrf-token">` tag.
 ## Testing
 
 ```bash
-go test ./modules/dashboard/   # template-render coverage + field types (no Discord needed)
+go test ./modules/Go/dashboard/   # template-render coverage + field types (no Discord needed)
 ```
 
 ## Notes & limitations

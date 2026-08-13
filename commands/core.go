@@ -318,34 +318,49 @@ func init() {
 			target := ctx.Args[0]
 			if target == "all" {
 				modulesDir := filepath.Join(ctx.Bot.GetConfigDir(), "modules")
-				entries, err := os.ReadDir(modulesDir)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read modules directory: %v", err)))
-				}
 				loaded := 0
-				for _, entry := range entries {
-					name := entry.Name()
-					switch {
-					case strings.HasSuffix(name, ".so"):
-						name = strings.TrimSuffix(name, ".so")
-					case strings.HasSuffix(name, ".lua"):
-						name = strings.TrimSuffix(name, ".lua")
-					case entry.IsDir():
-						// Python module: directory with main.py. Skip hidden dirs
-						// and the per-module venv directory.
-						if strings.HasPrefix(name, ".") {
-							continue
-						}
-						if _, err := os.Stat(filepath.Join(modulesDir, name, "main.py")); err != nil {
-							continue
-						}
-					default:
-						continue
-					}
+				tryLoad := func(name string) {
 					if err := ctx.Bot.LoadModule(name); err != nil {
-						continue
+						return
 					}
 					loaded++
+				}
+				// Go plugins: modules/Go/<name>/<name>.so (built only)
+				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
+					for _, entry := range entries {
+						if entry.IsDir() {
+							so := filepath.Join(modulesDir, "Go", entry.Name(), entry.Name()+".so")
+							if _, err := os.Stat(so); err == nil {
+								tryLoad(entry.Name())
+							}
+						}
+					}
+				}
+				// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
+				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
+					for _, entry := range entries {
+						if !entry.IsDir() {
+							continue
+						}
+						name := entry.Name()
+						luaFile := filepath.Join(modulesDir, "Lua", name, name+".lua")
+						if _, err := os.Stat(luaFile); err != nil {
+							luaFile = filepath.Join(modulesDir, "Lua", name, "main.lua")
+						}
+						if _, err := os.Stat(luaFile); err == nil {
+							tryLoad(name)
+						}
+					}
+				}
+				// Python modules: modules/Python/<name>/main.py
+				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Python")); err == nil {
+					for _, entry := range entries {
+						if entry.IsDir() {
+							if _, err := os.Stat(filepath.Join(modulesDir, "Python", entry.Name(), "main.py")); err == nil {
+								tryLoad(entry.Name())
+							}
+						}
+					}
 				}
 				return ctx.Respond(embed.Success("✅ Loaded", fmt.Sprintf("Loaded %d modules.", loaded)))
 			}

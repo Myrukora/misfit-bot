@@ -292,13 +292,14 @@ build_core() {
 }
 
 build_modules() {
-  local root d name count=0
+  local root go_dir d name count=0
   root="$(cd "$(dirname "$0")" && pwd)"
-  info "building Go plugin modules (modules/*/main.go → modules/*.so)"
-  for d in "${root}"/modules/*/; do
+  go_dir="${root}/modules/Go"
+  info "building Go plugin modules (modules/Go/<name>/main.go → modules/Go/<name>/<name>.so)"
+  for d in "${go_dir}"/*/; do
     [ -f "${d}main.go" ] || continue
     name="$(basename "$d")"
-    if ( cd "$root" && CGO_ENABLED=1 go build -buildmode=plugin -o "modules/${name}.so" "./modules/${name}/" ); then
+    if ( cd "$root" && CGO_ENABLED=1 go build -buildmode=plugin -o "modules/Go/${name}/${name}.so" "./modules/Go/${name}/" ); then
       ok "plugin: ${name}.so"
       count=$((count + 1))
     else

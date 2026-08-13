@@ -12,7 +12,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DashboardConfig is persisted as module_configs/dashboard/config.yml.
+// DashboardConfig is persisted as config.yml next to the module
+// (modules/Go/dashboard/config.yml, 0600).
 // It holds the OAuth client secret, so the file is written with 0600.
 type DashboardConfig struct {
 	Listen        string   `yaml:"listen"`

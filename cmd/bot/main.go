@@ -951,52 +951,78 @@ func (b *botAdapter) GetAllModuleCommandsByModule() []commands.ModuleCommands {
 
 func (b *botAdapter) GetAvailableModuleNames() []string {
 	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return nil
-	}
 	var names []string
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() {
-			// Python module directory (has main.py)
-			path := filepath.Join(modulesDir, name)
-			if modules.IsPythonModule(path) {
-				names = append(names, name)
+	// Go plugins: modules/Go/<name>/<name>.so (only built plugins are loadable)
+	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
 			}
-			continue
+			if _, err := os.Stat(filepath.Join(modulesDir, "Go", e.Name(), e.Name()+".so")); err == nil {
+				names = append(names, e.Name())
+			}
 		}
-		if strings.HasSuffix(name, ".so") {
-			names = append(names, strings.TrimSuffix(name, ".so"))
-			continue
+	}
+	// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
+	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			luaFile := filepath.Join(modulesDir, "Lua", e.Name(), e.Name()+".lua")
+			if _, err := os.Stat(luaFile); err != nil {
+				luaFile = filepath.Join(modulesDir, "Lua", e.Name(), "main.lua")
+			}
+			if _, err := os.Stat(luaFile); err == nil {
+				names = append(names, e.Name())
+			}
 		}
-		if strings.HasSuffix(name, ".lua") {
-			names = append(names, strings.TrimSuffix(name, ".lua"))
-			continue
+	}
+	// Python modules: modules/Python/<name>/main.py
+	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Python")); err == nil {
+		for _, e := range entries {
+			if e.IsDir() && modules.IsPythonModule(filepath.Join(modulesDir, "Python", e.Name())) {
+				names = append(names, e.Name())
+			}
 		}
 	}
 	return names
 }
 
 // resolveModulePath finds the actual file/directory path for a module by name.
-// It probes for .so, .lua, and Python module directories in order.
+// Modules live in language folders: modules/Go/<name>/<name>.so,
+// modules/Lua/<name>/<name>.lua (or main.lua), modules/Python/<name>/main.py.
 func resolveModulePath(modulesDir, name string) (string, error) {
-	// Try Go plugin (.so)
-	soPath := filepath.Join(modulesDir, name+".so")
-	if _, err := os.Stat(soPath); err == nil {
-		return soPath, nil
+	// Try Go plugin (modules/Go/<name>/<name>.so)
+	goPath := filepath.Join(modulesDir, "Go", name, name+".so")
+	if _, err := os.Stat(goPath); err == nil {
+		return goPath, nil
 	}
-	// Try Lua (.lua)
-	luaPath := filepath.Join(modulesDir, name+".lua")
+	// Try Lua (modules/Lua/<name>/<name>.lua, then main.lua)
+	luaPath := filepath.Join(modulesDir, "Lua", name, name+".lua")
 	if _, err := os.Stat(luaPath); err == nil {
 		return luaPath, nil
 	}
-	// Try Python (directory with main.py)
-	pyPath := filepath.Join(modulesDir, name)
+	luaMain := filepath.Join(modulesDir, "Lua", name, "main.lua")
+	if _, err := os.Stat(luaMain); err == nil {
+		return luaMain, nil
+	}
+	// Try Python (modules/Python/<name>/ directory with main.py)
+	pyPath := filepath.Join(modulesDir, "Python", name)
 	if modules.IsPythonModule(pyPath) {
 		return pyPath, nil
 	}
-	return "", fmt.Errorf("module '%s' not found (tried .so, .lua, directory/main.py)", name)
+	return "", fmt.Errorf("module '%s' not found (tried Go/<name>/<name>.so, Lua/<name>/<name>.lua, Python/<name>/main.py)", name)
+}
+
+// moduleDataDir returns the module's own folder as its data directory — the
+// module script(s), configs, saves and logs all live together. Python modules
+// ARE the folder; Go/Lua modules are files inside it.
+func moduleDataDir(path string) string {
+	if modules.IsPythonModule(path) {
+		return path
+	}
+	return filepath.Dir(path)
 }
 
 func (b *botAdapter) LoadModule(name string) error {
@@ -1013,7 +1039,7 @@ func (b *botAdapter) LoadModule(name string) error {
 	if err := mod.OnLoad(&modules.Context{
 		BotName:      Cfg.Bot.Name,
 		OwnerID:      Cfg.Bot.OwnerID,
-		DataDir:      filepath.Join(Dir, "module_configs", name),
+		DataDir:      moduleDataDir(path),
 		Logger:       Log,
 		Rest:         Client.Rest,
 		Bot:          b,
@@ -1281,28 +1307,40 @@ func loadCoreModules(ba *botAdapter) {
 	if len(saved) == 0 {
 		if Cfg.Modules.AutoLoad {
 			Log.Info("AutoLoad enabled, scanning for modules...")
-			entries, err := os.ReadDir(modulesDir)
-			if err != nil {
-				Log.Error("Failed to read modules directory: %v", err)
-				return
+			// Go plugins: modules/Go/<name>/<name>.so
+			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
+				for _, entry := range entries {
+					if !entry.IsDir() {
+						continue
+					}
+					so := filepath.Join(modulesDir, "Go", entry.Name(), entry.Name()+".so")
+					if _, err := os.Stat(so); err == nil {
+						loadSingleModule(ba, modulesDir, entry.Name())
+					}
+				}
 			}
-			for _, entry := range entries {
-				name := entry.Name()
-				if entry.IsDir() {
-					// Python module directory
-					path := filepath.Join(modulesDir, name)
-					if modules.IsPythonModule(path) {
+			// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
+			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
+				for _, entry := range entries {
+					if !entry.IsDir() {
+						continue
+					}
+					name := entry.Name()
+					luaFile := filepath.Join(modulesDir, "Lua", name, name+".lua")
+					if _, err := os.Stat(luaFile); err != nil {
+						luaFile = filepath.Join(modulesDir, "Lua", name, "main.lua")
+					}
+					if _, err := os.Stat(luaFile); err == nil {
 						loadSingleModule(ba, modulesDir, name)
 					}
-					continue
 				}
-				if strings.HasSuffix(name, ".so") {
-					loadSingleModule(ba, modulesDir, strings.TrimSuffix(name, ".so"))
-					continue
-				}
-				if strings.HasSuffix(name, ".lua") {
-					loadSingleModule(ba, modulesDir, strings.TrimSuffix(name, ".lua"))
-					continue
+			}
+			// Python modules: modules/Python/<name>/main.py
+			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Python")); err == nil {
+				for _, entry := range entries {
+					if entry.IsDir() && modules.IsPythonModule(filepath.Join(modulesDir, "Python", entry.Name())) {
+						loadSingleModule(ba, modulesDir, entry.Name())
+					}
 				}
 			}
 			saveLoadedModules()
@@ -1350,7 +1388,7 @@ func loadSingleModule(ba *botAdapter, modulesDir, name string) {
 	if err := mod.OnLoad(&modules.Context{
 		BotName:      Cfg.Bot.Name,
 		OwnerID:      Cfg.Bot.OwnerID,
-		DataDir:      filepath.Join(Dir, "module_configs", name),
+		DataDir:      moduleDataDir(path),
 		Logger:       Log,
 		Rest:         Client.Rest,
 		Bot:          ba,
@@ -1377,7 +1415,9 @@ func safeParseID(s string) (snowflake.ID, bool) {
 func setupDirs() {
 	dirs := []string{
 		filepath.Join(Dir, "modules"),
-		filepath.Join(Dir, "module_configs"),
+		filepath.Join(Dir, "modules", "Go"),
+		filepath.Join(Dir, "modules", "Python"),
+		filepath.Join(Dir, "modules", "Lua"),
 		filepath.Join(Dir, "logs"),
 	}
 	for _, d := range dirs {

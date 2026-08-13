@@ -40,6 +40,11 @@ func (l *LuaLoader) Load(path string) (Module, error) {
 	if !IsLuaModule(path) {
 		return nil, fmt.Errorf("not a Lua module: %s", path)
 	}
+	// Dashboard integration scripts are attached to their module, not
+	// loadable as modules themselves.
+	if IsLuaDashboardScript(filepath.Base(path)) {
+		return nil, fmt.Errorf("%s is a dashboard integration script, not a module (it is loaded automatically with %s)", path, strings.TrimSuffix(filepath.Base(path), ".dashboard.lua")+".lua")
+	}
 
 	// Check if file exists
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -67,6 +72,10 @@ func (l *LuaLoader) DiscoverLuaModules(dir string) []ModuleInfo {
 
 		name := entry.Name()
 		if !strings.HasSuffix(name, ".lua") {
+			continue
+		}
+		// Dashboard integration scripts are not modules.
+		if IsLuaDashboardScript(name) {
 			continue
 		}
 
