@@ -74,8 +74,18 @@ def field_to_dict(f):
             "placeholder", "options", "min", "max", "step",
         ) if hasattr(f, k)
     }
-    # Normalize: guild_scoped bool, options list, numeric bounds.
-    d["guild_scoped"] = bool(d.get("guild_scoped", False))
+    # Normalize: scope/guild_scoped must agree — the dashboard uses
+    # GuildScoped to select the config scope, so a guild field that omits
+    # guild_scoped must NOT silently default to global.
+    scope = d.get("scope")
+    if scope is None:
+        scope = "guild" if d.get("guild_scoped", False) else "global"
+    if scope not in ("global", "guild"):
+        raise ValueError(f"invalid dashboard field scope: {scope!r}")
+    if "guild_scoped" in d and bool(d["guild_scoped"]) != (scope == "guild"):
+        raise ValueError("scope and guild_scoped disagree")
+    d["scope"] = scope
+    d["guild_scoped"] = scope == "guild"
     d["options"] = list(d.get("options") or [])
     for k in ("min", "max", "step"):
         v = d.get(k)

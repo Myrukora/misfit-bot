@@ -154,6 +154,16 @@ func (m *LuaModule) webSchemaFromLua(dashTbl *lua.LTable) ([]ConfigField, error)
 
 // ── WebConfigurable implementation (LuaModule) ────────────────────────────
 
+// HasWebConfig reports whether the module actually HAS a dashboard
+// integration script. LuaModule always satisfies WebConfigurable at the type
+// level; the dashboard checks this marker so a script-less Lua module is
+// treated as not configurable at all (no panel, API writes refused).
+func (m *LuaModule) HasWebConfig() bool {
+	m.webMu.Lock()
+	defer m.webMu.Unlock()
+	return m.webCfg != nil
+}
+
 // WebConfigSchema returns the field list declared by the dashboard script.
 // The dashboard only calls this when IsWebConfigurable succeeds, which
 // requires the script to exist.

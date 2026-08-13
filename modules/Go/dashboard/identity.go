@@ -48,23 +48,27 @@ func (m *DashboardModule) botIdentity() botIdentity {
 
 // applicationName returns the Discord application (Developer Portal) name,
 // caching the REST result for appNameTTL so page renders never hammer the API.
+// The attempt time is stamped on EVERY attempt (success or failure) so a
+// failing/empty lookup also respects the TTL, and the lock is not held across
+// the network call (concurrent renders must not serialize behind one Discord
+// request).
 func (m *DashboardModule) applicationName() string {
 	m.appNameMu.Lock()
-	defer m.appNameMu.Unlock()
-	if m.appName != "" && time.Since(m.appNameAt) < appNameTTL {
-		return m.appName
+	cached, at, client := m.appName, m.appNameAt, m.client
+	m.appNameMu.Unlock()
+	if time.Since(at) < appNameTTL {
+		return cached
 	}
-	if m.client == nil {
+	if client == nil {
 		return ""
 	}
-	app, err := m.client.Rest.GetCurrentApplication()
-	if err != nil {
-		return m.appName // transient error: keep last known value
-	}
-	if app.Name == "" {
-		return m.appName
-	}
-	m.appName = app.Name
+	app, err := client.Rest.GetCurrentApplication()
+	m.appNameMu.Lock()
+	defer m.appNameMu.Unlock()
+	// Stamp every attempt so failures also respect the TTL.
 	m.appNameAt = time.Now()
+	if err == nil && app.Name != "" {
+		m.appName = app.Name
+	}
 	return m.appName
 }

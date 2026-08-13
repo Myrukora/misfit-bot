@@ -138,6 +138,12 @@ func optionSchemas(opts []discord.ApplicationCommandOption) []argOpt {
 			}
 			continue
 		}
+		// A plain option literally named "subcommand" would collide with the
+		// merged selector's data-arg label and confuse the JS arg collection —
+		// the selector already contributes the subcommand name positionally.
+		if a.Name == "subcommand" && subIdx >= 0 {
+			continue
+		}
 		out = append(out, a)
 	}
 	if len(out) == 0 {
@@ -236,14 +242,18 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			if !ok {
 				continue
 			}
-			modSlashOpts := map[string][]discord.ApplicationCommandOption{}
-			for i := range mod.SlashCommands() {
-				modSlashOpts[mod.SlashCommands()[i].Name] = mod.SlashCommands()[i].Options
+			// Fetch each command list ONCE per module — the interface
+			// methods can rebuild slices per call.
+			modCmds := mod.Commands()
+			modSlash := mod.SlashCommands()
+			modSlashOpts := make(map[string][]discord.ApplicationCommandOption, len(modSlash))
+			for i := range modSlash {
+				modSlashOpts[modSlash[i].Name] = modSlash[i].Options
 			}
-			for _, c := range mod.Commands() {
+			for _, c := range modCmds {
 				addPrefix(c, mod.Name(), modSlashOpts[c.Name])
 			}
-			for _, c := range mod.SlashCommands() {
+			for _, c := range modSlash {
 				addSlash(c, mod.Name())
 			}
 		}

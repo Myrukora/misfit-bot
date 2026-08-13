@@ -141,10 +141,10 @@ func TestSettingsSectionsPins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
 	}
-	// owner=true renders secrets unlocked; elevated locks them (OwnerOnly &&
-	// !owner is computed server-side in coreSettingsFields).
-	build := func(owner bool) settingsPageData {
-		lock := owner
+	// locked=true renders secrets locked (the elevated view); the owner
+	// render passes false (OwnerOnly && !owner is computed server-side in
+	// coreSettingsFields).
+	build := func(locked bool) settingsPageData {
 		return settingsPageData{
 			Sections: []settingsSection{
 				{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
@@ -152,8 +152,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 				{Title: "Dashboard", Fields: []fieldRender{{Key: "dashboard_listen", Label: "Listen address", Type: "text", Value: ""}}},
 				{Title: "Updater", Fields: []fieldRender{{Key: "updater_enabled", Label: "Enabled", Type: "toggle", Value: "true"}}},
 				{Title: "Secrets", Fields: []fieldRender{
-					{Key: "token", Label: "Bot token", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: lock},
-					{Key: "oauth_client_secret", Label: "OAuth client secret", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: lock},
+					{Key: "token", Label: "Bot token", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: locked},
+					{Key: "oauth_client_secret", Label: "OAuth client secret", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: locked},
 				}},
 			},
 		}

@@ -34,6 +34,10 @@ type userSession struct {
 	oauthGuilds []discord.OAuth2Guild // cached list of the user's guilds
 	guildsAt    time.Time
 
+	// expiresAt is the server-side session lifetime; it must match the cookie
+	// MaxAge (7 days) so a copied cookie cannot outlive its session server-side.
+	expiresAt time.Time
+
 	csrfToken string
 }
 
@@ -76,12 +80,34 @@ func (s *sessionStore) clear() {
 	s.sessions = make(map[string]*userSession)
 }
 
+// ── Locked config accessors ──────────────────────────────────────────────
+// m.cfg and m.oauth are swapped from gateway goroutines (cmdDashboardSet,
+// WebSetConfig) while HTTP handlers read them. All unlocked readers must go
+// through these accessors to avoid a data race on every authenticated request.
+
+// sessionSecret returns the current cookie-signing secret under m.mu.
+func (m *DashboardModule) sessionSecret() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg == nil {
+		return ""
+	}
+	return m.cfg.SessionSecret
+}
+
+// oauthClient returns the current OAuth client under m.mu.
+func (m *DashboardModule) oauthClient() *oauth2.Client {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.oauth
+}
+
 // ── Signed session cookie ─────────────────────────────────────────────────
 // Cookie value = "<key>.<hex HMAC-SHA256(key, sessionSecret)>" so a tampered
 // key can't be substituted for a different valid session.
 
 func (m *DashboardModule) signCookie(key string) string {
-	mac := hmac.New(sha256.New, []byte(m.cfg.SessionSecret))
+	mac := hmac.New(sha256.New, []byte(m.sessionSecret()))
 	mac.Write([]byte(key))
 	return key + "." + hex.EncodeToString(mac.Sum(nil))
 }
@@ -94,7 +120,7 @@ func (m *DashboardModule) verifyCookie(raw string) (string, bool) {
 	}
 	key := raw[:idx]
 	sig := raw[idx+1:]
-	mac := hmac.New(sha256.New, []byte(m.cfg.SessionSecret))
+	mac := hmac.New(sha256.New, []byte(m.sessionSecret()))
 	mac.Write([]byte(key))
 	want := hex.EncodeToString(mac.Sum(nil))
 	if !hmac.Equal([]byte(sig), []byte(want)) {
@@ -130,7 +156,8 @@ func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-// sessionFromCookie reads and verifies the session cookie.
+// sessionFromCookie reads and verifies the session cookie. Expired sessions
+// are rejected and evicted so a copied cookie cannot outlive its lifetime.
 func (m *DashboardModule) sessionFromCookie(r *http.Request) (*userSession, string, bool) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
@@ -144,6 +171,10 @@ func (m *DashboardModule) sessionFromCookie(r *http.Request) (*userSession, stri
 	if !ok {
 		return nil, "", false
 	}
+	if !us.expiresAt.IsZero() && time.Now().After(us.expiresAt) {
+		m.sessions.del(key)
+		return nil, "", false
+	}
 	return us, key, true
 }
 
@@ -153,12 +184,13 @@ func (m *DashboardModule) sessionFromCookie(r *http.Request) (*userSession, stri
 func (m *DashboardModule) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		us, _, ok := m.sessionFromCookie(r)
-		if ok && m.oauth != nil {
+		oa := m.oauthClient()
+		if ok && oa != nil {
 			func() {
 				us.mu.Lock()
 				defer us.mu.Unlock()
 				if us.oauth.Expired() {
-					if refreshed, err := m.oauth.VerifySession(us.oauth); err == nil {
+					if refreshed, err := oa.VerifySession(us.oauth); err == nil {
 						us.oauth = refreshed
 					}
 				}
@@ -172,7 +204,7 @@ func (m *DashboardModule) authMiddleware(next http.Handler) http.Handler {
 // ── OAuth routes ───────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if m.oauth == nil || !m.configured() {
+	if m.oauthClient() == nil || !m.configured() {
 		m.renderSetup(w, r)
 		return
 	}
@@ -185,11 +217,12 @@ func (m *DashboardModule) handleLoginPage(w http.ResponseWriter, r *http.Request
 
 // handleLoginStart begins the Discord OAuth flow.
 func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Request) {
-	if m.oauth == nil || !m.configured() {
+	oa := m.oauthClient()
+	if oa == nil || !m.configured() {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	url := m.oauth.GenerateAuthorizationURL(oauth2.AuthorizationURLParams{
+	url := oa.GenerateAuthorizationURL(oauth2.AuthorizationURLParams{
 		RedirectURI: m.redirectBaseURL(r) + "/callback",
 		Scopes:      []discord.OAuth2Scope{discord.OAuth2ScopeIdentify, discord.OAuth2ScopeGuilds},
 	})
@@ -198,7 +231,8 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 
 // handleCallback completes OAuth, enforces the mutual-guild rule and issues a session.
 func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request) {
-	if m.oauth == nil {
+	oa := m.oauthClient()
+	if oa == nil {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -209,17 +243,17 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "missing code or state parameter")
 		return
 	}
-	sess, _, err := m.oauth.StartSession(code, state)
+	sess, _, err := oa.StartSession(code, state)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "Discord login failed: "+err.Error())
 		return
 	}
-	user, err := m.oauth.GetUser(sess)
+	user, err := oa.GetUser(sess)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "could not fetch Discord user: "+err.Error())
 		return
 	}
-	guilds, err := m.oauth.GetGuilds(sess)
+	guilds, err := oa.GetGuilds(sess)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, "could not fetch your guilds: "+err.Error())
 		return
@@ -248,6 +282,7 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		avatar:      user.EffectiveAvatarURL(),
 		oauthGuilds: guilds,
 		guildsAt:    time.Now(),
+		expiresAt:   time.Now().Add(7 * 24 * time.Hour),
 		csrfToken:   csrf,
 	}
 	m.sessions.put(key, us)

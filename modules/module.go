@@ -82,6 +82,15 @@ func IsWebConfigurable(m Module) (WebConfigurable, bool) {
 	return wc, ok
 }
 
+// HasWebConfig is the opt-in marker for wrapper types whose Go struct ALWAYS
+// satisfies WebConfigurable even when their integration file is absent
+// (LuaModule / PythonModule). Consumers (the dashboard's webCfg) must treat a
+// module with HasWebConfig() == false as NOT configurable, despite the type
+// assertion succeeding.
+type HasWebConfig interface {
+	HasWebConfig() bool
+}
+
 type Context struct {
 	BotName      string
 	OwnerID      string

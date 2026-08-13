@@ -1,34 +1,34 @@
 {{define "field"}}
 <div class="field" data-key="{{.Key}}" data-type="{{.Type}}" data-guild="{{.GuildID}}"{{if .Locked}} data-owneronly="true"{{end}}>
-  <div class="field-label"><label>{{.Label}}</label><span class="scope scope-{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}">{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}</span></div>
+  <div class="field-label"><label for="f-{{.Key}}">{{.Label}}</label><span class="scope scope-{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}">{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}</span></div>
   {{if .Help}}<p class="help">{{.Help}}{{if .Locked}} <em>Owner only — elevated users cannot change this.</em>{{end}}</p>{{end}}
   {{if eq .Type "toggle"}}
-    <label class="switch"><input type="checkbox" class="cfg-field" {{if eq .Value "true"}}checked{{end}}{{if .Locked}} disabled{{end}}><span class="track"><span class="knob"></span></span></label>
+    <label class="switch"><input type="checkbox" id="f-{{.Key}}" class="cfg-field" {{if eq .Value "true"}}checked{{end}}{{if .Locked}} disabled{{end}}><span class="track"><span class="knob"></span></span></label>
   {{else if eq .Type "textarea"}}
-    <textarea class="cfg-field" placeholder="{{.Placeholder}}" rows="4"{{if .Locked}} disabled{{end}}>{{.Value}}</textarea>
+    <textarea id="f-{{.Key}}" class="cfg-field" placeholder="{{.Placeholder}}" rows="4"{{if .Locked}} disabled{{end}}>{{.Value}}</textarea>
   {{else if eq .Type "range"}}
-    <input type="range" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}"{{if .Locked}} disabled{{end}}>
+    <input type="range" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}"{{if .Locked}} disabled{{end}}>
     <span class="rangeval">{{.Value}}</span>
   {{else if eq .Type "number"}}
-    <input type="number" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}"{{if .Locked}} disabled{{end}}>
+    <input type="number" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" min="{{.Min}}" max="{{.Max}}" step="{{.Step}}"{{if .Locked}} disabled{{end}}>
   {{else if eq .Type "select"}}
-    <select class="cfg-field"{{if .Locked}} disabled{{end}}>
+    <select id="f-{{.Key}}" class="cfg-field"{{if .Locked}} disabled{{end}}>
       {{range .Options}}<option value="{{.}}" {{if eq $.Value .}}selected{{end}}>{{.}}</option>{{end}}
     </select>
   {{else if eq .Type "multi"}}
-    <div class="multi cfg-field" data-value="{{.Value}}">
+    <div class="multi cfg-field" data-value="{{.Value}}" role="group" aria-label="{{.Label}}">
       {{range .Options}}<label class="multi-opt"><input type="checkbox" value="{{.}}" {{if csvContains $.Value .}}checked{{end}}{{if $.Locked}} disabled{{end}}> {{.}}</label>{{end}}
     </div>
   {{else if eq .Type "secret"}}
-    <input type="password" class="cfg-field" placeholder="{{if .Value}}•••••••• (currently set){{else}}not set{{end}}"{{if .Locked}} disabled{{end}}>
+    <input type="password" id="f-{{.Key}}" class="cfg-field" placeholder="{{if .Value}}•••••••• (currently set){{else}}not set{{end}}"{{if .Locked}} disabled{{end}}>
   {{else if eq .Type "channel"}}
-    {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a channel"{{if .Locked}} disabled{{end}}>{{end}}
+    {{if .Entities}}<select id="f-{{.Key}}" class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a channel"{{if .Locked}} disabled{{end}}>{{end}}
   {{else if eq .Type "role"}}
-    {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a role"{{if .Locked}} disabled{{end}}>{{end}}
+    {{if .Entities}}<select id="f-{{.Key}}" class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a role"{{if .Locked}} disabled{{end}}>{{end}}
   {{else if eq .Type "user"}}
-    {{if .Entities}}<select class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a user"{{if .Locked}} disabled{{end}}>{{end}}
+    {{if .Entities}}<select id="f-{{.Key}}" class="cfg-field"{{if .Locked}} disabled{{end}}><option value="">— none —</option>{{range .Entities}}<option value="{{.ID}}" {{if eq $.Value .ID}}selected{{end}}>{{.Name}}</option>{{end}}</select>{{else}}<input type="text" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" placeholder="select a server to choose a user"{{if .Locked}} disabled{{end}}>{{end}}
   {{else}}
-    <input type="text" class="cfg-field" value="{{.Value}}" placeholder="{{.Placeholder}}"{{if .Locked}} disabled{{end}}>
+    <input type="text" id="f-{{.Key}}" class="cfg-field" value="{{.Value}}" placeholder="{{.Placeholder}}"{{if .Locked}} disabled{{end}}>
   {{end}}
 </div>
 {{end}}

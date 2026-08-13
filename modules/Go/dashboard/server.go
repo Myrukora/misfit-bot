@@ -78,7 +78,11 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if path == "/" || path == "" {
-		m.requireAuthed(m.handleIndex)(w, r)
+		if r.Method == "GET" {
+			m.requireAuthed(m.handleIndex)(w, r)
+			return
+		}
+		methodNotAllowed(w)
 		return
 	}
 	parts := strings.Split(strings.Trim(path, "/"), "/")
@@ -99,7 +103,9 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	case "commands":
 		if r.Method == "GET" {
 			m.requireAuthed(m.handleCommandsPage)(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "guild":
 		if len(parts) < 2 {
@@ -109,33 +115,48 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		id := parts[1]
 		if r.Method == "GET" {
 			m.requireGuild(id, func(w http.ResponseWriter, r *http.Request) { m.handleGuildPage(w, r, id) })(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "modules":
 		if r.Method == "GET" {
 			m.requireOwner(m.handleModulesPage)(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "settings":
 		if r.Method == "GET" {
 			m.handleSettingsPage(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "permissions":
 		if r.Method == "GET" {
 			m.requireOwner(m.handlePermissionsPage)(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "logs":
 		if r.Method == "GET" {
 			m.requireOwner(m.handleLogsPage)(w, r)
+			return
 		}
+		methodNotAllowed(w)
 		return
 	case "api":
 		m.routeAPI(w, r, parts[1:])
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// methodNotAllowed writes a plain 405 (page routes only accept GET).
+func methodNotAllowed(w http.ResponseWriter) {
+	http.Error(w, "405 method not allowed", http.StatusMethodNotAllowed)
 }
 
 // baseData builds the renderData shared by all pages (user, level, guilds, nav

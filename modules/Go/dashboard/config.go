@@ -49,8 +49,11 @@ func cfgPath(dir string) string { return filepath.Join(dir, "config.yml") }
 // legacy file — the owner can clean it up after confirming the migration.
 // Returns whether a migration happened.
 func migrateLegacyConfig(dataDir, botConfigDir string) (bool, error) {
-	if _, err := os.Stat(cfgPath(dataDir)); err == nil {
+	dest := cfgPath(dataDir)
+	if _, err := os.Stat(dest); err == nil {
 		return false, nil // already migrated / fresh install
+	} else if !os.IsNotExist(err) {
+		return false, err // unexpected stat error — surface it, don't guess
 	}
 	src := filepath.Join(botConfigDir, "module_configs", "dashboard", "config.yml")
 	data, err := os.ReadFile(src)
@@ -63,7 +66,22 @@ func migrateLegacyConfig(dataDir, botConfigDir string) (bool, error) {
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(cfgPath(dataDir), data, 0600); err != nil {
+	// Create the destination EXCLUSIVELY: a config created by another
+	// process between the Stat above and here must never be overwritten.
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	if os.IsExist(err) {
+		return false, nil // another process migrated first — treat as skipped
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(dest) // never leave a partial file blocking a retry
+		return false, err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(dest)
 		return false, err
 	}
 	return true, nil

@@ -768,7 +768,7 @@ go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/
 
 ## Example: A long-running background service — the Web Dashboard module
 
-The dashboard (`modules/dashboard/`) is the reference for two patterns at once:
+The dashboard (`modules/Go/dashboard/`) is the reference for two patterns at once:
 running a **non-command background service inside a module**, and enabling
 **web-editable settings** via the optional `WebConfigurable` contract.
 
@@ -794,7 +794,7 @@ func (m *DashboardModule) OnUnload() error { m.stopServer(); return nil }
 Build a multi-file module with the **package path** (not a single `main.go`):
 
 ```bash
-go build -buildmode=plugin -o modules/dashboard.so ./modules/dashboard/
+go build -buildmode=plugin -o modules/Go/dashboard/dashboard.so ./modules/Go/dashboard/
 ```
 
 ### Exposing settings on the dashboard (`modules.WebConfigurable`)
@@ -997,7 +997,7 @@ the starboard module — with the owner/elevated able to edit all of them and a
 guild's staff able to edit the `GuildScoped` ones for their guild.
 
 ```bash
-go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
+go build -buildmode=plugin -o modules/Go/starboard/starboard.so ./modules/Go/starboard/
 [p]load starboard
 ```
 
@@ -1028,7 +1028,7 @@ go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
   middleware (a panic → 500 JSON) but a slow call still ties up the request.
 - **Dogfooding reference.** The dashboard module implements `WebConfigurable`
   itself to configure its own OAuth `client_secret`, `client_id`, `listen`, and
-  `public_url` — read `modules/dashboard/config.go` and `main.go` (look for
+  `public_url` — read `modules/Go/dashboard/config.go` and `main.go` (look for
   `WebConfigSchema`) for a real, shipping implementation of every field type.
   Note where each persists: `listen`/`public_url`/`client_secret` route to
   the **core `config.yml`** (`dashboard:` and `oauth:` sections, via
@@ -1038,19 +1038,19 @@ go build -buildmode=plugin -o modules/starboard.so ./modules/starboard/
   module config → default/fallback) as the pattern when a setting should be
   pinnable from the main config.
 
-See `modules/dashboard/README.md` for the dashboard-specific setup flow
+See `modules/Go/dashboard/README.md` for the dashboard-specific setup flow
 (OAuth, `[p]dashboard set …`, the `dashboard:` **and** `oauth:` sections of
 the main `config.yml`) and the full RBAC table for who sees which config
 sections.
 
-#### Python example — `modules/starboard_py/dashboard.py`
+#### Python example — `modules/Python/starboard_py/dashboard.py`
 
 Same starboard settings, declared in Python. The runner imports this file
 next to `main.py`; the field dict keys mirror `ConfigField` exactly. Raise an
 exception from `web_set_config` to reject a value (shown in the browser).
 
 ```python
-# modules/starboard_py/dashboard.py
+# modules/Python/starboard_py/dashboard.py
 VALUES = {"enabled": "true", "threshold": "3", "tone": "info", "emoji": "⭐"}
 
 web_schema = [
@@ -1081,10 +1081,10 @@ def web_set_config(guild_id, key, value):
 No Go code, no rebuild — dropping `dashboard.py` next to `main.py` and
 reloading the module is all it takes. Remove it and the panel disappears.
 
-#### Lua example — `modules/starboard.dashboard.lua`
+#### Lua example — `modules/Lua/starboard/starboard.dashboard.lua`
 
 ```lua
--- modules/starboard.dashboard.lua  (next to starboard.lua)
+-- modules/Lua/starboard/starboard.dashboard.lua  (next to starboard.lua)
 D = {}
 D.schema = {
   {key = "enabled",   label = "Enabled",  type = "toggle", scope = "global"},

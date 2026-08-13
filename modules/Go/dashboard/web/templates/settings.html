@@ -3,7 +3,7 @@
 <h2>Settings {{if .GuildID}}<small class="muted">· {{.GuildName}} ({{.GuildID}})</small>{{else}}<small class="muted">· core / global</small>{{end}}</h2>
 <div class="toolbar">
   <p class="muted">Channel / role / user pickers below populate from the selected server.</p>
-  {{if gt (len $.Guilds) 0}}<select class="cfg-field" aria-label="Server for pickers" onchange="location.href='/settings?guild='+encodeURIComponent(this.value)">
+  {{if gt (len $.Guilds) 0}}<select class="cfg-field guild-nav" data-path="/settings" aria-label="Server for pickers">
     <option value="all">All servers (type IDs)</option>
     {{range $.Guilds}}<option value="{{.ID}}" {{if eq $.Content.GuildID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
   </select>{{end}}
@@ -54,7 +54,7 @@
 {{range .Modules}}
 <section class="card reveal">
   <h3>{{.Name}}</h3>
-  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{$.Content.GuildID}}">
+  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{.GuildID}}">
     {{range .Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple save-module">Save changes</button>

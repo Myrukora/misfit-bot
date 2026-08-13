@@ -18,7 +18,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// webCfg returns the WebConfigurable for a loaded module name.
+// webCfg returns the WebConfigurable for a loaded module name. Wrapper types
+// that always satisfy the interface (LuaModule/PythonModule) are filtered by
+// their HasWebConfig marker so a module without a dashboard integration file
+// is treated as NOT configurable (no panel, API writes refused).
 func (m *DashboardModule) webCfg(name string) (modules.WebConfigurable, bool) {
 	mgr, ok := m.ctx.Bot.GetModuleManager().(*modules.Manager)
 	if !ok {
@@ -28,7 +31,13 @@ func (m *DashboardModule) webCfg(name string) (modules.WebConfigurable, bool) {
 	if !ok {
 		return nil, false
 	}
-	return modules.IsWebConfigurable(mod)
+	wc, ok := modules.IsWebConfigurable(mod)
+	if ok {
+		if hw, has := mod.(modules.HasWebConfig); has && !hw.HasWebConfig() {
+			return nil, false
+		}
+	}
+	return wc, ok
 }
 
 // configurableModulesSchema lists every loaded module that opted into
@@ -521,6 +530,14 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "modules":
 		if meth == "GET" {
+			// Module listing exposes installed module names/versions/load
+			// state — never for unauthenticated clients. Match the POST
+			// action gate (owner/elevated).
+			us := sessionOf(r)
+			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
+				writeError(w, http.StatusForbidden, "insufficient permissions")
+				return
+			}
 			m.apiModules(w, r)
 			return
 		}
@@ -536,6 +553,14 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "settings":
 		if meth == "GET" {
+			if len(parts) >= 3 && parts[1] == "module" {
+				// apiModuleConfigGet authorizes per-field scope internally
+				// (401 without a session, per-field gates inside
+				// moduleConfigRead). Must live OUTSIDE the POST guard —
+				// nesting it there made this route unreachable.
+				m.apiModuleConfigGet(w, r, parts[2])
+				return
+			}
 			// owner/elevated only
 			us := sessionOf(r)
 			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
@@ -560,14 +585,8 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 					writeError(w, http.StatusNotFound, "module name required")
 					return
 				}
-				if meth == "GET" {
-					m.apiModuleConfigGet(w, r, parts[2])
-					return
-				}
-				if meth == "POST" {
-					m.apiModuleConfigSet(w, r, parts[2])
-					return
-				}
+				m.apiModuleConfigSet(w, r, parts[2])
+				return
 			}
 		}
 	case "presence":

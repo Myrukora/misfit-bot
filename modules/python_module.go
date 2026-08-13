@@ -27,8 +27,9 @@ type PythonModule struct {
 	mu            sync.Mutex
 	loaded        bool
 	// Dashboard integration (optional dashboard.py in the module dir). When
-	// HasWebConfig is false the module has NO dashboard integration and
-	// PythonModule does not implement WebConfigurable.
+	// HasWebConfig is false the module has NO dashboard integration (the
+	// struct still satisfies WebConfigurable at the type level; consumers
+	// must check the HasWebConfig marker).
 	hasWebConfig bool
 	webSchema    []ConfigField
 }
@@ -552,6 +553,14 @@ func (m *PythonModule) Dependencies() []string {
 // Implemented ONLY when the module directory contains dashboard.py
 // (hasWebConfig). The schema was declared there and shipped in the ready
 // message; reads/writes round-trip through the Python process via IPC.
+
+// HasWebConfig reports whether the module directory contains dashboard.py.
+// PythonModule always satisfies WebConfigurable at the type level; the
+// dashboard checks this marker so a module without dashboard.py is treated
+// as not configurable at all.
+func (m *PythonModule) HasWebConfig() bool {
+	return m.hasWebConfig
+}
 
 // WebConfigSchema returns the field list declared by dashboard.py.
 func (m *PythonModule) WebConfigSchema() []ConfigField {

@@ -22,7 +22,7 @@ type LuaModule struct {
 	commands    []commands.Command
 	slashCmds   []commands.SlashCommand
 	// Optional dashboard integration (modules/<name>.dashboard.lua). Nil =
-	// no dashboard integration; LuaModule does not implement WebConfigurable.
+	// no dashboard integration; HasWebConfig() reports the opt-in state.
 	webCfg *luaWebConfig
 	webMu  sync.Mutex
 }
@@ -61,6 +61,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	// Load and execute the Lua script
 	if err := m.L.DoFile(m.path); err != nil {
 		m.L.Close()
+		m.L = nil // never leave a closed state behind for later cleanup
 		return fmt.Errorf("failed to load Lua script %s: %w", m.path, err)
 	}
 
@@ -68,12 +69,14 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	mod := m.L.GetGlobal("M")
 	if mod == lua.LNil {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s does not define module table 'M'", m.path)
 	}
 
 	modTable, ok := mod.(*lua.LTable)
 	if !ok {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s: 'M' is not a table", m.path)
 	}
 
@@ -85,6 +88,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 
 	if m.name == "" {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("Lua script %s: M.name is required", m.path)
 	}
 
@@ -98,6 +102,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 				Protect: true,
 			}, modTable, lua.LString(m.name)); err != nil {
 				m.L.Close()
+				m.L = nil
 				return fmt.Errorf("Lua script %s: on_load failed: %w", m.path, err)
 			}
 		}
@@ -119,6 +124,7 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 	// fails the module load so the author notices immediately.
 	if err := m.loadWebConfig(ctx); err != nil {
 		m.L.Close()
+		m.L = nil
 		return fmt.Errorf("dashboard integration: %w", err)
 	}
 

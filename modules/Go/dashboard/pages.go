@@ -149,6 +149,9 @@ const maxMemberPicker = 1000
 
 // memberOpts lists a guild's cached members as picker options (sorted by name).
 func (m *DashboardModule) memberOpts(guildID string) []entityOpt {
+	if m.client == nil {
+		return nil
+	}
 	gid, err := snowflake.Parse(guildID)
 	if err != nil {
 		return nil
@@ -180,6 +183,9 @@ func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request
 // buildGuildDetail assembles a guild view from the cache. Shared by the page
 // and the /api/guild/{id} endpoint.
 func (m *DashboardModule) buildGuildDetail(id string) (*guildDetail, error) {
+	if m.client == nil {
+		return nil, fmt.Errorf("gateway client unavailable")
+	}
 	gid, err := snowflake.Parse(id)
 	if err != nil {
 		return nil, fmt.Errorf("invalid guild id")
@@ -378,7 +384,11 @@ func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name strin
 	mv := moduleConfigView{Name: name}
 	// Global fields: owner/elevated only (mirrors moduleConfigRead's gate).
 	if level == lvlOwner || level == lvlElevated {
-		gvals, _ := m.moduleConfigRead(wc, us, "", level)
+		gvals, err := m.moduleConfigRead(wc, us, "", level)
+		if err != nil {
+			m.logger.Warn("dashboard: read global config of module %s failed: %v", name, err)
+			gvals = map[string]string{}
+		}
 		for _, f := range wc.WebConfigSchema() {
 			if f.GuildScoped {
 				continue
@@ -392,7 +402,11 @@ func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name strin
 	}
 	// Guild-scoped fields: rendered with the selected server as context.
 	if guildID != "" {
-		gvals, _ := m.moduleConfigRead(wc, us, guildID, level)
+		gvals, err := m.moduleConfigRead(wc, us, guildID, level)
+		if err != nil {
+			m.logger.Warn("dashboard: read guild config of module %s failed: %v", name, err)
+			gvals = map[string]string{}
+		}
 		for _, f := range wc.WebConfigSchema() {
 			if !f.GuildScoped {
 				continue

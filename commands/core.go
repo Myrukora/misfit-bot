@@ -317,50 +317,16 @@ func init() {
 			}
 			target := ctx.Args[0]
 			if target == "all" {
-				modulesDir := filepath.Join(ctx.Bot.GetConfigDir(), "modules")
+				// Single discovery source: the configured modules path (respects
+				// a custom modules.path AND the Go/Lua/Python layout). Scanning
+				// GetConfigDir()/modules directly would miss every candidate on
+				// installs with a customized path.
 				loaded := 0
-				tryLoad := func(name string) {
+				for _, name := range ctx.Bot.GetAvailableModuleNames() {
 					if err := ctx.Bot.LoadModule(name); err != nil {
-						return
+						continue // already loaded or failed — count only successes
 					}
 					loaded++
-				}
-				// Go plugins: modules/Go/<name>/<name>.so (built only)
-				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
-					for _, entry := range entries {
-						if entry.IsDir() {
-							so := filepath.Join(modulesDir, "Go", entry.Name(), entry.Name()+".so")
-							if _, err := os.Stat(so); err == nil {
-								tryLoad(entry.Name())
-							}
-						}
-					}
-				}
-				// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
-				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
-					for _, entry := range entries {
-						if !entry.IsDir() {
-							continue
-						}
-						name := entry.Name()
-						luaFile := filepath.Join(modulesDir, "Lua", name, name+".lua")
-						if _, err := os.Stat(luaFile); err != nil {
-							luaFile = filepath.Join(modulesDir, "Lua", name, "main.lua")
-						}
-						if _, err := os.Stat(luaFile); err == nil {
-							tryLoad(name)
-						}
-					}
-				}
-				// Python modules: modules/Python/<name>/main.py
-				if entries, err := os.ReadDir(filepath.Join(modulesDir, "Python")); err == nil {
-					for _, entry := range entries {
-						if entry.IsDir() {
-							if _, err := os.Stat(filepath.Join(modulesDir, "Python", entry.Name(), "main.py")); err == nil {
-								tryLoad(entry.Name())
-							}
-						}
-					}
 				}
 				return ctx.Respond(embed.Success("✅ Loaded", fmt.Sprintf("Loaded %d modules.", loaded)))
 			}

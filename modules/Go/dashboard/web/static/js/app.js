@@ -7,14 +7,24 @@
   if (csrf) apiHeaders['X-CSRF-Token'] = csrf;
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  async function req(method, url, body) {
-    const opts = { method, headers: { ...apiHeaders } };
-    if (body !== undefined) opts.body = JSON.stringify(body);
-    const r = await fetch(url, opts);
-    let data = null;
-    try { data = await r.json(); } catch (_) {}
-    if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
-    return data;
+  // Bounded fetch: abort slow/hung requests instead of leaving them pending.
+  async function req(method, url, body, timeoutMs) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs || 15000);
+    try {
+      const opts = { method, headers: { ...apiHeaders }, signal: ctl.signal };
+      if (body !== undefined) opts.body = JSON.stringify(body);
+      const r = await fetch(url, opts);
+      let data = null;
+      try { data = await r.json(); } catch (_) {}
+      if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+      return data;
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('request timed out');
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   // ── Toast notifications ────────────────────────────────────────────────
@@ -82,9 +92,11 @@
     };
 
     // Restore the desktop preference on load (never applied on mobile).
+    // Go through setCollapsed so the aria-expanded/aria-label state on the
+    // toggle and collapse buttons stays in sync with the visual state.
     try {
       if (!mqMobile.matches && localStorage.getItem('dash_sidebar_collapsed') === '1') {
-        sidebar.classList.add('collapsed');
+        setCollapsed(true);
       }
     } catch (_) {}
 
@@ -203,6 +215,16 @@
       location.href = u;
     });
   }
+
+  // ── Guild selector navigation (commands + settings toolbars) ───────────
+  // No inline handlers in the templates — the selects carry data-path and
+  // this listener owns the navigation (also keeps CSP script-src 'self'
+  // compatible).
+  document.querySelectorAll('.guild-nav').forEach(sel => {
+    sel.addEventListener('change', () => {
+      location.href = sel.dataset.path + '?guild=' + encodeURIComponent(sel.value);
+    });
+  });
 
   // ── Modules load/unload/reload ──────────────────────────────────────────
   document.querySelectorAll('.act[data-action]').forEach(btn => {
@@ -349,10 +371,21 @@
       const tasks = collectFields(form).map(t => ({ guildID: t.guildID, key: t.key, value: t.value }));
       const restore = spin(btn);
       try {
+        let saved = 0;
+        const failed = [];
         for (const t of tasks) {
-          await req('POST', '/api/settings/module/' + encodeURIComponent(mod), t);
+          try {
+            await req('POST', '/api/settings/module/' + encodeURIComponent(mod), t);
+            saved++;
+          } catch (e) {
+            failed.push(t.key);
+          }
         }
-        toast(mod + ' settings saved', 'ok');
+        if (failed.length === 0) {
+          toast(mod + ' settings saved (' + saved + ')' + (saved < tasks.length ? ' — ' + (tasks.length - saved) + ' unchanged' : ''), 'ok');
+        } else {
+          toast(mod + ': saved ' + saved + '/' + tasks.length + ', failed: ' + failed.join(', '), 'err');
+        }
       } catch (e) {
         toast('Save failed: ' + e.message, 'err');
       } finally {
@@ -381,8 +414,17 @@
   // ── Permissions: add/remove elevated ───────────────────────────────────
   const addBtn = document.getElementById('elevated-add-btn');
   if (addBtn) {
+    const idInput = document.getElementById('elevated-id');
+    // Enter in the ID field submits, same as clicking Add.
+    if (idInput) {
+      idInput.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          addBtn.click();
+        }
+      });
+    }
     addBtn.addEventListener('click', async () => {
-      const idInput = document.getElementById('elevated-id');
       const id = idInput.value.trim();
       if (!id) return;
       const restore = spin(addBtn);
