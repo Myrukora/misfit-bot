@@ -792,7 +792,7 @@ func (m *DashboardModule) Commands() []commands.Command {
 	return []commands.Command{
 		{
 			Name:        "dashboard",
-			Description: "Manage the web dashboard (owner setup: view status, get OAuth URL, set secrets, restart server)",
+			Description: "Manage the web dashboard: check status, get login/LAN URLs, set config, restart the server.",
 			Usage:       "dashboard <status|url|lan|set|restart>",
 			Category:    "dashboard",
 			OwnerOnly:   true,

@@ -31,7 +31,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsGroups := []moduleGroup{}
 	cat := catGroup{Name: "general", Commands: []cmdView{
 		{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, UsableIn: []string{"1"}, Aliases: []string{"p"}},
-		{Name: "eval", Description: "shell", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
+		{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
 		{Name: "settings", Description: "x", Category: "core", ModuleOwner: "core", Kind: "slash"},
 		{Name: "cleanup", Description: "clean", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usable: true, Options: []argOpt{
 			{Name: "subcommand", Type: "string", Required: true, Choices: []string{"messages", "user"}},
@@ -205,7 +205,7 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 }
 
-// TestCommandsRunAffordance pins the Run button on usable (non-eval) commands.
+// TestCommandsRunAffordance pins the Run button on usable commands (never on SuperOwnerOnly ones).
 func TestCommandsRunAffordance(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -215,7 +215,7 @@ func TestCommandsRunAffordance(t *testing.T) {
 		Module: "core",
 		Categories: []catGroup{{Name: "general", Commands: []cmdView{
 			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true},
-			{Name: "eval", Description: "shell", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
+			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
 			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
 		}}},
 	}}
@@ -230,7 +230,7 @@ func TestCommandsRunAffordance(t *testing.T) {
 	if !strings.Contains(out, `data-command="ping"`) {
 		t.Error("usable command missing Run affordance")
 	}
-	if strings.Contains(out, `data-command="eval"`) {
+	if strings.Contains(out, `data-command="secret"`) {
 		t.Error("SuperOwnerOnly command must never render a Run affordance")
 	}
 	if strings.Contains(out, `data-command="locked"`) {

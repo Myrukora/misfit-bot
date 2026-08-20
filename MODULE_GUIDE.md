@@ -277,7 +277,7 @@ Rules:
 - Commands are still filtered by `canUse` exactly like core commands — a user who lacks `RequiredPerm` won't see the command at all.
 - A module that exposes **no commands** doesn't get an empty section — it's skipped.
 - The `Category` field per command is **only** used by single-command help (`[p]help <name>` shows it as “Category: <value>”) and by the dashboard's web command catalog (which groups by module first, then category). It no longer affects how module commands are bucketed in `[p]help`.
-- **Always set `Description`** — it's the text that appears after `—` in `[p]help`. A blank `Description` shows as `?name —` (blank), which is what the user sees for poorly-written modules. The dashboard module's command had this bug and was fixed.
+- **Always set `Description`** — it's the text that appears after `—` in `[p]help`. A blank `Description` shows as `?name —` (blank), which is what the user sees for poorly-written modules. The dashboard module's command had this bug and was fixed. Write it as a plain, user-friendly sentence of what the command does. The prefix `Command.Description` and the slash `SlashCommand.Description` are **separate fields** — set both; Discord hard-limits the slash description to 100 chars.
 
 This grouping is powered by `ctx.Bot.GetAllModuleCommandsByModule()` (adds `commands.ModuleCommands{ Name, Commands }`), which replaces the old flat `GetAllModuleCommands()` for help rendering. Module authors don't need to do anything — just give each command a `Name`, a `Description`, and optionally `RequiredPerm`/`OwnerOnly`.
 
@@ -325,7 +325,7 @@ commands.SlashCommand{
 | Guild owner | Owner of the Discord server | Bypasses `RequiredPerm`, NOT `OwnerOnly` |
 | Normal users | Everyone else | Checked via Discord role permissions (`RequiredPerm`) |
 
-**SuperOwnerOnly** — Only the bot owner (config `owner_id`) can use. Not bypassed by elevated users or guild owners. Used by `eval`.
+**SuperOwnerOnly** — Only the bot owner (config `owner_id`) can use. Not bypassed by elevated users or guild owners. No core command currently uses it (the former `eval` command was removed); the mechanism is retained for future owner-only commands.
 
 **Priority:**
 ```
