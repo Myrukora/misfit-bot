@@ -65,7 +65,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "uptime",
-		Description: "See how long the bot has been running, with its start time.",
+		Description: "See how long the bot has been running.",
 		Usage:       "uptime",
 		Category:    "general",
 		Execute: func(ctx *Context) error {
@@ -393,7 +393,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "shutdown",
-		Description: "Shut the bot down completely. Only the bot owner can do this.",
+		Description: "Shut the bot down completely. Owner and elevated users only.",
 		Usage:       "shutdown",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -524,7 +524,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "logs",
-		Description: "Turn file logging on or off without restarting the bot.",
+		Description: "Turn file logging on or off. A restart is required for it to take effect.",
 		Usage:       "logs enable/disable",
 		OwnerOnly:   true,
 		Category:    "core",
