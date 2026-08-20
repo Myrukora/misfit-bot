@@ -1,0 +1,10 @@
+# CPU-only torch — the CLIP model runs entirely on CPU, so we must never pull
+# the large CUDA-enabled wheel. The CPU index is checked first and provides a
+# matching `torch` CPU build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+torch==2.13.0+cpu
+transformers==5.15.1
+Pillow==12.3.0
+numpy==1.26.4
+huggingface_hub==1.28.0

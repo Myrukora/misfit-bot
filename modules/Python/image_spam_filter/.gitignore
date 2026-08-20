@@ -1,0 +1,16 @@
+# Large CLIP model weights (~630 MB) — kept in the module folder for a
+# self-contained/offline module, but not committed. Auto-downloaded on first
+# load if missing (see main.py).
+models/
+
+# User-added reference spam images (runtime data).
+spam_images/
+
+# Module config (root .gitignore only ignores config*.yml, not .json).
+config.json
+
+# Python runtime (root .gitignore already covers .venv/ and __pycache__/
+# globally, but pin these here too for clarity if the folder is copied out).
+.venv/
+__pycache__/
+*.pyc
