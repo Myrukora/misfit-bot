@@ -1152,7 +1152,7 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 // respond/reply_text through the context; Python via SendCommandFromWeb).
 //
 // Permission mapping (mirrors the Discord dispatcher):
-//   - SuperOwnerOnly → ALWAYS denied from the web (eval executes `sh -c`)
+//   - SuperOwnerOnly → ALWAYS denied from the web
 //   - OwnerOnly → the requesting user must be owner or elevated (CanUse)
 //   - RequiredPerm → CanUse with the user's cached perms; with no guild
 //     context, only owner/elevated pass (everyone else has 0 perms)

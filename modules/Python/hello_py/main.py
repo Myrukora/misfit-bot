@@ -17,14 +17,14 @@ class HelloModule(Module):
         return [
             Command(
                 name="hello",
-                description="Say hello from Python",
+                description="Say hello from the Python example module.",
                 usage="hello",
                 category="fun",
                 execute=self.hello_command,
             ),
             Command(
                 name="pyinfo",
-                description="Show Python module info",
+                description="Show info about the Python example module.",
                 usage="pyinfo",
                 category="info",
                 execute=self.pyinfo_command,
@@ -35,7 +35,7 @@ class HelloModule(Module):
         return [
             SlashCommand(
                 name="hello",
-                description="Say hello from Python",
+                description="Say hello from the Python example module.",
                 execute=self.hello_command,
             ),
         ]

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -52,7 +51,7 @@ func title(s string) string {
 func init() {
 	RegisterCoreCommand(Command{
 		Name:        "ping",
-		Description: "Check bot latency",
+		Description: "Check how quickly the bot responds, with its gateway and API latency.",
 		Usage:       "ping",
 		Category:    "general",
 		Execute: func(ctx *Context) error {
@@ -66,7 +65,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "uptime",
-		Description: "Check bot uptime",
+		Description: "See how long the bot has been running, with its start time.",
 		Usage:       "uptime",
 		Category:    "general",
 		Execute: func(ctx *Context) error {
@@ -77,7 +76,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "info",
-		Description: "Show bot information",
+		Description: "Show the bot's name, version, author, and where it runs.",
 		Usage:       "info",
 		Category:    "general",
 		Execute: func(ctx *Context) error {
@@ -116,7 +115,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "help",
-		Description: "Show available commands",
+		Description: "List the commands you can use, grouped by category.",
 		Usage:       "help [command]",
 		Category:    "core",
 		Execute: func(ctx *Context) error {
@@ -238,9 +237,9 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "modules",
-		Description: "List loaded and available modules",
+		Description: "See which modules are loaded right now and which ones you can still load.",
 		Usage:       "modules",
-		Category:    "core",
+		Category:    "modules",
 		OwnerOnly:   true,
 		Execute: func(ctx *Context) error {
 			loaded := ctx.Bot.GetLoadedModuleNames()
@@ -307,7 +306,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "load",
-		Description: "Load a module",
+		Description: "Load a module so its commands become available. Use `all` to load every module.",
 		Usage:       "load <module> | load all",
 		OwnerOnly:   true,
 		Category:    "modules",
@@ -339,7 +338,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "unload",
-		Description: "Unload a module",
+		Description: "Unload a module so its commands stop working. Use `all` to unload every module.",
 		Usage:       "unload <module> | unload all",
 		OwnerOnly:   true,
 		Category:    "modules",
@@ -363,7 +362,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "reload",
-		Description: "Reload a module",
+		Description: "Reload a module to pick up changes without restarting the bot. Use `all` for all.",
 		Usage:       "reload <module> | reload all",
 		OwnerOnly:   true,
 		Category:    "modules",
@@ -394,7 +393,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "shutdown",
-		Description: "Shutdown the bot",
+		Description: "Shut the bot down completely. Only the bot owner can do this.",
 		Usage:       "shutdown",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -407,7 +406,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "restart",
-		Description: "Restart the bot",
+		Description: "Restart the bot so it comes back up with a fresh state.",
 		Usage:       "restart",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -420,7 +419,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "set",
-		Description: "Configure bot settings",
+		Description: "Change a bot setting live, like the prefix, status text, or owner ID.",
 		Usage:       "set <key> <value>",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -439,7 +438,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "permissions",
-		Description: "Manage elevated permissions",
+		Description: "Grant or revoke elevated (owner-like) permissions for a user.",
 		Usage:       "permissions add/remove/list <user_id>",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -480,34 +479,8 @@ func init() {
 	})
 
 	RegisterCoreCommand(Command{
-		Name:           "eval",
-		Description:    "Execute a shell command (bot owner only)",
-		Usage:          "eval <command>",
-		OwnerOnly:      true,
-		SuperOwnerOnly: true,
-		Category:       "core",
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "eval <shell_command>"))
-			}
-			code := strings.Join(ctx.Args, " ")
-
-			cmd := exec.Command("sh", "-c", code)
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("```\n%s\n```\n**Exit:** %v", string(output), err)))
-			}
-			result := string(output)
-			if len(result) > 1900 {
-				result = result[:1900] + "\n... (truncated)"
-			}
-			return ctx.Respond(embed.Success("✅ Output", fmt.Sprintf("```\n%s```", result)))
-		},
-	})
-
-	RegisterCoreCommand(Command{
 		Name:        "debug",
-		Description: "Show debug information",
+		Description: "Show live stats: memory, goroutines, loaded modules, and Go version.",
 		Usage:       "debug",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -532,7 +505,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:         "status",
-		Description:  "Set bot status/presence",
+		Description:  "Set the bot's activity so it shows 'Playing…', 'Watching…' etc. in its profile.",
 		Usage:        "status <type> <message>",
 		Category:     "core",
 		RequiredPerm: discord.PermissionAdministrator,
@@ -551,7 +524,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "logs",
-		Description: "Configure logging",
+		Description: "Turn file logging on or off without restarting the bot.",
 		Usage:       "logs enable/disable",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -578,7 +551,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "backup",
-		Description: "Backup bot configuration",
+		Description: "Create, check, restore, or list backups of the bot's config file.",
 		Usage:       "backup [create|verify|restore|list] [filename]",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -747,7 +720,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "ratelimit",
-		Description: "Manage rate limits",
+		Description: "Check a user's rate limit status or reset it so they can use commands again.",
 		Usage:       "ratelimit [status|reset] [user_id]",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -791,7 +764,7 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "update",
-		Description: "Check for and apply updates from the bot's GitHub repository",
+		Description: "Check for bot updates, apply them now, or show updater status.",
 		Usage:       "update [check|now|status|test|set <key> <value>]",
 		OwnerOnly:   true,
 		Category:    "core",
@@ -862,131 +835,6 @@ func init() {
 			default:
 				return ctx.Respond(embed.Warning("⚠️ Usage", "update [check|now|status|test|set <key> <value>]"))
 			}
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "test",
-		Description: "Run all system diagnostics",
-		Usage:       "test",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			type result struct {
-				name string
-				pass bool
-				msg  string
-			}
-			var results []result
-
-			// 1. Config read
-			cfgDir := ctx.Bot.GetConfigDir()
-			_, err := os.Stat(filepath.Join(cfgDir, "config.yml"))
-			results = append(results, result{"Config file", err == nil, fmtErr(err)})
-
-			// 2. Config read-back
-			prefix := ctx.Bot.GetPrefix()
-			results = append(results, result{"Config read", prefix != "", prefix})
-
-			// 3. Gateway connection
-			latency := ctx.Bot.GetLatency()
-			gwOK := latency != "N/A" && latency != "0s"
-			results = append(results, result{"Gateway", gwOK, latency})
-
-			// 4. Owner check
-			isOwner := ctx.Bot.IsOwner(ctx.Author.ID.String())
-			results = append(results, result{"Owner check", isOwner, ctx.Author.ID.String()})
-
-			// 5. Elevated check
-			_ = ctx.Bot.IsElevated(ctx.Author.ID.String())
-			results = append(results, result{"Elevated check", true, "ok"})
-
-			// 6. Permission manager
-			pm := ctx.Bot.GetPermissionManager()
-			results = append(results, result{"Permission manager", pm != nil, fmt.Sprintf("%d elevated", len(pm.GetElevated()))})
-
-			// 7. Module manager
-			mm := ctx.Bot.GetModuleManager()
-			results = append(results, result{"Module manager", mm != nil, fmt.Sprintf("%d loaded", len(ctx.Bot.GetLoadedModuleNames()))})
-
-			// 8. Modules directory
-			modDir := filepath.Join(cfgDir, "modules")
-			_, err = os.Stat(modDir)
-			results = append(results, result{"Modules dir", err == nil, fmtErr(err)})
-
-			// 9. Logs directory
-			logDir := filepath.Join(cfgDir, "logs")
-			_, err = os.Stat(logDir)
-			results = append(results, result{"Logs dir", err == nil, fmtErr(err)})
-
-			// 10. Embed creation
-			testEmbed := embed.Info("test", "test")
-			results = append(results, result{"Embed system", testEmbed.Color == embed.ColorInfo, "ok"})
-
-			// 11. Bot name
-			name := ctx.Bot.GetName()
-			results = append(results, result{"Bot name", name != "", name})
-
-			// 12. Prefix
-			results = append(results, result{"Prefix", prefix != "", prefix})
-
-			// Test every command
-			testCtx := &Context{
-				Bot:       ctx.Bot,
-				ChannelID: ctx.ChannelID,
-				GuildID:   ctx.GuildID,
-				Author:    ctx.Author,
-				Args:      []string{},
-				IsSlash:   false,
-				Respond:   func(embeds ...discord.Embed) error { return nil },
-				ReplyText: func(text string) error { return nil },
-			}
-
-			for _, cmd := range CoreCommands {
-				if cmd.Name == "test" || cmd.Name == "shutdown" || cmd.Name == "restart" || cmd.Name == "backup" || cmd.Name == "status" || cmd.Name == "eval" || cmd.Name == "update" {
-					continue
-				}
-				err := cmd.Execute(testCtx)
-				results = append(results, result{
-					name: fmt.Sprintf("cmd/%s", cmd.Name),
-					pass: err == nil,
-					msg:  fmtErr(err),
-				})
-			}
-
-			// Build results
-			passed := 0
-			failed := 0
-			var lines []string
-			for _, r := range results {
-				icon := "✅"
-				if !r.pass {
-					icon = "❌"
-					failed++
-				} else {
-					passed++
-				}
-				lines = append(lines, fmt.Sprintf("%s **%s** — %s", icon, r.name, r.msg))
-			}
-
-			summary := fmt.Sprintf("Passed: %d/%d | Failed: %d", passed, passed+failed, failed)
-			title := "✅ All Systems Operational"
-			if failed > 0 {
-				title = "⚠️ Some Tests Failed"
-			}
-
-			e := embed.New().
-				WithTitle(title).
-				WithDescription(strings.Join(lines, "\n")).
-				WithColor(embed.ColorInfo).
-				WithFields(discord.EmbedField{
-					Name:   "Summary",
-					Value:  summary,
-					Inline: util.PtrBool(false),
-				}).
-				WithTimestamp(time.Now())
-
-			return ctx.Respond(e)
 		},
 	})
 
@@ -1063,10 +911,6 @@ func registerCoreSlashCommands() {
 				subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
 				subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
 				subOpt("list", "List elevated users"),
-			}
-		case "eval":
-			opts = []discord.ApplicationCommandOption{
-				strOpt("code", "Shell command to execute", true),
 			}
 		case "status":
 			opts = []discord.ApplicationCommandOption{

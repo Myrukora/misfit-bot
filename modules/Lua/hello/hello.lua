@@ -20,7 +20,7 @@ function M.commands()
     return {
         {
             name = "hello",
-            description = "Says hello from Lua",
+            description = "Say hello from the Lua example module.",
             usage = "hello",
             category = "fun",
             execute = function(M)
@@ -29,7 +29,7 @@ function M.commands()
         },
         {
             name = "luainfo",
-            description = "Shows Lua module info",
+            description = "Show info about the Lua example module.",
             usage = "luainfo",
             category = "fun",
             execute = function(M)
@@ -46,7 +46,7 @@ function M.slash_commands()
     return {
         {
             name = "hello-lua",
-            description = "Says hello from Lua",
+            description = "Say hello from the Lua example module.",
             category = "fun",
             execute = function(M)
                 ctx.respond("Hello from Lua!", "This slash command was written in Lua!")

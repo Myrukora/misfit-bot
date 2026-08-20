@@ -194,7 +194,7 @@ func (m *CleanupModule) Commands() []commands.Command {
 	return []commands.Command{
 		{
 			Name:         "cleanup",
-			Description:  "Message cleanup commands",
+			Description:  "Delete messages in bulk — by count, user, text, or duplicates. Pick a subcommand.",
 			Usage:        "cleanup <subcommand>",
 			Category:     "cleanup",
 			RequiredPerm: discord.PermissionManageMessages,
@@ -218,56 +218,56 @@ func (m *CleanupModule) SlashCommands() []commands.SlashCommand {
 	return []commands.SlashCommand{
 		{
 			Name:         "cleanup",
-			Description:  "Message cleanup commands",
+			Description:  "Bulk-delete messages by strategy: count, user, text, bot, self, time range, or duplicates.",
 			Category:     "cleanup",
 			RequiredPerm: discord.PermissionManageMessages,
 			Options: []discord.ApplicationCommandOption{
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "messages", Description: "Delete the last N messages",
+					Name: "messages", Description: "Delete the last N messages in this channel.",
 					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "user", Description: "Delete N messages from a user",
+					Name: "user", Description: "Delete the last N messages sent by a user.",
 					Options: []discord.ApplicationCommandOption{
 						discord.ApplicationCommandOptionUser{Name: "user", Description: "The user", Required: true},
 						intOpt("count", "How many messages", true),
 					},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "text", Description: "Delete N messages containing text",
+					Name: "text", Description: "Delete the last N messages that contain a phrase.",
 					Options: []discord.ApplicationCommandOption{
 						strOpt("text", "Text to match", true),
 						intOpt("count", "How many messages", true),
 					},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "bot", Description: "Delete bot and command messages",
+					Name: "bot", Description: "Delete the last N messages from any bot or that start with the prefix.",
 					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "self", Description: "Delete the bot's own messages",
+					Name: "self", Description: "Delete the last N messages this bot sent.",
 					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "after", Description: "Delete messages after an ID",
+					Name: "after", Description: "Delete messages sent after a given message ID.",
 					Options: []discord.ApplicationCommandOption{strOpt("message_id", "Message ID", true)},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "before", Description: "Delete N messages before an ID",
+					Name: "before", Description: "Delete the last N messages sent before a message ID.",
 					Options: []discord.ApplicationCommandOption{
 						strOpt("message_id", "Message ID", true),
 						intOpt("count", "How many messages", true),
 					},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "between", Description: "Delete messages between two IDs (including the first)",
+					Name: "between", Description: "Delete messages between two message IDs (including the first).",
 					Options: []discord.ApplicationCommandOption{
 						strOpt("message_id", "First message ID", true),
 						strOpt("message_id2", "Second message ID", true),
 					},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "duplicates", Description: "Delete duplicate messages",
+					Name: "duplicates", Description: "Delete messages that repeat an earlier message.",
 					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", false)},
 				},
 			},

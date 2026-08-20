@@ -170,7 +170,7 @@ class ImageSpamFilter(Module):
         return [
             Command(
                 name="spamfilter",
-                description="Detect and punish spam images using CLIP",
+                description="Manage the AI image-spam filter: track users, tune settings, and reset stats.",
                 usage="spamfilter <add|action|deleteonnone|mutetime|logchannel|threshold|toggle|reset>",
                 category="moderation",
                 execute=self.spamfilter_command,
