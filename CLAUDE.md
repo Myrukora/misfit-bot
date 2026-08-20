@@ -42,7 +42,7 @@ A modular Discord bot in Go that hot-loads `.so` plugin files at runtime using G
 │   ├── python_bridge.go      # Go-Python bridge (IPC callbacks → Discord Rest)
 │   ├── python_ipc.go         # IPC protocol (stdin/stdout JSON messaging)
 │   └── python_venv.go        # Per-module venv + pip install management
-├── sdk/python/custombot/     # Python SDK for module authors
+├── sdk/python/misfit/     # Python SDK for module authors
 │   ├── module.py             # Module ABC (name, version, on_load, commands, etc.)
 │   ├── commands.py           # Command/SlashCommand dataclasses
 │   ├── context.py            # Context/BotContext/Logger (IPC-backed)
@@ -338,7 +338,7 @@ Single `.lua` files in `modules/Lua/<name>/`. Loaded by `LuaLoader` using gopher
 
 Directories in `modules/Python/<name>/` containing `main.py` + optional `requirements.txt`. Loaded by `PythonLoader` via subprocess IPC.
 
-**Python module format:** `main.py` imports from `custombot` (Module, Command, SlashCommand), defines a Module subclass, and assigns `module = MyModule()` as a global. The runner script (`sdk/python/custombot/runner.py`) imports the user's `main.py`, extracts the `module` global, sets up IPC, sends a `ready` message with module metadata + commands, and dispatches `init`/`command`/`event`/`shutdown` messages.
+**Python module format:** `main.py` imports from `misfit` (Module, Command, SlashCommand), defines a Module subclass, and assigns `module = MyModule()` as a global. The runner script (`sdk/python/misfit/runner.py`) imports the user's `main.py`, extracts the `module` global, sets up IPC, sends a `ready` message with module metadata + commands, and dispatches `init`/`command`/`event`/`shutdown` messages.
 
 **IPC protocol** (JSON over stdin/stdout):
 - Go → Python (stdin): `{type:init, context:{bot_name, owner_id, prefix, version, data_dir}}`, `{type:command, name, args, channel_id, guild_id, author_id, is_slash}`, `{type:event, name, data}`, `{type:web_get_config, guild_id, req_id}`, `{type:web_set_config, guild_id, key, value, req_id}`, `{type:shutdown}`
@@ -576,7 +576,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 22. **DM permission behavior** — In DMs, `GetUserPermissions` returns 0 and `GetGuildOwnerID` returns "". Only owner/elevated can use commands with `RequiredPerm` in DMs.
 23. **Config security** — `config.yml` contains the bot token **and the Discord OAuth `client_secret`** (`oauth:` section, used by the dashboard's user-login flow) in plaintext. Ensure it's in `.gitignore` and never committed to version control. Use `[p]backup` to create timestamped backups. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
 24. **Python module venvs** — Each Python module gets a `.venv/` directory inside its module folder. These are gitignored (`modules/*/.venv/`). The venv is created on first load and `pip install` runs only when `requirements.txt` hash changes.
-25. **Python runner script** — Go launches `python3 sdk/python/custombot/runner.py <module_main_path>`, NOT the user's `main.py` directly. The runner imports `main.py`, extracts the `module` global, and manages IPC. `PYTHONPATH` is set to `sdk/python` so `import custombot` works.
+25. **Python runner script** — Go launches `python3 sdk/python/misfit/runner.py <module_main_path>`, NOT the user's `main.py` directly. The runner imports `main.py`, extracts the `module` global, and manages IPC. `PYTHONPATH` is set to `sdk/python` so `import misfit` works.
 26. **Python command responses are async** — Python command `Execute` closures send the command via IPC and return nil immediately. The Python process sends `respond`/`reply_text` back asynchronously. No auto-delete for Python module responses (unlike core commands).
 27. **Component interactions auto-defer** — The bot calls `event.DeferUpdateMessage()` on all component interactions before dispatch. Modules receive the event after deferral.
 28. **Lua event system** — Lua modules register event callbacks via `ctx.on_event(name, fn)` inside `on_load`. Callbacks receive a Lua table with the same event data as Python modules. LState is mutex-guarded so only one Lua callback runs at a time.

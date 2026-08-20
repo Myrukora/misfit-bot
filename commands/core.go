@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/custombot/bot/embed"
-	"github.com/custombot/bot/internal/util"
-	"github.com/custombot/bot/updater"
+	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/util"
+	"github.com/misfit/bot/updater"
 	"github.com/disgoorg/disgo/discord"
 	"gopkg.in/yaml.v3"
 )

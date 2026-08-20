@@ -3,7 +3,7 @@ package modules
 import (
 	"testing"
 
-	"github.com/custombot/bot/commands"
+	"github.com/misfit/bot/commands"
 )
 
 // fakeMod is a minimal Module for Manager tests.

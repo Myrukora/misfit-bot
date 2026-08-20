@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/logger"
 )
 
 // PythonVenv manages a per-module Python virtual environment.

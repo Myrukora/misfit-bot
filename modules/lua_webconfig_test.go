@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/logger"
 )
 
 const webTestModule = `

@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # sdk/python
 
-from custombot.runner import field_to_dict
+from misfit.runner import field_to_dict
 
 
 class FieldToDictScopeTest(unittest.TestCase):

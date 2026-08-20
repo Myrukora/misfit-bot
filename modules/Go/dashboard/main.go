@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/custombot/bot/commands"
-	"github.com/custombot/bot/config"
-	"github.com/custombot/bot/embed"
-	"github.com/custombot/bot/internal/util"
-	"github.com/custombot/bot/modules"
-	"github.com/custombot/bot/permissions"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/config"
+	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/util"
+	"github.com/misfit/bot/modules"
+	"github.com/misfit/bot/permissions"
 
 	"github.com/disgoorg/disgo/bot"
 	"github.com/disgoorg/disgo/discord"
@@ -78,7 +78,7 @@ func (m *DashboardModule) Description() string {
 }
 
 // Author returns the module author.
-func (m *DashboardModule) Author() string { return "custombot" }
+func (m *DashboardModule) Author() string { return "misfit" }
 
 // Dependencies returns the module names this module requires.
 func (m *DashboardModule) Dependencies() []string { return nil }

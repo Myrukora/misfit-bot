@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/logger"
 )
 
 // TestPythonReadyParsesWebConfig pins that a ready message carrying

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/custombot/bot/embed"
+	"github.com/misfit/bot/embed"
 	"github.com/disgoorg/disgo/discord"
 )
 

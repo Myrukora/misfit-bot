@@ -69,9 +69,9 @@ modules/Lua/
 package main
 
 import (
-    "github.com/custombot/bot/commands"
-    "github.com/custombot/bot/embed"
-    "github.com/custombot/bot/modules"
+    "github.com/misfit/bot/commands"
+    "github.com/misfit/bot/embed"
+    "github.com/misfit/bot/modules"
 )
 
 type HelloModule struct{}
@@ -121,7 +121,7 @@ go build -buildmode=plugin -o modules/Go/hello/hello.so ./modules/Go/hello/
 
 ```python
 # modules/Python/hello_py/main.py
-from custombot import Module, Command, SlashCommand
+from misfit import Module, Command, SlashCommand
 
 
 class HelloModule(Module):
@@ -902,7 +902,7 @@ import (
     "strconv"
     "sync"
 
-    "github.com/custombot/bot/modules"
+    "github.com/misfit/bot/modules"
     "gopkg.in/yaml.v3"
 )
 

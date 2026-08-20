@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/custombot/bot/config"
+	"github.com/misfit/bot/config"
 )
 
 func Run(dir string) (*config.Config, error) {

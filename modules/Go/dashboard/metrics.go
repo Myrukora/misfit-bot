@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/custombot/bot/commands"
+	"github.com/misfit/bot/commands"
 )
 
 type metricsSnapshot struct {

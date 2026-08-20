@@ -1,5 +1,5 @@
 """
-VoiceContext class for CustomBot Python modules.
+VoiceContext class for Misfit Python modules.
 
 Provides the interface for controlling voice channel connections
 and audio playback through the Go bot's VoiceManager.

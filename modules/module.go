@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/custombot/bot/commands"
+	"github.com/misfit/bot/commands"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 )

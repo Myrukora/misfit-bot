@@ -1,11 +1,11 @@
-from custombot import Module, Command, SlashCommand
+from misfit import Module, Command, SlashCommand
 
 
 class HelloModule(Module):
     name = "hello_py"
     version = "1.0.0"
     description = "A simple example Python module"
-    author = "CustomBot"
+    author = "Misfit"
 
     def on_load(self, ctx):
         ctx.logger.info("Hello Python module loaded!")

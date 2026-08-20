@@ -4,8 +4,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/custombot/bot/commands"
-	"github.com/custombot/bot/modules"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/disgo/discord"
 )
 

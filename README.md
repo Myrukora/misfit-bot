@@ -153,7 +153,7 @@ misfit-bot/
 ├── permissions/           # Three-tier permission system
 ├── ratelimit/             # Per-user rate limiting
 ├── updater/               # GitHub self-updater + notifications
-├── sdk/python/custombot/  # Python module SDK
+├── sdk/python/misfit/  # Python module SDK
 ├── install.sh             # Multi-distro install script
 ├── shell.nix              # Nix dev shell
 └── MODULE_GUIDE.md        # Module authoring guide

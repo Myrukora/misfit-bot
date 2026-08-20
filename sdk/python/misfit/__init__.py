@@ -1,11 +1,11 @@
 """
-CustomBot Python SDK
+Misfit Python SDK
 
 This package provides the base classes and utilities for writing Python modules
-for the CustomBot Discord bot.
+for the Misfit Discord bot.
 
 Usage:
-    from custombot import Module, Command
+    from misfit import Module, Command
 
     class MyModule(Module):
         name = "my_module"
@@ -34,10 +34,10 @@ Usage:
     module = MyModule()
 """
 
-from custombot.module import Module
-from custombot.commands import Command, SlashCommand
-from custombot.context import Context, BotContext
-from custombot.rest import RestAPI
-from custombot.voice import VoiceContext
+from misfit.module import Module
+from misfit.commands import Command, SlashCommand
+from misfit.context import Context, BotContext
+from misfit.rest import RestAPI
+from misfit.voice import VoiceContext
 
 __all__ = ['Module', 'Command', 'SlashCommand', 'Context', 'BotContext', 'RestAPI', 'VoiceContext']

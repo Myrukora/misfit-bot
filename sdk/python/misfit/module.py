@@ -1,11 +1,11 @@
 """
-Base Module class for CustomBot Python modules.
+Base Module class for Misfit Python modules.
 """
 
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from custombot.commands import Command, SlashCommand
+from misfit.commands import Command, SlashCommand
 
 
 class Module(ABC):
