@@ -708,9 +708,12 @@ class ImageSpamFilter(Module):
             "description": description,
             "color": 16711680,  # red
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "image": {"url": proxy_url} if proxy_url else None,
             "footer": {"text": "OpenAI CLIP Analysis (CPU)"},
         }
+        # Only attach the source image when we actually have a URL; omit the
+        # key entirely for an empty proxy_url rather than sending {"url": ""}.
+        if proxy_url:
+            embed["image"] = {"url": proxy_url}
         try:
             self.rest.create_message(log_channel_id, embed=embed)
         except Exception as e:  # noqa: BLE001
