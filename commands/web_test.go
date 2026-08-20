@@ -20,8 +20,8 @@ func TestCanExecuteWeb(t *testing.T) {
 		requiredPerm                discord.Permissions
 		wantErr, wantInsufficient   bool
 	}{
-		{"eval is never web-reachable", false, false, false, admin, true, true, admin, true, false},
-		{"eval blocked even for owner", true, false, false, admin, true, true, admin, true, false},
+		{"secret is never web-reachable", false, false, false, admin, true, true, admin, true, false},
+		{"secret blocked even for owner", true, false, false, admin, true, true, admin, true, false},
 		{"owner bypasses OwnerOnly", true, false, false, 0, false, true, 0, false, false},
 		{"elevated bypasses OwnerOnly", false, true, false, 0, false, true, 0, false, false},
 		{"normal user blocked by OwnerOnly", false, false, false, admin, false, true, 0, true, true},
