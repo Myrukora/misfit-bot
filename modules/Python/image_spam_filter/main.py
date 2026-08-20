@@ -104,8 +104,6 @@ class ImageSpamFilter(Module):
         self.processor = None
         self.model = None
         self.spam_vectors = []
-        # Signals (via .is_set()) that the model has finished bootstrapping.
-        self.model_ready = threading.Event()
 
         # Serializes torch calls so bootstrap (loader thread) and the worker
         # never invoke it concurrently.
