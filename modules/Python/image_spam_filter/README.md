@@ -20,9 +20,9 @@ first load it also ensures the CLIP model is present:
 
 Prefix command (bot owner or a guild owner):
 
-```
+```text
 [prefix]spamfilter help
-[prefix]spamfilter add            # then send the image you want to mark as spam in this channel
+[prefix]spamfilter add            # then send the image(s) you want to mark as spam in this channel
 [prefix]spamfilter action <none|kick|ban|mute>
 [prefix]spamfilter deleteonnone <true|false>
 [prefix]spamfilter mutetime <seconds>

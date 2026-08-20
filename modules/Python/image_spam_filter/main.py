@@ -34,6 +34,7 @@ import queue
 import re
 import threading
 import time
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -58,6 +59,9 @@ DEFAULT_CONFIG = {
 }
 
 IMAGE_EXTS = (".jpg", ".jpeg", ".png")
+# Cap on fetched image size (50 MiB) so a hostile/large CDN response can't
+# OOM the worker thread.
+MAX_IMAGE_BYTES = 50 * 1024 * 1024
 
 
 class ImageSpamFilter(Module):
@@ -184,7 +188,13 @@ class ImageSpamFilter(Module):
             return
         self.logger.info("CLIP model not found locally — downloading (one-time)...")
         from huggingface_hub import snapshot_download
-        snapshot_download(MODEL_NAME, local_dir=self.model_dir)
+        # Only pull the files PyTorch CLIP needs; skip unused TF/Flax weights
+        # and model cards (all *.json / *.txt / the bin weights are enough).
+        snapshot_download(
+            MODEL_NAME,
+            local_dir=self.model_dir,
+            allow_patterns=["*.json", "*.txt", "pytorch_model.bin"],
+        )
 
     def _load_model(self):
         torch.set_num_threads(2)
@@ -263,7 +273,7 @@ class ImageSpamFilter(Module):
                     self.spam_vectors.append(vector)
         self.logger.info(f"Refreshed spam vectors. Count: {len(self.spam_vectors)}")
 
-    def _check_similarity(self, image_bytes, threshold):
+    def _check_similarity(self, image_bytes):
         if not self.spam_vectors:
             return 0.0
         # Runs on the worker thread; the lock keeps it safe during bootstrap.
@@ -282,8 +292,20 @@ class ImageSpamFilter(Module):
 
     def _fetch_bytes(self, url):
         # CLIP needs bytes, not URLs. proxy_url is a public Discord CDN URL.
+        # Only allow HTTPS requests to Discord's CDN (SSRF protection) and cap
+        # the read so a large/hostile response can't exhaust memory.
+        parsed = urllib.parse.urlparse(url)
+        host = parsed.hostname or ""
+        # Match the bare host or any subdomain of Discord's CDN. The dot matters:
+        # without it, "evildiscordapp.com" would wrongly pass endswith().
+        if (
+            parsed.scheme != "https"
+            or not host
+            or not (host == "discordapp.com" or host.endswith(".discordapp.com"))
+        ):
+            raise ValueError(f"Rejected non-Discord-HTTPS URL: {url!r}")
         with urllib.request.urlopen(url, timeout=10) as resp:
-            return resp.read()
+            return resp.read(MAX_IMAGE_BYTES)
 
     # ── Permission helpers ────────────────────────────────────────────
 
@@ -337,7 +359,7 @@ class ImageSpamFilter(Module):
     def _help(self, ctx):
         text = (
             "🛡️ Image Spam Filter commands:\n"
-            "`add` — Mark an image as spam (send the image in this channel next)\n"
+            "`add` — Mark image(s) as spam (send them in this channel within 30s, several at once)\n"
             "`action <none|kick|ban|mute>` — Punishment on a match\n"
             "`deleteonnone <true|false>` — Delete the message when punishment is none\n"
             "`mutetime <seconds>` — Mute duration in seconds\n"
@@ -349,9 +371,14 @@ class ImageSpamFilter(Module):
         ctx.reply_text(text)
 
     def _cmd_add(self, ctx):
-        key = (ctx.guild_id, ctx.channel_id)
+        # Tie the capture to the requesting user so only they can supply the
+        # reference image(s); several attachments in one message are all added.
+        key = (ctx.guild_id, ctx.channel_id, ctx.author_id)
         self.pending_add[key] = time.time() + 30
-        ctx.reply_text("Send the image you want to mark as spam in this channel within 30 seconds.")
+        ctx.reply_text(
+            "Send the image(s) you want to mark as spam in this channel within "
+            "30 seconds (you can attach several at once)."
+        )
 
     def _cmd_action(self, ctx, args):
         if not args:
@@ -452,7 +479,11 @@ class ImageSpamFilter(Module):
             return
 
         # A pending `add` takes priority over spam detection for this message.
-        if self._pending_add_active(data):
+        # Consume it here (single-use) on the IPC thread so the check-and-add is
+        # atomic and only the requesting user's message is honored.
+        add_key = (guild_id, data.get("channel_id"), author.get("id"))
+        if add_key in self.pending_add:
+            del self.pending_add[add_key]
             self._queue.put({"op": "add", "data": data})
             return
 
@@ -461,13 +492,6 @@ class ImageSpamFilter(Module):
         if any((a.get("content_type") or "").startswith("image/")
                for a in (data.get("attachments") or [])):
             self._queue.put({"op": "check", "data": data})
-
-    def _pending_add_active(self, data):
-        now = time.time()
-        for key in [k for k, exp in self.pending_add.items() if exp <= now]:
-            del self.pending_add[key]
-        key = (data.get("guild_id"), data.get("channel_id"))
-        return key in self.pending_add
 
     def _do_check(self, data):
         guild_id = data.get("guild_id")
@@ -481,7 +505,7 @@ class ImageSpamFilter(Module):
                 continue
             try:
                 image_bytes = self._fetch_bytes(proxy_url)
-                score = self._check_similarity(image_bytes, settings["threshold"])
+                score = self._check_similarity(image_bytes)
             except Exception as e:  # noqa: BLE001
                 self.logger.error(f"Error analyzing image: {e}")
                 continue
@@ -503,34 +527,49 @@ class ImageSpamFilter(Module):
         author = data.get("author") or {}
         if author.get("bot"):
             return
-        image_att = next(
-            (a for a in (data.get("attachments") or [])
-             if (a.get("content_type") or "").startswith("image/")),
-            None,
-        )
-        if image_att is None:
-            return
-        try:
-            image_bytes = self._fetch_bytes(image_att.get("proxy_url"))
-        except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Failed to fetch image for add: {e}")
+        # Add every image attachment in the message (not just the first).
+        image_atts = [
+            a for a in (data.get("attachments") or [])
+            if (a.get("content_type") or "").startswith("image/")
+        ]
+        if not image_atts:
             return
         spam_dir = os.path.join(self.data_dir, "spam_images")
         os.makedirs(spam_dir, exist_ok=True)
-        filename = re.sub(r"[^A-Za-z0-9._-]", "_",
-                          image_att.get("filename", f"spam_{data.get('message_id')}.png"))
-        save_path = os.path.join(spam_dir, filename)
-        try:
-            with open(save_path, "wb") as f:
-                f.write(image_bytes)
-        except Exception as e:  # noqa: BLE001
-            self.logger.error(f"Failed to save image: {e}")
+        added = []
+        used_names = set()
+        for att in image_atts:
+            try:
+                image_bytes = self._fetch_bytes(att.get("proxy_url"))
+            except Exception as e:  # noqa: BLE001
+                self.logger.error(f"Failed to fetch image for add: {e}")
+                continue
+            base = re.sub(r"[^A-Za-z0-9._-]", "_",
+                          att.get("filename", f"spam_{data.get('message_id')}"))
+            filename = base
+            suffix = 1
+            while filename in used_names:
+                stem, ext = os.path.splitext(base)
+                filename = f"{stem}_{suffix}{ext}"
+                suffix += 1
+            used_names.add(filename)
+            save_path = os.path.join(spam_dir, filename)
+            try:
+                with open(save_path, "wb") as f:
+                    f.write(image_bytes)
+            except Exception as e:  # noqa: BLE001
+                self.logger.error(f"Failed to save image {filename}: {e}")
+                continue
+            added.append(filename)
+        if not added:
             return
         self._refresh_spam_vectors()
         try:
             self.rest.create_message(
                 data.get("channel_id"),
-                f"✅ Added `{filename}`. Total reference images: {len(self.spam_vectors)}",
+                f"✅ Added {len(added)} image(s): "
+                f"{', '.join('`' + f + '`' for f in added)}. "
+                f"Total reference images: {len(self.spam_vectors)}",
             )
         except Exception:  # noqa: BLE001
             pass
