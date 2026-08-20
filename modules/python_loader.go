@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/custombot/bot/commands"
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/logger"
 	"github.com/disgoorg/disgo/rest"
 )
 
@@ -17,7 +17,7 @@ import (
 // Each Python module is a directory containing main.py and optionally requirements.txt.
 type PythonLoader struct {
 	bridge   *PythonBridge
-	sdkPath  string // path to sdk/python directory (contains custombot package)
+	sdkPath  string // path to sdk/python directory (contains misfit package)
 	logger   *logger.Logger
 	voiceMgr *VoiceManager
 }
@@ -67,7 +67,7 @@ func (l *PythonLoader) Load(path string) (Module, error) {
 	}
 
 	// Path to the runner script
-	runnerPath := filepath.Join(l.sdkPath, "custombot", "runner.py")
+	runnerPath := filepath.Join(l.sdkPath, "misfit", "runner.py")
 	if _, err := os.Stat(runnerPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("runner.py not found at %s", runnerPath)
 	}
@@ -75,7 +75,7 @@ func (l *PythonLoader) Load(path string) (Module, error) {
 	// Create the Python process
 	cmd := exec.Command(venv.PythonBin(), runnerPath, mainPy)
 
-	// Set PYTHONPATH to include sdk/python so `import custombot` works
+	// Set PYTHONPATH to include sdk/python so `import misfit` works
 	env := os.Environ()
 	env = append(env, "PYTHONPATH="+l.sdkPath)
 	cmd.Env = env

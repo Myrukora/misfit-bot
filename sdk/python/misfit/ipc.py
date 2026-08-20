@@ -1,5 +1,5 @@
 """
-IPC protocol handler for CustomBot Python modules.
+IPC protocol handler for Misfit Python modules.
 
 Handles JSON-based communication between Go bot and Python module via stdin/stdout.
 Supports both fire-and-forget messages and request/response pattern.

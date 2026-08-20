@@ -1,4 +1,4 @@
-from custombot import Module, Command
+from misfit import Module, Command
 
 
 class SampleModule(Module):

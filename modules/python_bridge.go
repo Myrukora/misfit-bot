@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/custombot/bot/embed"
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/logger"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
@@ -147,7 +147,7 @@ func (b *PythonBridge) handleAPIRequest(ipc *PythonIPC, id, method, endpoint str
 
 	req.Header.Set("Authorization", "Bot "+b.token)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "CustomBot (https://github.com/custombot/bot, 1.0)")
+	req.Header.Set("User-Agent", "Misfit (https://github.com/misfit/bot, 1.0)")
 
 	resp, err := b.httpClient.Do(req)
 	if err != nil {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/custombot/bot/modules"
+	"github.com/misfit/bot/modules"
 )
 
 func TestFreeArgsNeeded(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/custombot/bot
+module github.com/misfit/bot
 
 go 1.26.4
 

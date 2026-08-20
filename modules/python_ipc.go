@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/logger"
 )
 
 // PythonIPC handles communication with a Python module process.

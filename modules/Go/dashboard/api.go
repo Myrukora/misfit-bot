@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/custombot/bot/modules"
+	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"gopkg.in/yaml.v3"

@@ -3,7 +3,7 @@ package commands
 import (
 	"time"
 
-	"github.com/custombot/bot/permissions"
+	"github.com/misfit/bot/permissions"
 	"github.com/disgoorg/disgo/discord"
 )
 

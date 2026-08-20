@@ -1,5 +1,5 @@
 """
-Context class for CustomBot Python modules.
+Context class for Misfit Python modules.
 
 Provides the interface for interacting with the bot and Discord.
 """
@@ -8,8 +8,8 @@ import json
 import sys
 from typing import Any, Optional
 
-from custombot.rest import RestAPI
-from custombot.voice import VoiceContext
+from misfit.rest import RestAPI
+from misfit.voice import VoiceContext
 
 
 class Logger:

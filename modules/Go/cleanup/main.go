@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/custombot/bot/commands"
-	"github.com/custombot/bot/embed"
-	"github.com/custombot/bot/internal/util"
-	"github.com/custombot/bot/modules"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/util"
+	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
@@ -24,7 +24,7 @@ type CleanupModule struct {
 func (m *CleanupModule) Name() string        { return "cleanup" }
 func (m *CleanupModule) Version() string     { return "1.0.0" }
 func (m *CleanupModule) Description() string { return "Message cleanup and moderation commands" }
-func (m *CleanupModule) Author() string      { return "custombot" }
+func (m *CleanupModule) Author() string      { return "misfit" }
 
 func (m *CleanupModule) OnLoad(ctx *modules.Context) error {
 	m.ctx = ctx

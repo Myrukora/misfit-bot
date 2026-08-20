@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/custombot/bot/config"
+	"github.com/misfit/bot/config"
 	"github.com/disgoorg/disgo/discord"
 )
 

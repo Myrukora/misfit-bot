@@ -1,5 +1,5 @@
 """
-Image Spam Filter — a module for the CustomBot Discord bot.
+Image Spam Filter — a module for the Misfit Discord bot.
 
 Detects and punishes spam images in guild channels using OpenAI's CLIP model
 (vision_model embeddings, compared by cosine similarity). CLIP runs entirely on
@@ -45,7 +45,7 @@ import torch
 import torch.nn.functional as F
 from transformers import CLIPProcessor, CLIPModel
 
-from custombot import Module, Command, SlashCommand
+from misfit import Module, Command, SlashCommand
 
 MODEL_NAME = "openai/clip-vit-base-patch32"
 MODEL_DIRNAME = "clip-vit-base-patch32"
@@ -88,7 +88,7 @@ class ImageSpamFilter(Module):
     name = "image_spam_filter"
     version = "1.0.0"
     description = "Detect and punish spam images using OpenAI CLIP (CPU only)"
-    author = "CustomBot"
+    author = "Misfit"
 
     def __init__(self):
         # Populated in on_load.

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/custombot/bot/modules"
+	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/snowflake/v2"
 )
 

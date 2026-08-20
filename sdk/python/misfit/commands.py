@@ -1,5 +1,5 @@
 """
-Command classes for CustomBot Python modules.
+Command classes for Misfit Python modules.
 """
 
 from dataclasses import dataclass, field

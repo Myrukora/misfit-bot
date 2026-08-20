@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/custombot/bot/commands"
-	"github.com/custombot/bot/logger"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/logger"
 )
 
 // LuaLoader handles loading and managing Lua modules.

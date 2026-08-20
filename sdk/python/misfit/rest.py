@@ -1,5 +1,5 @@
 """
-REST API wrapper for CustomBot Python modules.
+REST API wrapper for Misfit Python modules.
 
 Provides access to the Discord REST API through the Go bot's HTTP proxy.
 This keeps the bot token secure in the Go process — Python never sees it.

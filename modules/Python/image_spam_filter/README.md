@@ -1,6 +1,6 @@
 # image_spam_filter
 
-A module for the CustomBot Discord bot that detects and punishes **spam images**
+A module for the Misfit Discord bot that detects and punishes **spam images**
 in guild channels using [OpenAI CLIP](https://huggingface.co/openai/clip-vit-base-patch32)
 (vision embeddings compared by cosine similarity). CLIP runs **entirely on CPU**,
 so `torch` is the CPU wheel and the model weights live inside this module folder.

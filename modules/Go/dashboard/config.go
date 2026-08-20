@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/custombot/bot/config"
+	"github.com/misfit/bot/config"
 	"gopkg.in/yaml.v3"
 )
 

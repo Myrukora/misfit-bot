@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Runner script for CustomBot Python modules.
+Runner script for Misfit Python modules.
 
 Launched by the Go bot to run a Python module. Sets up IPC communication,
 imports the user's module, and dispatches messages between bot and module.
@@ -13,14 +13,14 @@ import os
 import sys
 import traceback
 
-# runner.py lives at sdk/python/custombot/runner.py
-# To import custombot, we need sdk/python in sys.path
+# runner.py lives at sdk/python/misfit/runner.py
+# To import misfit, we need sdk/python in sys.path
 _sdk_python = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _sdk_python not in sys.path:
     sys.path.insert(0, _sdk_python)
 
-from custombot.ipc import IPC
-from custombot.context import BotContext, Context
+from misfit.ipc import IPC
+from misfit.context import BotContext, Context
 
 
 def load_user_module(main_path):

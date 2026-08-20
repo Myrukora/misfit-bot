@@ -1,1 +1,1 @@
-# No external dependencies required — the CustomBot SDK is bundled.
+# No external dependencies required — the Misfit SDK is bundled.
