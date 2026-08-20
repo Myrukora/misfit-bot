@@ -34,6 +34,7 @@ import queue
 import re
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -62,6 +63,23 @@ IMAGE_EXTS = (".jpg", ".jpeg", ".png")
 # Cap on fetched image size (50 MiB) so a hostile/large CDN response can't
 # OOM the worker thread.
 MAX_IMAGE_BYTES = 50 * 1024 * 1024
+# Cap on *decoded* pixels so a tiny crafted file can't explode RAM on decode
+# (decompression bomb). PIL raises ImageDecompressionBombError past this.
+MAX_IMAGE_PIXELS = 25 * 1024 * 1024  # 25 MP (~4000x6000)
+# PIL applies MAX_IMAGE_PIXELS globally; set it at import time.
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse 3xx redirects so a redirect off Discord's CDN can't bypass the
+    HTTPS + discordapp.com allowlist enforced in _fetch_bytes (SSRF)."""
+
+    def redirect_request(self, *args, **kwargs):
+        raise urllib.error.URLError("redirects are not allowed")
+
+
+# Stateless opener shared by every instance; enforces the no-redirect rule.
+_FETCH_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
 class ImageSpamFilter(Module):
@@ -86,7 +104,8 @@ class ImageSpamFilter(Module):
         self.processor = None
         self.model = None
         self.spam_vectors = []
-        self.model_loaded = False
+        # Signals (via .is_set()) that the model has finished bootstrapping.
+        self.model_ready = threading.Event()
 
         # Serializes torch calls so bootstrap (loader thread) and the worker
         # never invoke it concurrently.
@@ -97,8 +116,23 @@ class ImageSpamFilter(Module):
         self._worker = None
         self._running = False
 
-        # (guild_id, channel_id) -> expiry timestamp, for the `add` capture flow.
+        # Guards self.config (read on the loop thread in on_message, written and
+        # read on the worker) and the guild caches below.
+        self._config_lock = threading.RLock()
+        # Guards pending_add (written by _cmd_add on the worker, read+consumed
+        # by on_message on the loop thread).
+        self._pending_lock = threading.Lock()
+        # (guild_id, channel_id, author_id) -> expiry timestamp, for the `add`
+        # capture flow. Written on the worker, read+consumed on the loop thread.
         self.pending_add = {}
+        # (guild_id) -> owner_id / {role_id: position}, cached from REST so the
+        # immunity check doesn't hit Discord on every punishment.
+        self._guild_owners = {}
+        self._guild_role_positions = {}
+
+        # Set by the bootstrap daemon thread once CLIP is ready; read by
+        # on_message on the loop thread.
+        self.model_ready = threading.Event()
 
         # Per-guild config: {"default": {...}, "guilds": {guild_id: {...}}}.
         self.config = {"default": dict(DEFAULT_CONFIG), "guilds": {}}
@@ -119,7 +153,7 @@ class ImageSpamFilter(Module):
 
         self.logger.info("Image spam filter module loaded. Bootstrapping CLIP model...")
         # Model loading is heavy; do it on a daemon thread so on_load returns
-        # immediately. `model_loaded` gates the message event until ready.
+        # immediately. `model_ready` gates the message event until ready.
         threading.Thread(target=self._bootstrap, daemon=True).start()
 
         # Heavy-work worker (inference + REST + vector rebuilds), kept off the
@@ -164,6 +198,8 @@ class ImageSpamFilter(Module):
                     self._do_check(task.get("data") or {})
                 elif op == "add":
                     self._do_add(task.get("data") or {})
+                elif op == "command":
+                    self._run_command(task.get("ctx"), task.get("args") or [])
                 elif op == "refresh":
                     self._refresh_spam_vectors()
             except Exception as e:  # noqa: BLE001 - never let the worker die
@@ -178,7 +214,7 @@ class ImageSpamFilter(Module):
             self._ensure_model()
             self._load_model()
             self._refresh_spam_vectors()
-            self.model_loaded = True
+            self.model_ready.set()
             self.logger.info("CLIP model loaded successfully on CPU.")
         except Exception as e:  # noqa: BLE001 - report and keep the module loaded
             self.logger.error(f"Failed to bootstrap CLIP model: {e}")
@@ -223,18 +259,22 @@ class ImageSpamFilter(Module):
             self.logger.error(f"Failed to save config: {e}")
 
     def _guild_settings(self, guild_id):
-        base = dict(DEFAULT_CONFIG)
-        guild = self.config.get("guilds", {}).get(guild_id)
-        if guild:
-            base.update(guild)
-        return base
+        # Copy the effective settings under lock; the returned dict is standalone
+        # so callers never hold the lock. Read on both the loop and worker threads.
+        with self._config_lock:
+            base = dict(DEFAULT_CONFIG)
+            guild = self.config.get("guilds", {}).get(guild_id)
+            if guild:
+                base.update(guild)
+            return base
 
     def _set_guild_setting(self, guild_id, key, value):
-        guilds = self.config.setdefault("guilds", {})
-        if guild_id not in guilds:
-            guilds[guild_id] = {}
-        guilds[guild_id][key] = value
-        self._save_config()
+        with self._config_lock:
+            guilds = self.config.setdefault("guilds", {})
+            if guild_id not in guilds:
+                guilds[guild_id] = {}
+            guilds[guild_id][key] = value
+            self._save_config()
 
     # ── Embeddings ────────────────────────────────────────────────────
 
@@ -304,7 +344,9 @@ class ImageSpamFilter(Module):
             or not (host == "discordapp.com" or host.endswith(".discordapp.com"))
         ):
             raise ValueError(f"Rejected non-Discord-HTTPS URL: {url!r}")
-        with urllib.request.urlopen(url, timeout=10) as resp:
+        # build_opener with _NoRedirectHandler so a 3xx to a non-Discord host
+        # can't bypass the allowlist above (urlopen follows redirects by default).
+        with _FETCH_OPENER.open(url, timeout=10) as resp:
             return resp.read(MAX_IMAGE_BYTES)
 
     # ── Permission helpers ────────────────────────────────────────────
@@ -328,27 +370,37 @@ class ImageSpamFilter(Module):
         if not ctx.guild_id:
             ctx.reply_text("This command must be used in a guild.")
             return
+        # The permission check needs a REST call, which must never run on the
+        # IPC loop thread — that thread is the sole reader of api responses, so
+        # blocking on it deadlocks for the 30s timeout. Enqueue the whole
+        # dispatch; the worker verifies permission and runs the subcommand.
+        # Every reply uses fire-and-forget ipc.send, which is safe from any
+        # thread.
+        self._queue.put({"op": "command", "ctx": ctx, "args": ctx.args})
+
+    def _run_command(self, ctx, args):
+        """Run a spamfilter subcommand on the worker thread."""
         if not self._is_admin(ctx):
             ctx.respond("🚫 Permission Denied", "Only the bot owner or a guild owner can use this command.")
             return
 
-        sub = ctx.args[0].lower() if ctx.args else ""
-        args = ctx.args[1:]
+        sub = args[0].lower() if args else ""
+        rest_args = args[1:]
 
         if sub in ("", "help"):
             self._help(ctx)
         elif sub == "add":
             self._cmd_add(ctx)
         elif sub == "action":
-            self._cmd_action(ctx, args)
+            self._cmd_action(ctx, rest_args)
         elif sub == "deleteonnone":
-            self._cmd_deleteonnone(ctx, args)
+            self._cmd_deleteonnone(ctx, rest_args)
         elif sub == "mutetime":
-            self._cmd_mutetime(ctx, args)
+            self._cmd_mutetime(ctx, rest_args)
         elif sub == "logchannel":
-            self._cmd_logchannel(ctx, args)
+            self._cmd_logchannel(ctx, rest_args)
         elif sub == "threshold":
-            self._cmd_threshold(ctx, args)
+            self._cmd_threshold(ctx, rest_args)
         elif sub == "toggle":
             self._cmd_toggle(ctx)
         elif sub == "reset":
@@ -374,7 +426,8 @@ class ImageSpamFilter(Module):
         # Tie the capture to the requesting user so only they can supply the
         # reference image(s); several attachments in one message are all added.
         key = (ctx.guild_id, ctx.channel_id, ctx.author_id)
-        self.pending_add[key] = time.time() + 30
+        with self._pending_lock:
+            self.pending_add[key] = time.time() + 30
         ctx.reply_text(
             "Send the image(s) you want to mark as spam in this channel within "
             "30 seconds (you can attach several at once)."
@@ -482,12 +535,16 @@ class ImageSpamFilter(Module):
         # Consume it here (single-use) on the IPC thread so the check-and-add is
         # atomic and only the requesting user's message is honored.
         add_key = (guild_id, data.get("channel_id"), author.get("id"))
-        if add_key in self.pending_add:
-            del self.pending_add[add_key]
-            self._queue.put({"op": "add", "data": data})
-            return
+        with self._pending_lock:
+            if add_key in self.pending_add:
+                del self.pending_add[add_key]
+                self._queue.put({"op": "add", "data": data})
+                return
 
-        if not (self.model_loaded and self._guild_settings(guild_id)["enabled"]):
+        # Cheap decisions only — no REST calls on the loop thread (would
+        # deadlock). Config read is guarded; model_ready is a simple Event.
+        if not (self.model_ready.is_set()
+                and self._guild_settings(guild_id)["enabled"]):
             return
         if any((a.get("content_type") or "").startswith("image/")
                for a in (data.get("attachments") or [])):
@@ -521,7 +578,7 @@ class ImageSpamFilter(Module):
                 return
 
     def _do_add(self, data):
-        if not self.model_loaded:
+        if not self.model_ready.is_set():
             self.logger.info("add skipped: CLIP model not loaded yet")
             return
         author = data.get("author") or {}
@@ -662,31 +719,55 @@ class ImageSpamFilter(Module):
             self.logger.error(f"[image_spam_filter] Failed to send failure alert to {log_channel_id}: {e}")
 
     def _is_immune(self, guild_id, author_id):
-        # Guild owner is always immune.
-        if guild_id and author_id:
-            try:
+        """Guild owner is always immune; otherwise the author is immune if their
+        top role outranks or matches the bot's. REST lookups are cached per guild
+        (on success) so burst spam doesn't hit Discord on every punishment."""
+        if not (guild_id and author_id):
+            return False
+
+        # Guild owner (cached; re-fetched only on a miss).
+        owner_id = None
+        try:
+            cached = self._guild_owners.get(guild_id)
+            if cached is not None:
+                owner_id = cached
+            else:
                 guild = self.rest.get_guild(guild_id)
-                if guild and guild.get("owner_id") == author_id:
-                    return True
-            except Exception:  # noqa: BLE001
-                pass
-            # Role-hierarchy immunity: author's top role >= bot's top role.
-            bot_id = self._bot_id()
-            if bot_id and bot_id != author_id:
-                try:
+                owner_id = (guild or {}).get("owner_id")
+                if owner_id:
+                    with self._config_lock:
+                        self._guild_owners[guild_id] = owner_id
+            if owner_id == author_id:
+                return True
+        except Exception:  # noqa: BLE001
+            pass
+
+        # Role-hierarchy immunity: author's top role >= bot's top role.
+        bot_id = self._bot_id()
+        if bot_id and bot_id != author_id:
+            try:
+                cached_pos = self._guild_role_positions.get(guild_id)
+                if cached_pos is not None:
+                    pos = cached_pos
+                else:
                     roles = self.rest.get_guild_roles(guild_id)
                     if roles:
                         pos = {r["id"]: r.get("position", 0) for r in roles}
-                        member = self.rest.get_member(guild_id, author_id)
-                        member_roles = member.get("roles", []) if member else []
-                        target_top = max((pos.get(rid, 0) for rid in member_roles), default=0)
-                        bot_member = self.rest.get_member(guild_id, bot_id)
-                        bot_roles = bot_member.get("roles", []) if bot_member else []
-                        bot_top = max((pos.get(rid, 0) for rid in bot_roles), default=0)
-                        if target_top >= bot_top:
-                            return True
-                except Exception:  # noqa: BLE001
-                    pass
+                        with self._config_lock:
+                            self._guild_role_positions[guild_id] = pos
+                    else:
+                        pos = None
+                if pos:
+                    member = self.rest.get_member(guild_id, author_id)
+                    member_roles = member.get("roles", []) if member else []
+                    target_top = max((pos.get(rid, 0) for rid in member_roles), default=0)
+                    bot_member = self.rest.get_member(guild_id, bot_id)
+                    bot_roles = bot_member.get("roles", []) if bot_member else []
+                    bot_top = max((pos.get(rid, 0) for rid in bot_roles), default=0)
+                    if target_top >= bot_top:
+                        return True
+            except Exception:  # noqa: BLE001
+                pass
         return False
 
     def _bot_id(self):
