@@ -112,3 +112,36 @@ func TestStoreConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestValidTicketID pins the trust-boundary check on ticket IDs (they become
+// file names under ticketsRoot/<guildID>/). Traversal and junk must be
+// rejected; the real "<group>-<digits>" scheme must pass.
+func TestValidTicketID(t *testing.T) {
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"staff-0007", true},
+		{"room-applications-0042", true}, // group keys may contain '-'
+		{"a-1", true},
+		{"staff_2-0003", true}, // underscore allowed in group keys
+		{"", false},
+		{"staff-", false},
+		{"-0007", false},
+		{"0007", false},          // no group part
+		{"staff", false},         // no seq
+		{"../etc-passwd", false}, // traversal via slash
+		{"..-0007", false},       // dot not in charset
+		{"staff/../../x-1", false},
+		{"staff-1/extra", false}, // separator inside
+		{"staff-7x", false},      // non-digit seq
+		{"staff-1 2", false},     // whitespace
+		{"staff-0007 ", false},   // trailing space breaks round-trip
+		{"/etc/passwd-1", false}, // absolute path shape
+	}
+	for _, c := range cases {
+		if got := validTicketID(c.id); got != c.want {
+			t.Errorf("validTicketID(%q) = %v, want %v", c.id, got, c.want)
+		}
+	}
+}

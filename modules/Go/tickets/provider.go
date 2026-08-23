@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -14,13 +15,23 @@ import (
 // The dashboard reaches the tickets module exclusively through this
 // interface; CloseTicket is the SAME path the in-chat Close button uses.
 
+// validGuildID reports whether s is a well-formed Discord snowflake. Every
+// provider entry point validates IDs explicitly so path building
+// (filepath.Join(ticketsRoot, guildID, ...)) never depends on router shape:
+// a non-snowflake guildID cannot traverse, and ticketIDs are checked against
+// the strict "<group>-<digits>" scheme in the store.
+func validGuildID(s string) bool {
+	_, err := snowflake.Parse(s)
+	return err == nil && strings.TrimSpace(s) != ""
+}
+
 // ListOpenTickets returns every open ticket in the guild, oldest first.
 func (m *TicketsModule) ListOpenTickets(guildID string) ([]modules.TicketSummary, error) {
 	if !m.isLoaded() {
 		return nil, fmt.Errorf("tickets module is not loaded")
 	}
-	if guildID == "" {
-		return nil, fmt.Errorf("guildID is required")
+	if !validGuildID(guildID) {
+		return nil, fmt.Errorf("invalid guildID")
 	}
 	return m.store.listOpen(guildID), nil
 }
@@ -30,8 +41,11 @@ func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, er
 	if !m.isLoaded() {
 		return nil, fmt.Errorf("tickets module is not loaded")
 	}
-	if guildID == "" || ticketID == "" {
-		return nil, fmt.Errorf("guildID and ticketID are required")
+	if !validGuildID(guildID) {
+		return nil, fmt.Errorf("invalid guildID")
+	}
+	if !validTicketID(ticketID) {
+		return nil, fmt.Errorf("invalid ticket ID")
 	}
 	return m.store.load(guildID, ticketID)
 }
@@ -42,6 +56,12 @@ func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, er
 func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	if !m.isLoaded() {
 		return fmt.Errorf("tickets module is not loaded")
+	}
+	if !validGuildID(guildID) {
+		return fmt.Errorf("invalid guildID")
+	}
+	if !validTicketID(ticketID) {
+		return fmt.Errorf("invalid ticket ID")
 	}
 	tk, err := m.store.load(guildID, ticketID)
 	if err != nil {

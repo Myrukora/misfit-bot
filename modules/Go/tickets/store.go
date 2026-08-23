@@ -321,6 +321,40 @@ func parseTicketID(id string) (group string, seq int, ok bool) {
 	return id[:idx], n, true
 }
 
+// validTicketID enforces the strict "<group>-<digits>" scheme at the trust
+// boundary. Ticket IDs become file names (filepath.Join(ticketsRoot,
+// guildID, ticketID+".json")), so anything outside this scheme — path
+// separators, "..", whitespace, empty segments — is rejected before any
+// filesystem access. Safety must not depend on router shape.
+func validTicketID(id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			// allowed charset for group keys and digits
+		default:
+			return false // dots, slashes, spaces, unicode — everything else out
+		}
+	}
+	group, seq, ok := parseTicketID(id)
+	if !ok || group == "" {
+		return false
+	}
+	digits := id[len(group)+1:]
+	if len(digits) == 0 || len(digits) > 10 {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	_ = seq
+	return true
+}
+
 // pruneClosed removes closed tickets older than retentionDays (0 = disabled).
 func (s *store) pruneClosed(retentionDays int) int {
 	if retentionDays <= 0 {
