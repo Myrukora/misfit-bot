@@ -1,0 +1,33 @@
+{{define "transcript"}}{{template "header" .}}
+{{$t := .Content.Ticket}}
+<h2>Ticket <code>{{$t.ID}}</code></h2>
+<p class="muted">Group: <strong>{{$t.Group}}</strong> · Opener: <code>{{$t.OpenerID}}</code>{{if $t.ClaimerID}} · Claimed by <code>{{$t.ClaimerID}}</code>{{end}} · Status: <strong>{{$t.Status}}</strong></p>
+<div class="card" style="margin-bottom:14px">
+  {{if eq $t.Status "open"}}
+  <button class="btn btn-danger btn-sm tk-close" data-id="{{$t.ID}}" data-guild="{{$.Content.GuildID}}" data-closeurl="{{.Content.CloseURL}}">Close ticket</button>
+  {{else}}
+  <span class="badge lvl-regular">closed {{dateHuman $t.ClosedAt}}</span>
+  {{end}}
+</div>
+<div class="card">
+  <h3>Transcript ({{len $t.Log}} entries)</h3>
+  {{if not $t.Log}}<p class="muted">No messages recorded.</p>{{end}}
+  {{range $t.Log}}
+  <div class="log-entry" style="padding:8px 0;border-bottom:1px solid var(--border)">
+    <div class="muted" style="font-size:.85em">
+      <strong{{if .Deleted}} style="text-decoration:line-through"{{end}}>{{if .AuthorName}}{{.AuthorName}}{{else}}<code>{{.AuthorID}}</code>{{end}}</strong>
+      · {{dateHuman .Timestamp}}{{if .Edited}} · <em>edited</em>{{end}}{{if .Deleted}} · <em>deleted</em>{{end}}
+    </div>
+    {{if .Content}}<div{{if .Deleted}} style="opacity:.55;text-decoration:line-through"{{end}}>{{.Content}}</div>{{end}}
+    {{range .Attachments}}
+      {{if eq .Kind "image"}}<img src="{{.URL}}" alt="{{.Filename}}" loading="lazy" style="max-width:min(420px,100%);border-radius:8px;margin-top:6px;display:block">
+      {{else if eq .Kind "video"}}<video controls preload="metadata" src="{{.URL}}" style="max-width:min(480px,100%);border-radius:8px;margin-top:6px;display:block"></video>
+      {{else}}<a href="{{.URL}}" download class="muted" style="display:block;margin-top:4px">📎 {{if .Filename}}{{.Filename}}{{else}}attachment{{end}}</a>
+      {{end}}
+    {{end}}
+    {{range .Stickers}}<img src="{{.URL}}" alt="sticker {{.Filename}}" loading="lazy" style="max-width:160px;margin-top:6px;display:block">{{end}}
+  </div>
+  {{end}}
+</div>
+<p class="muted" style="margin-top:10px"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a></p>
+{{template "footer" .}}{{end}}

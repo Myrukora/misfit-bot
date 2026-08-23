@@ -9,9 +9,9 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/modules"
 	"gopkg.in/yaml.v3"
 )
 

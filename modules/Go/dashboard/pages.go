@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/misfit/bot/modules"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/modules"
 )
 
 // fieldRender is a render-friendly ConfigField (pointers de-pointered, numeric
