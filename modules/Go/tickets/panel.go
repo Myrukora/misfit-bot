@@ -48,10 +48,18 @@ func (m *TicketsModule) buildPanelEmbed(guildID string) discord.Embed {
 		WithFooter("misfit-bot tickets", "")
 }
 
-// buildPanelRow builds the action rows: an Open button per group + Refresh.
+// buildPanelRows builds the action rows for ALL groups — up to 5 buttons per
+// row (Discord's per-row cap), then a final row with Refresh.
 func (m *TicketsModule) buildPanelRows(guildID string) []discord.LayoutComponent {
 	groups := m.groupsSnapshot()
+	var rows []discord.LayoutComponent
 	buttons := []discord.InteractiveComponent{}
+	flush := func() {
+		if len(buttons) > 0 {
+			rows = append(rows, discord.NewActionRow(buttons...))
+			buttons = []discord.InteractiveComponent{}
+		}
+	}
 	for _, g := range groups {
 		disabled := !g.Enabled
 		buttons = append(buttons, discord.ButtonComponent{
@@ -61,13 +69,10 @@ func (m *TicketsModule) buildPanelRows(guildID string) []discord.LayoutComponent
 			Disabled: disabled,
 		})
 		if len(buttons) == 5 { // Discord max per row
-			break
+			flush()
 		}
 	}
-	rows := []discord.LayoutComponent{}
-	if len(buttons) > 0 {
-		rows = append(rows, discord.NewActionRow(buttons...))
-	}
+	flush()
 	rows = append(rows, discord.NewActionRow(discord.ButtonComponent{
 		Style:    discord.ButtonStyleSecondary,
 		Label:    "Refresh",

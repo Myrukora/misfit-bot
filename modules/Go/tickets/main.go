@@ -18,6 +18,7 @@ type TicketsModule struct {
 	ctx         *modules.Context
 	cfg         Config
 	store       *store
+	loaded      bool              // OnLoad done, OnUnload not yet run
 	panelMsgIDs map[string]string // guildID -> control-panel message ID
 }
 
@@ -62,18 +63,33 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.registerButtons()
 	m.registerLogging()
 
+	m.mu.Lock()
+	m.loaded = true
+	m.mu.Unlock()
+
 	ctx.Logger.Info("Tickets module loaded (%d groups configured)", len(cfg.parsed))
 	return nil
 }
 
-// OnUnload flushes state so an unload/load cycle never loses tickets.
+// OnUnload flushes state so an unload/load cycle never loses tickets. The
+// store reference is RETAINED (handlers and provider methods keep running
+// until the manager drops the module — a nil store would panic them); the
+// loaded flag gates new work instead.
 func (m *TicketsModule) OnUnload() error {
 	m.mu.Lock()
+	m.loaded = false
 	st := m.store
-	m.store = nil
 	m.mu.Unlock()
 	if st != nil {
 		return st.flushAll()
 	}
 	return nil
+}
+
+// isLoaded reports whether OnLoad completed and OnUnload has not run. Entry
+// points that touch the store check this first.
+func (m *TicketsModule) isLoaded() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.loaded && m.store != nil
 }

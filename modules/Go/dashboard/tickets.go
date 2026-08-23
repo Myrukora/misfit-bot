@@ -164,6 +164,12 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 	if guildID == "" && len(d.Guilds) > 0 {
 		guildID = d.Guilds[0].ID
 	}
+	// Same access control as routeTicketsAPI/handleTranscriptPage: never leak
+	// another guild's ticket metadata to an authenticated but unauthorized user.
+	if guildID != "" && !m.allowed(guildID) {
+		http.Error(w, "403 no access to this guild", http.StatusForbidden)
+		return
+	}
 
 	payload := struct {
 		GuildID string

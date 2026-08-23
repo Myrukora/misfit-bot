@@ -127,3 +127,29 @@ func TestParseGroupsYAMLInvalidYAML(t *testing.T) {
 		t.Fatal("invalid YAML must error")
 	}
 }
+
+// TestLoadConfigRetentionZeroExplicit pins "keep forever": an explicitly
+// saved storage_retention_days: 0 must survive save→reload, while an OMITTED
+// field falls back to the 30-day default.
+func TestLoadConfigRetentionZeroExplicit(t *testing.T) {
+	dir := t.TempDir()
+	cfg, err := loadConfig(dir)
+	if err != nil {
+		t.Fatalf("loadConfig fresh: %v", err)
+	}
+	if cfg.RetentionDays() != defaultRetentionDays {
+		t.Fatalf("fresh config: want default %d, got %d", defaultRetentionDays, cfg.RetentionDays())
+	}
+	// Owner sets 0 (keep forever) via the dashboard setter path.
+	cfg.Retention = retentionDays{value: 0, set: true}
+	if err := cfg.save(dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	reloaded, err := loadConfig(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.RetentionDays() != 0 {
+		t.Fatalf("explicit zero lost on reload: got %d, want 0 (keep forever)", reloaded.RetentionDays())
+	}
+}

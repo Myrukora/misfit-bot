@@ -14,8 +14,8 @@ import (
 
 // registerButtons subscribes the single ComponentInteraction router.
 // CustomID scheme: "tickets:open:<group>", "tickets:claim:<id>",
-// "tickets:close:<id>", "tickets:panel:refresh". Unknown prefixes are ignored
-// so several modules can share the event hook safely.
+// "tickets:close:<id>", "tickets:panel" (refresh). Unknown prefixes are
+// ignored so several modules can share the event hook safely.
 func (m *TicketsModule) registerButtons() {
 	m.ctx.Events.AddComponentInteraction(func(e *events.ComponentInteractionCreate) {
 		defer func() {
@@ -206,12 +206,6 @@ func (m *TicketsModule) editPanelButtons(tk *modules.Ticket, g GroupConfig, clai
 		return
 	}
 	row := ticketButtons(tk, g, claimLabel)
-	disabled := claimLabel != "Claim"
-	if disabled && g.AllowCloseOn() {
-		// After claim the Close button stays live; after CLOSE both go grey
-		// via editClosedButtons below.
-		row = ticketButtons(tk, g, claimLabel)
-	}
 	update := discord.MessageUpdate{Components: &row}
 	if _, err := m.ctx.Rest.UpdateMessage(cid, mid, update); err != nil {
 		m.ctx.Logger.Warn("Tickets: failed to edit buttons on %s: %v", tk.ID, err)

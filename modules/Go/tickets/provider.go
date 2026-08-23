@@ -16,6 +16,9 @@ import (
 
 // ListOpenTickets returns every open ticket in the guild, oldest first.
 func (m *TicketsModule) ListOpenTickets(guildID string) ([]modules.TicketSummary, error) {
+	if !m.isLoaded() {
+		return nil, fmt.Errorf("tickets module is not loaded")
+	}
 	if guildID == "" {
 		return nil, fmt.Errorf("guildID is required")
 	}
@@ -24,6 +27,9 @@ func (m *TicketsModule) ListOpenTickets(guildID string) ([]modules.TicketSummary
 
 // GetTicket returns one ticket incl. its full log. (nil, nil) = not found.
 func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, error) {
+	if !m.isLoaded() {
+		return nil, fmt.Errorf("tickets module is not loaded")
+	}
 	if guildID == "" || ticketID == "" {
 		return nil, fmt.Errorf("guildID and ticketID are required")
 	}
@@ -34,12 +40,21 @@ func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, er
 // the panel buttons, archives the thread, appends a closure log entry and
 // updates the index. Idempotent for already-closed tickets (returns nil).
 func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
+	if !m.isLoaded() {
+		return fmt.Errorf("tickets module is not loaded")
+	}
 	tk, err := m.store.load(guildID, ticketID)
 	if err != nil {
 		return err
 	}
 	if tk == nil {
 		return fmt.Errorf("ticket %s not found", ticketID)
+	}
+	// Resolve the closer's display name BEFORE taking any lock — this makes a
+	// Discord REST call that can block for seconds under rate limiting.
+	closerName := byUserID
+	if mem, ok := m.memberName(guildID, byUserID); ok {
+		closerName = mem
 	}
 	m.mu.Lock()
 	if tk.Status != "open" {
@@ -48,10 +63,6 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	}
 	tk.Status = "closed"
 	tk.ClosedAt = time.Now().UTC()
-	closerName := byUserID
-	if mem, ok := m.memberName(guildID, byUserID); ok {
-		closerName = mem
-	}
 	tk.Log = append(tk.Log, modules.LogEntry{
 		MsgID: "system-close-" + tk.ID, AuthorID: byUserID,
 		AuthorName: closerName, IsBot: true,

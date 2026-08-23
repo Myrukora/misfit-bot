@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -13,12 +15,45 @@ import (
 // by guildID. The raw groups YAML is stored verbatim so the dashboard textarea
 // round-trips exactly what the owner typed.
 type Config struct {
-	GroupsYAML       string               `yaml:"groups_yaml"`
-	RetentionDays    int                  `yaml:"storage_retention_days"` // 0 = keep forever
-	AllowDashClose   bool                 `yaml:"allow_dashboard_close"`
-	Guilds           map[string]*GuildCfg `yaml:"guilds"`
-	parsed           []GroupConfig        // cache derived from GroupsYAML
-	defaultRetention bool                 // true until retention was set explicitly
+	GroupsYAML     string               `yaml:"groups_yaml"`
+	Retention      retentionDays        `yaml:"storage_retention_days"` // value 0 (explicit) = keep forever
+	AllowDashClose bool                 `yaml:"allow_dashboard_close"`
+	Guilds         map[string]*GuildCfg `yaml:"guilds"`
+	parsed         []GroupConfig        // cache derived from GroupsYAML
+}
+
+// RetentionDays resolves retention with the omitted-field default applied.
+func (c *Config) RetentionDays() int {
+	if c.Retention.set {
+		return c.Retention.value
+	}
+	return defaultRetentionDays
+}
+
+// retentionDays is an int that records whether the YAML key was present.
+type retentionDays struct {
+	value int
+	set   bool
+}
+
+// UnmarshalYAML implements yaml.Unmarshaler.
+func (r *retentionDays) UnmarshalYAML(node *yaml.Node) error {
+	r.set = true
+	if node.Kind == yaml.ScalarNode {
+		if n, err := strconv.Atoi(strings.TrimSpace(node.Value)); err == nil {
+			r.value = n
+		}
+	}
+	return nil
+}
+
+// MarshalYAML omits the key entirely when it was never set, so configs stay
+// clean and the "omitted → default" semantics survive round-trips.
+func (r retentionDays) MarshalYAML() (any, error) {
+	if !r.set {
+		return nil, nil // yaml.v3 drops nil nodes
+	}
+	return r.value, nil
 }
 
 // GuildCfg holds per-guild settings.
@@ -32,12 +67,12 @@ func configPath(dataDir string) string {
 }
 
 // loadConfig reads the module config, applying defaults for anything absent.
+// An explicit storage_retention_days: 0 is preserved (keep forever); only an
+// OMITTED field falls back to defaultRetentionDays — retentionDays records
+// key presence during decode, and RetentionDays() applies the default.
 func loadConfig(dataDir string) (Config, error) {
 	cfg := Config{
-		RetentionDays:    defaultRetentionDays,
-		AllowDashClose:   false,
-		Guilds:           map[string]*GuildCfg{},
-		defaultRetention: true,
+		Guilds: map[string]*GuildCfg{},
 	}
 	raw, err := os.ReadFile(configPath(dataDir))
 	if os.IsNotExist(err) {
@@ -56,9 +91,6 @@ func loadConfig(dataDir string) (Config, error) {
 	}
 	if cfg.Guilds == nil {
 		cfg.Guilds = map[string]*GuildCfg{}
-	}
-	if cfg.RetentionDays == 0 && cfg.defaultRetention {
-		cfg.RetentionDays = defaultRetentionDays
 	}
 	groups, err := parseGroupsYAML(cfg.GroupsYAML)
 	if err != nil {

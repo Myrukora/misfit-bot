@@ -24,6 +24,9 @@ type store struct {
 	// tickets[guildID][ticketID] — open tickets only; closed ones are read
 	// from disk on demand so memory stays small.
 	tickets map[string]map[string]*modules.Ticket
+	// reserved tracks sequence numbers allocated but not yet persisted
+	// ("guild|group|seq"), so concurrent opens cannot collide (see reserveSeq).
+	reserved map[string]bool
 }
 
 func ticketsRoot(dataDir string) string {
@@ -34,7 +37,7 @@ func ticketsRoot(dataDir string) string {
 // loaded too (they are few) and then dropped from the live map — GetTicket
 // reads them from disk.
 func openStore(dataDir string) (*store, error) {
-	s := &store{dataDir: dataDir, tickets: map[string]map[string]*modules.Ticket{}}
+	s := &store{dataDir: dataDir, tickets: map[string]map[string]*modules.Ticket{}, reserved: map[string]bool{}}
 	root := ticketsRoot(dataDir)
 	guilds, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
@@ -87,19 +90,48 @@ func readTicketFile(path string) (*modules.Ticket, error) {
 	return &tk, nil
 }
 
-// save persists one ticket (memory + disk, atomic write).
+// copyTicket returns a deep copy so the store's map never shares mutable
+// state with callers (single-mutex ownership: mutations happen on private
+// copies, save() re-applies them under s.mu).
+func copyTicket(tk *modules.Ticket) *modules.Ticket {
+	if tk == nil {
+		return nil
+	}
+	out := *tk
+	if tk.Log != nil {
+		out.Log = make([]modules.LogEntry, len(tk.Log))
+		for i, e := range tk.Log {
+			out.Log[i] = e
+			if e.Attachments != nil {
+				out.Log[i].Attachments = append([]modules.Media(nil), e.Attachments...)
+			}
+			if e.Stickers != nil {
+				out.Log[i].Stickers = append([]modules.Media(nil), e.Stickers...)
+			}
+		}
+	}
+	return &out
+}
+
+// save persists one ticket (memory + disk, atomic write). The passed ticket
+// is copied into the store; the caller keeps ownership of its own object.
+// A successful save releases any sequence reservation for this ticket.
 func (s *store) save(tk *modules.Ticket) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	dir := filepath.Join(ticketsRoot(s.dataDir), tk.GuildID)
+	cp := copyTicket(tk)
+	if grp, seq, ok := parseTicketID(cp.ID); ok {
+		delete(s.reserved, seqKey(cp.GuildID, grp, seq))
+	}
+	dir := filepath.Join(ticketsRoot(s.dataDir), cp.GuildID)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	out, err := json.MarshalIndent(tk, "", "  ")
+	out, err := json.MarshalIndent(cp, "", "  ")
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(dir, tk.ID+".json")
+	path := filepath.Join(dir, cp.ID+".json")
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0644); err != nil {
 		return err
@@ -107,29 +139,34 @@ func (s *store) save(tk *modules.Ticket) error {
 	if err := os.Rename(tmp, path); err != nil {
 		return err
 	}
-	if s.tickets[tk.GuildID] == nil {
-		s.tickets[tk.GuildID] = map[string]*modules.Ticket{}
+	if s.tickets[cp.GuildID] == nil {
+		s.tickets[cp.GuildID] = map[string]*modules.Ticket{}
 	}
-	if tk.Status == "open" {
-		s.tickets[tk.GuildID][tk.ID] = tk
+	if cp.Status == "open" {
+		s.tickets[cp.GuildID][cp.ID] = cp
 	} else {
-		delete(s.tickets[tk.GuildID], tk.ID)
+		delete(s.tickets[cp.GuildID], cp.ID)
 	}
-	return s.writeIndexLocked(tk.GuildID)
+	return s.writeIndexLocked(cp.GuildID)
 }
 
-// load returns an open ticket from memory or any ticket from disk.
-// (nil, nil) when not found.
+// load returns a PRIVATE COPY of the ticket — callers may mutate freely and
+// persist with save(). (nil, nil) when not found.
 func (s *store) load(guildID, ticketID string) (*modules.Ticket, error) {
 	s.mu.RLock()
 	if m, ok := s.tickets[guildID]; ok {
 		if tk, ok := m[ticketID]; ok {
+			cp := copyTicket(tk)
 			s.mu.RUnlock()
-			return tk, nil
+			return cp, nil
 		}
 	}
 	s.mu.RUnlock()
-	return readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
+	tk, err := readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
+	if err != nil || tk == nil {
+		return tk, err
+	}
+	return copyTicket(tk), nil
 }
 
 // listOpen returns summaries of every open ticket in the guild, oldest first.
@@ -201,10 +238,14 @@ func (s *store) writeIndexLocked(guildID string) error {
 	return os.Rename(tmp, path)
 }
 
-// nextSeq returns the next per-guild+group sequence number by scanning
-// existing IDs (stateless; volumes are small).
+// nextSeq returns the next per-guild+group sequence number under the WRITE
+// lock. nextSeq and save both serialize on s.mu, so a concurrent open for
+// the same group cannot allocate a duplicate number: the second nextSeq only
+// runs after the first save released the lock (open.go holds m.mu.RLock for
+// read-only config access but releases it before any other store call).
 func (s *store) nextSeq(guildID, group string) int {
-	s.mu.RLock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	maxSeq := 0
 	prefix := group + "-"
 	if m, ok := s.tickets[guildID]; ok {
@@ -216,20 +257,68 @@ func (s *store) nextSeq(guildID, group string) int {
 			}
 		}
 	}
-	s.mu.RUnlock()
 	entries, err := os.ReadDir(filepath.Join(ticketsRoot(s.dataDir), guildID))
-	if err != nil {
-		return maxSeq + 1
-	}
-	for _, e := range entries {
-		name := strings.TrimSuffix(e.Name(), ".json")
-		if rest, found := strings.CutPrefix(name, prefix); found {
-			if n, err := strconv.Atoi(rest); err == nil && n > maxSeq {
-				maxSeq = n
+	if err == nil {
+		for _, e := range entries {
+			name := strings.TrimSuffix(e.Name(), ".json")
+			if rest, found := strings.CutPrefix(name, prefix); found {
+				if n, err := strconv.Atoi(rest); err == nil && n > maxSeq {
+					maxSeq = n
+				}
 			}
 		}
 	}
-	return maxSeq + 1
+	for {
+		cand := maxSeq + 1
+		if !s.reserved[seqKey(guildID, group, cand)] {
+			return cand
+		}
+		maxSeq = cand
+	}
+}
+
+// reserveSeq atomically allocates AND reserves the next sequence number:
+// reserved-but-not-yet-saved numbers are skipped by later allocations until
+// releaseSeq (or a successful save) clears them. This closes the race where
+// two concurrent opens both scan before either saves.
+func (s *store) reserveSeq(guildID, group string) int {
+	seq := s.nextSeq(guildID, group)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	key := seqKey(guildID, group, seq)
+	for s.reserved[key] { // defensive: never hand out a live reservation
+		s.mu.Unlock()
+		seq = s.nextSeq(guildID, group)
+		s.mu.Lock()
+		key = seqKey(guildID, group, seq)
+	}
+	s.reserved[key] = true
+	return seq
+}
+
+// releaseSeq drops a reservation (after save persisted it or the open failed).
+func (s *store) releaseSeq(guildID, group string, seq int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.reserved, seqKey(guildID, group, seq))
+}
+
+func seqKey(guildID, group string, seq int) string {
+	return guildID + "|" + group + "|" + strconv.Itoa(seq)
+}
+
+// parseTicketID splits "<group>-<seq>" into its parts (guildID is not part
+// of the ID itself; the caller supplies it).
+func parseTicketID(id string) (group string, seq int, ok bool) {
+	idx := strings.LastIndex(id, "-")
+	if idx <= 0 || idx == len(id)-1 {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(id[idx+1:])
+	if err != nil {
+		return "", 0, false
+	}
+	return id[:idx], n, true
 }
 
 // pruneClosed removes closed tickets older than retentionDays (0 = disabled).

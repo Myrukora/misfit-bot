@@ -51,7 +51,12 @@ func TestStoreIndexRebuildFromScan(t *testing.T) {
 	_ = st.save(mkTicket("staff-0001", "g1", "staff"))
 	_ = st.save(func() *modules_Ticket { tk := mkTicket("apps-0002", "g1", "apps"); tk.Status = "closed"; return tk }())
 
-	// Fresh store instance over the same dir must rebuild the index from files.
+	// Fresh store instance over the same dir must rebuild the index from
+	// files. Delete index.json first to actually exercise the rebuild branch
+	// (a prior save() already wrote it).
+	if err := os.Remove(filepath.Join(dir, "tickets", "g1", "index.json")); err != nil {
+		t.Fatalf("remove index: %v", err)
+	}
 	st2, err := openStore(dir)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)

@@ -2,7 +2,6 @@ package main
 
 import (
 	"strings"
-	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
@@ -37,11 +36,14 @@ func (m *TicketsModule) recoverLog(what string) {
 
 // ticketByChannel resolves the open ticket owning a channel, if any.
 func (m *TicketsModule) ticketByChannel(guildID, channelID string) *modules.Ticket {
+	if !m.isLoaded() {
+		return nil
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	for _, tk := range m.store.tickets[guildID] {
 		if tk.ChannelID == channelID && tk.Status == "open" {
-			return tk
+			return copyTicket(tk)
 		}
 	}
 	return nil
@@ -87,7 +89,7 @@ func (m *TicketsModule) logMessageCreate(e *events.GuildMessageCreate) {
 		MsgID:       e.Message.ID.String(),
 		AuthorID:    authorID,
 		AuthorName:  authorName,
-		Timestamp:   time.Now().UTC(),
+		Timestamp:   e.Message.CreatedAt.UTC(),
 		Content:     e.Message.Content,
 		Attachments: classifyAttachments(e.Message.Attachments),
 		Stickers:    classifyStickers(e.Message.StickerItems),

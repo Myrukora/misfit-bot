@@ -38,11 +38,10 @@ func strPtr(s string) *string { return &s }
 func boolPtr(b bool) *bool    { return &b }
 
 // openTicket creates the private thread, posts ping line + embed + buttons
-// and persists the ticket.
+// and persists the ticket. The sequence number is RESERVED before any Discord
+// API work and released on failure, so concurrent opens can never collide.
 func (m *TicketsModule) openTicket(g GroupConfig, opener discord.User, guildID string) (*modules.Ticket, error) {
-	m.mu.RLock()
-	seq := m.store.nextSeq(guildID, g.Key)
-	m.mu.RUnlock()
+	seq := m.store.reserveSeq(guildID, g.Key)
 
 	ticket := &modules.Ticket{
 		ID: fmt.Sprintf("%s-%04d", g.Key, seq), Group: g.Key, GuildID: guildID,
@@ -50,6 +49,7 @@ func (m *TicketsModule) openTicket(g GroupConfig, opener discord.User, guildID s
 	}
 	parent, err := snowflake.Parse(g.ParentChannel)
 	if err != nil {
+		m.store.releaseSeq(guildID, g.Key, seq)
 		return nil, fmt.Errorf("group %q has an invalid parent_channel", g.Key)
 	}
 	name := strings.SplitN(opener.EffectiveName(), "#", 2)[0]
@@ -58,6 +58,7 @@ func (m *TicketsModule) openTicket(g GroupConfig, opener discord.User, guildID s
 		Invitable: boolPtr(false),
 	})
 	if err != nil {
+		m.store.releaseSeq(guildID, g.Key, seq)
 		return nil, fmt.Errorf("failed to create ticket thread: %w", err)
 	}
 	ticket.ChannelID = thread.ID().String()
@@ -76,6 +77,7 @@ func (m *TicketsModule) openTicket(g GroupConfig, opener discord.User, guildID s
 		ticket.MessageID = msg.ID.String()
 	}
 	if err := m.store.save(ticket); err != nil {
+		m.store.releaseSeq(guildID, g.Key, seq)
 		return nil, fmt.Errorf("failed to persist ticket: %w", err)
 	}
 	return ticket, nil

@@ -72,7 +72,7 @@ func (m *TicketsModule) WebGetConfig(guildID string) (map[string]string, error) 
 	defer m.mu.RUnlock()
 	vals := map[string]string{
 		"groups_yaml":            m.cfg.GroupsYAML,
-		"storage_retention_days": strconv.Itoa(m.cfg.RetentionDays),
+		"storage_retention_days": strconv.Itoa(m.cfg.RetentionDays()),
 		"allow_dashboard_close":  strconv.FormatBool(m.cfg.AllowDashClose),
 	}
 	if gcfg, ok := m.cfg.Guilds[guildID]; ok && gcfg != nil && guildID != "" {
@@ -98,7 +98,7 @@ func (m *TicketsModule) WebSetConfig(guildID, key, value string) error {
 		if err != nil || n < 0 || n > 3650 {
 			return fmt.Errorf("retention must be 0–3650 days")
 		}
-		m.cfg.RetentionDays = n
+		m.cfg.Retention = retentionDays{value: n, set: true}
 	case "allow_dashboard_close":
 		b := strings.EqualFold(strings.TrimSpace(value), "true") || strings.TrimSpace(value) == "1"
 		m.cfg.AllowDashClose = b
