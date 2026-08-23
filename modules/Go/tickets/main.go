@@ -35,11 +35,11 @@ func (m *TicketsModule) Dependencies() []string {
 	return []string{"dashboard"} // soft dep: dashboard renders transcripts if present
 }
 
-func (m *TicketsModule) Commands() []commands.Command           { return nil } // wired in Task 9
+func (m *TicketsModule) Commands() []commands.Command           { return m.prefixCommands() }
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return nil }
 
 // OnLoad stores context, loads config + persisted state and registers event
-// hooks (logging + button router land in later tasks).
+// hooks (button router, conversation logging).
 func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.mu.Lock()
 	m.ctx = ctx
@@ -58,6 +58,9 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.cfg = cfg
 	m.store = st
 	m.mu.Unlock()
+
+	m.registerButtons()
+	m.registerLogging()
 
 	ctx.Logger.Info("Tickets module loaded (%d groups configured)", len(cfg.parsed))
 	return nil
