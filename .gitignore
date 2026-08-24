@@ -67,3 +67,6 @@ __pycache__/
 # Built plugin binaries (artifacts, not source)
 modules/Go/*/*.so
 *.so
+
+# Hermes agent workspace (plans, session state)
+.hermes/

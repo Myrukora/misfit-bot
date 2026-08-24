@@ -16,10 +16,10 @@ func TestFreeArgsNeeded(t *testing.T) {
 		{"ping", false, false},   // zero-arg command: no box
 		{"uptime", false, false}, // zero-arg command: no box
 		{"backup [create|verify|restore|list] [filename]", false, true}, // untyped args
-		{"secret <command>", false, true},                                 // untyped args
+		{"secret <command>", false, true},                               // untyped args
 		{"help [command]", false, true},                                 // optional arg
 		{"ping", true, false},                                           // option schema present: forms win
-		{"secret <command>", true, false},                                 // option schema present: forms win
+		{"secret <command>", true, false},                               // option schema present: forms win
 	}
 	for _, c := range cases {
 		if got := freeArgsNeeded(c.usage, c.hasOptions); got != c.want {

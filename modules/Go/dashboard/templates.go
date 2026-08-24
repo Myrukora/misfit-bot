@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"strings"
+	"time"
 )
 
 //go:embed web/templates/*.html
@@ -47,6 +48,15 @@ var tmplFuncs = template.FuncMap{
 	"pageTitle":   pageTitle,
 	"initial":     initial,
 	"dict":        dict,
+	"dateHuman":   dateHuman,
+}
+
+// dateHuman renders a time in a short human format for tables/transcripts.
+func dateHuman(t time.Time) string {
+	if t.IsZero() {
+		return "—"
+	}
+	return t.UTC().Format("Jan 2, 2006 15:04")
 }
 
 // dict builds a map from key/value pairs for template partials that need

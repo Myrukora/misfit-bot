@@ -4,9 +4,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/modules"
-	"github.com/disgoorg/disgo/discord"
 )
 
 // cmdView is one command entry in the dashboard's command catalog.

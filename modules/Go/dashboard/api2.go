@@ -589,6 +589,9 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 				return
 			}
 		}
+	case "tickets":
+		m.routeTicketsAPI(w, r, meth, parts)
+		return
 	case "presence":
 		if meth == "POST" {
 			us := sessionOf(r)

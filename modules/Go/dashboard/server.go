@@ -68,7 +68,7 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -129,6 +129,13 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	case "settings":
 		if r.Method == "GET" {
 			m.handleSettingsPage(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
+	case "tickets":
+		if r.Method == "GET" {
+			m.requireAuthed(m.handleTicketsPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)

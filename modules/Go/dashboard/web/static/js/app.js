@@ -226,6 +226,25 @@
     });
   });
 
+  // ── Tickets: close from list or transcript ──────────────────────────────
+  document.querySelectorAll('.tk-close').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!window.confirm('Close ticket ' + btn.dataset.id + '? This cannot be undone.')) return;
+      const guild = btn.dataset.guild;
+      const id = btn.dataset.id;
+      const url = btn.dataset.closeurl || ('/api/tickets/' + encodeURIComponent(guild) + '/' + encodeURIComponent(id) + '/close');
+      const restore = spin(btn);
+      try {
+        await req('POST', url, {});
+        toast('Ticket ' + id + ' closed', 'ok');
+        setTimeout(() => location.reload(), 700);
+      } catch (e) {
+        restore();
+        toast(e.message, 'err');
+      }
+    });
+  });
+
   // ── Modules load/unload/reload ──────────────────────────────────────────
   document.querySelectorAll('.act[data-action]').forEach(btn => {
     btn.addEventListener('click', async () => {
