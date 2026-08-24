@@ -33,11 +33,25 @@ modules/Go/*/config*.yml
 modules/Go/*/data/
 modules/Go/*/logs/
 modules/Python/*/config*.yml
+modules/Python/*/config.json
 modules/Python/*/data/
 modules/Python/*/logs/
+modules/Python/*/models/
 modules/Lua/*/config*.yml
+modules/Lua/*/config.json
 modules/Lua/*/data/
 modules/Lua/*/logs/
+# Python SDK IPC sockets / runtime droppings
+modules/Python/*/*.sock
+modules/Python/*/*.pid
+
+# Legacy pre-restructure module config location (contains secrets)
+module_configs/
+
+# Go build/test droppings
+*.test
+coverage.out
+coverage.html
 
 # Bot binary (root-anchored: must NOT match cmd/bot/)
 /bot
@@ -70,3 +84,8 @@ modules/Go/*/*.so
 
 # Hermes agent workspace (plans, session state)
 .hermes/
+
+# Local dev experiments (never tracked)
+scratch/
+*.local.yml
+*.local.yaml
