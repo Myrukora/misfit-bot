@@ -22,7 +22,12 @@ type TicketsModule struct {
 	panelMsgIDs map[string]string // guildID -> control-panel message ID
 }
 
-func New() *TicketsModule {
+// New is the plugin entry symbol. It MUST return the modules.Module
+// interface type — the loader asserts the exact signature func() Module,
+// and a concrete *TicketsModule return type fails the assertion at load
+// time ("New() has wrong signature") even though it would satisfy the
+// interface in normal Go type-checking.
+func New() modules.Module {
 	return &TicketsModule{panelMsgIDs: map[string]string{}}
 }
 
