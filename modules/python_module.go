@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/misfit/bot/commands"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+	"github.com/misfit/bot/commands"
 )
 
 // PythonModule implements the Module interface for Python modules.

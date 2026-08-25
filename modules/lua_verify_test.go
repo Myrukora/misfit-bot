@@ -4,10 +4,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/misfit/bot/commands"
-	"github.com/misfit/bot/logger"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/logger"
 )
 
 func TestHelloLuaLoadsAndRuns(t *testing.T) {

@@ -17,32 +17,50 @@ import "time"
 type TicketProvider interface {
 	// ListOpenTickets returns all open tickets for a guild (dashboard list).
 	ListOpenTickets(guildID string) ([]TicketSummary, error)
+	// ListClosedTickets returns closed tickets newest-first for the archive UI.
+	ListClosedTickets(guildID string) ([]TicketSummary, error)
 	// GetTicket returns one ticket incl. its full conversation log
 	// (transcript viewer). nil, nil when the ticket does not exist.
 	GetTicket(guildID, ticketID string) (*Ticket, error)
-	// CloseTicket closes a ticket on behalf of byUserID. This is the SAME
-	// code path the in-chat Close button uses; it edits the panel message,
-	// archives the thread and updates the index.
+	// CloseTicket closes a ticket on behalf of byUserID: locks the channel,
+	// builds the HTML transcript, posts it to the log channel and stores it
+	// with all attachments under the ticket's data folder. Same code path as
+	// the in-chat [p]close command and Close button.
 	CloseTicket(guildID, ticketID, byUserID string) error
-	// ListGroups returns the configured groups for filter UIs / status.
-	ListGroups(guildID string) ([]GroupSummary, error)
+	// ListTypes returns configured ticket types (dashboard editors).
+	ListTypes(guildID string) ([]TypeSummary, error)
 }
 
 // Ticket is one support ticket: metadata plus the full conversation log.
-// Persisted as <DataDir>/tickets/<guildID>/<ticketID>.json.
+// Persisted as <DataDir>/tickets/<guildID>/<ticketID>.json; attachments are
+// mirrored into <DataDir>/tickets/<guildID>/<ticketID>/files/ at close so
+// transcripts survive Discord CDN expiry.
 type Ticket struct {
-	ID        string     `json:"id"` // "<group>-<seq>", e.g. "staff-0007"
-	Group     string     `json:"group"`
-	GuildID   string     `json:"guild_id"`
-	ChannelID string     `json:"channel_id"` // thread/channel holding the conversation
-	MessageID string     `json:"message_id"` // the embed message carrying Claim/Close buttons
-	OpenerID  string     `json:"opener_id"`
-	ClaimerID string     `json:"claimer_id"` // "" while unclaimed
-	ClaimedAt time.Time  `json:"claimed_at"`
-	OpenedAt  time.Time  `json:"opened_at"`
-	ClosedAt  time.Time  `json:"closed_at"` // zero while open
-	Status    string     `json:"status"`    // "open" | "closed"
-	Log       []LogEntry `json:"log"`
+	ID             string     `json:"id"` // "<type>-<seq>", e.g. "staff-0007"
+	Type           string     `json:"type"`
+	Group          string     `json:"group"` // legacy alias of Type (v1 stores)
+	GuildID        string     `json:"guild_id"`
+	ChannelID      string     `json:"channel_id"`             // private text channel holding the conversation
+	ChannelName    string     `json:"channel_name,omitempty"` // stored at creation for collision detection
+	MessageID      string     `json:"message_id"`             // in-channel embed carrying Claim/Close buttons
+	PanelName      string     `json:"panel_name,omitempty"`
+	OpenerID       string     `json:"opener_id"`
+	ClaimerID      string     `json:"claimer_id"` // "" while unclaimed
+	ClaimedAt      time.Time  `json:"claimed_at"`
+	OpenedAt       time.Time  `json:"opened_at"`
+	ClosedAt       time.Time  `json:"closed_at"`                 // zero while open
+	Status         string     `json:"status"`                    // "open" | "closed"
+	Members        []string   `json:"members,omitempty"`         // extra members added via [p]add
+	TranscriptPath string     `json:"transcript_path,omitempty"` // relative to DataDir; set after close
+	Log            []LogEntry `json:"log"`
+}
+
+// Type returns the effective type key (v1 files only carry Group).
+func (t *Ticket) EffectiveType() string {
+	if t.Type != "" {
+		return t.Type
+	}
+	return t.Group
 }
 
 // LogEntry is one conversation event inside a ticket. Edits overwrite Content
@@ -60,12 +78,14 @@ type LogEntry struct {
 	Deleted     bool      `json:"deleted,omitempty"`
 }
 
-// Media is one attachment/sticker referenced by a LogEntry. URLs point at
-// Discord CDNs; the dashboard CSP explicitly allows those hosts.
+// Media is one attachment/sticker referenced by a LogEntry. URL points at the
+// Discord CDN; LocalPath (set once the transcript pipeline mirrors the file)
+// is a path RELATIVE to the module DataDir served by the dashboard.
 type Media struct {
 	URL         string `json:"url"`
+	LocalPath   string `json:"local_path,omitempty"` // relative to DataDir after close-mirror
 	ProxyURL    string `json:"proxy_url,omitempty"`
-	Kind        string `json:"kind"` // "image" | "video" | "sticker" | "file"
+	Kind        string `json:"kind"` // "image" | "video" | "audio" | "sticker" | "file"
 	ContentType string `json:"content_type,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	Size        int    `json:"size,omitempty"`
@@ -74,15 +94,30 @@ type Media struct {
 // TicketSummary is the lightweight row shape for dashboard lists.
 type TicketSummary struct {
 	ID        string    `json:"id"`
-	Group     string    `json:"group"`
+	Type      string    `json:"type"`
+	Group     string    `json:"group"` // legacy alias filled from Type
 	GuildID   string    `json:"guild_id"`
 	OpenerID  string    `json:"opener_id"`
 	ClaimerID string    `json:"claimer_id"`
 	Status    string    `json:"status"`
 	OpenedAt  time.Time `json:"opened_at"`
+	ClosedAt  time.Time `json:"closed_at"`
 }
 
-// GroupSummary describes one configured ticket group.
+// TypeSummary describes one configured ticket type (v2 replacement of
+// GroupSummary; GroupSummary kept below for v1 API compatibility).
+type TypeSummary struct {
+	Key         string `json:"key"`
+	Label       string `json:"label"`
+	Enabled     bool   `json:"enabled"`
+	Description string `json:"description,omitempty"`
+	ButtonLabel string `json:"button_label,omitempty"`
+	ButtonEmoji string `json:"button_emoji,omitempty"`
+	Color       int    `json:"color,omitempty"`
+}
+
+// GroupSummary is the v1 group shape — still produced by ListGroups-style
+// helpers so older dashboard builds keep rendering. Deprecated.
 type GroupSummary struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`

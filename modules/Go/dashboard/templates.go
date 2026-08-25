@@ -49,6 +49,8 @@ var tmplFuncs = template.FuncMap{
 	"initial":     initial,
 	"dict":        dict,
 	"dateHuman":   dateHuman,
+	"substrUpper": substrUpper,
+	"fileBase":    fileBase,
 }
 
 // dateHuman renders a time in a short human format for tables/transcripts.
@@ -57,6 +59,26 @@ func dateHuman(t time.Time) string {
 		return "—"
 	}
 	return t.UTC().Format("Jan 2, 2006 15:04")
+}
+
+// substrUpper returns the first n runes upper-cased (avatar initials).
+func substrUpper(s string, n int) string {
+	r := []rune(strings.TrimSpace(s))
+	if len(r) == 0 {
+		return "?"
+	}
+	if n > len(r) {
+		n = len(r)
+	}
+	return strings.ToUpper(string(r[:n]))
+}
+
+// fileBase returns the final path element (LocalPath → filename for URLs).
+func fileBase(path string) string {
+	if i := strings.LastIndexAny(path, "/\\"); i >= 0 {
+		return path[i+1:]
+	}
+	return path
 }
 
 // dict builds a map from key/value pairs for template partials that need

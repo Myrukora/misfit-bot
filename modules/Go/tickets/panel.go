@@ -8,113 +8,145 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 )
 
-// Small local embed builders — the shared `embed` package targets prefix
-// commands; interaction replies want plain embeds with our own colors.
-func embedSuccess(title, desc string) discord.Embed {
-	return discord.NewEmbed().WithDescription("**" + title + "**\n" + desc).WithColor(0x57F287)
-}
+// panel.go — named panel registry. A panel is a posted embed advertising one
+// type; the bot remembers name → {channel, message, type} so panels can be
+// edited/suspended/moved by NAME (never message IDs).
 
-func embedError(title, desc string) discord.Embed {
-	return discord.NewEmbed().WithDescription("**" + title + "**\n" + desc).WithColor(0xED4245)
-}
-
-func embedInfo(title, desc string) discord.Embed {
-	return discord.NewEmbed().WithDescription("**" + title + "**\n" + desc).WithColor(0x5865F2)
-}
-
-// buildPanelEmbed renders the staff control-panel embed for a guild.
-func (m *TicketsModule) buildPanelEmbed(guildID string) discord.Embed {
-	groups := m.groupsSnapshot()
-	var b strings.Builder
-	b.WriteString("Open a ticket with the buttons below.\n")
-	enabled := 0
-	for _, g := range groups {
-		state := "🟢"
-		if !g.Enabled {
-			state = "🔴"
-		}
-		fmt.Fprintf(&b, "%s **%s** (`%s`)\n", state, g.Label, g.Key)
-		if g.Enabled {
-			enabled++
-		}
+// buildPanelEmbed renders one panel's embed from its config + bound type.
+func buildPanelEmbed(p PanelConfig, t TypeConfig) discord.Embed {
+	title := p.Title
+	if title == "" {
+		title = "🎫 " + t.Label
 	}
-	if enabled == 0 {
-		b.WriteString("\n*No groups are enabled yet — configure them in the dashboard.*")
+	desc := p.Description
+	if desc == "" {
+		desc = "Open a ticket with the button below.\nA private channel will be created and our team will be notified."
+	}
+	color := int(t.Color)
+	if color == 0 {
+		color = defaultTicketColor
 	}
 	return discord.NewEmbed().
-		WithTitle("🎫 Tickets").
-		WithDescription(b.String()).
-		WithColor(defaultTicketColor).
+		WithTitle(title).
+		WithDescription(desc).
+		WithColor(color).
 		WithFooter("misfit-bot tickets", "")
 }
 
-// buildPanelRows builds the action rows for ALL groups — up to 5 buttons per
-// row (Discord's per-row cap), then a final row with Refresh.
-func (m *TicketsModule) buildPanelRows(guildID string) []discord.LayoutComponent {
-	groups := m.groupsSnapshot()
-	var rows []discord.LayoutComponent
-	buttons := []discord.InteractiveComponent{}
-	flush := func() {
-		if len(buttons) > 0 {
-			rows = append(rows, discord.NewActionRow(buttons...))
-			buttons = []discord.InteractiveComponent{}
-		}
+// buildPanelRows builds the action row for ONE panel: a single Open button
+// (label+emoji from the bound type) — suspended panels render disabled.
+func buildPanelRows(p PanelConfig, t TypeConfig) []discord.LayoutComponent {
+	label := t.ButtonLabel
+	if label == "" {
+		label = t.Label
 	}
-	for _, g := range groups {
-		disabled := !g.Enabled
-		buttons = append(buttons, discord.ButtonComponent{
-			Style:    discord.ButtonStylePrimary,
-			Label:    g.Label,
-			CustomID: "tickets:open:" + g.Key,
-			Disabled: disabled,
-		})
-		if len(buttons) == 5 { // Discord max per row
-			flush()
-		}
+	disabled := p.Suspended || !t.Enabled
+	btn := discord.ButtonComponent{
+		Style:    discord.ButtonStylePrimary,
+		Label:    label,
+		CustomID: "tickets:open:" + p.Name,
+		Disabled: disabled,
 	}
-	flush()
-	rows = append(rows, discord.NewActionRow(discord.ButtonComponent{
-		Style:    discord.ButtonStyleSecondary,
-		Label:    "Refresh",
-		CustomID: "tickets:panel",
-	}))
-	return rows
+	if e := parseButtonEmoji(t.ButtonEmoji); e != nil {
+		btn.Emoji = e
+	}
+	return []discord.LayoutComponent{discord.NewActionRow(btn)}
 }
 
-// postOrUpdatePanel posts the control panel into control_channel (or edits
-// the existing one). Returns the message ID.
-func (m *TicketsModule) postOrUpdatePanel(guildID string) (string, error) {
-	m.mu.RLock()
-	gcfg, ok := m.cfg.Guilds[guildID]
-	panelID := m.panelMsgIDs[guildID]
-	m.mu.RUnlock()
-	if !ok || gcfg.ControlChannel == "" {
-		return "", fmt.Errorf("control_channel is not configured for this server")
+// parseButtonEmoji converts user config ("👍" or "<:name:id>"/":name:id:")
+// into a *discord.ComponentEmoji; nil when unset/invalid.
+func parseButtonEmoji(raw string) *discord.ComponentEmoji {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
 	}
-	chID, err := snowflake.Parse(gcfg.ControlChannel)
-	if err != nil {
-		return "", fmt.Errorf("control_channel is invalid")
-	}
-
-	create := discord.MessageCreate{
-		Embeds:     []discord.Embed{m.buildPanelEmbed(guildID)},
-		Components: m.buildPanelRows(guildID),
-	}
-	if panelID != "" {
-		if pid, err := snowflake.Parse(panelID); err == nil {
-			update := discord.MessageUpdate{Embeds: &create.Embeds, Components: &create.Components}
-			if _, err := m.ctx.Rest.UpdateMessage(chID, pid, update); err == nil {
-				return panelID, nil
+	if strings.HasPrefix(raw, "<:") && strings.HasSuffix(raw, ">") {
+		parts := strings.SplitN(strings.Trim(raw, "<>"), ":", 3)
+		if len(parts) == 3 {
+			if id, err := snowflake.Parse(parts[2]); err == nil {
+				return &discord.ComponentEmoji{Name: parts[1], ID: id}
 			}
 		}
+		return nil
+	}
+	return &discord.ComponentEmoji{Name: raw}
+}
+
+// postOrUpdatePanel posts the panel embed (or edits in place if we already
+// know its message), then records it in the registry.
+func (m *TicketsModule) postOrUpdatePanel(guildID string, p *PanelConfig) error {
+	t, ok := m.typeOf(p.TypeKey)
+	if !ok {
+		return fmt.Errorf("panel %q references unknown type %q", p.Name, p.TypeKey)
+	}
+	chID, err := snowflake.Parse(p.ChannelID)
+	if err != nil {
+		return fmt.Errorf("panel %q has an invalid channel", p.Name)
+	}
+	create := discord.MessageCreate{
+		Embeds:     []discord.Embed{buildPanelEmbed(*p, t)},
+		Components: buildPanelRows(*p, t),
+	}
+	if p.MessageID != "" {
+		if mid, err := snowflake.Parse(p.MessageID); err == nil {
+			update := discord.MessageUpdate{Embeds: &create.Embeds, Components: &create.Components}
+			if _, err := m.ctx.Rest.UpdateMessage(chID, mid, update); err == nil {
+				m.mu.Lock()
+				m.cfg.Panels[p.Name] = *p
+				_ = m.cfg.save(m.ctx.DataDir)
+				m.mu.Unlock()
+				return nil
+			}
+		}
+		p.MessageID = "" // stale — repost fresh
 	}
 	msg, err := m.ctx.Rest.CreateMessage(chID, create)
 	if err != nil {
-		return "", fmt.Errorf("failed to post control panel: %w", err)
+		return fmt.Errorf("failed to post panel %q: %w", p.Name, err)
 	}
-	id := msg.ID.String()
+	p.MessageID = msg.ID.String()
 	m.mu.Lock()
-	m.panelMsgIDs[guildID] = id
+	m.cfg.Panels[p.Name] = *p
+	err = m.cfg.save(m.ctx.DataDir)
 	m.mu.Unlock()
-	return id, nil
+	return err
+}
+
+// setPanelSuspended greys/un-greys one panel's Open button and persists the
+// flag. Other panels are untouched. Returns the updated panel config.
+func (m *TicketsModule) setPanelSuspended(name string, suspended bool) (PanelConfig, error) {
+	m.mu.Lock()
+	p, ok := m.cfg.Panels[name]
+	if !ok {
+		m.mu.Unlock()
+		return PanelConfig{}, fmt.Errorf("unknown panel %q", name)
+	}
+	p.Suspended = suspended
+	m.cfg.Panels[name] = p
+	saveErr := m.cfg.save(m.ctx.DataDir)
+	m.mu.Unlock()
+
+	if saveErr != nil {
+		return p, saveErr
+	}
+	// Best-effort live edit; registry already flipped so restarts stay correct.
+	if t, ok := m.typeOf(p.TypeKey); ok {
+		if mid, err1 := snowflake.Parse(p.MessageID); err1 == nil {
+			if cid, err2 := snowflake.Parse(p.ChannelID); err2 == nil {
+				row := buildPanelRows(p, t) // single source of truth for the row
+				update := discord.MessageUpdate{Components: &row}
+				if _, err := m.ctx.Rest.UpdateMessage(cid, mid, update); err != nil {
+					m.ctx.Logger.Warn("Tickets: suspend edit failed on %s: %v", name, err)
+				}
+			}
+		}
+	}
+	return p, nil
+}
+
+func firstNonEmpty(a, b string) string {
+	if strings.TrimSpace(a) != "" {
+		return a
+	}
+	return b
 }

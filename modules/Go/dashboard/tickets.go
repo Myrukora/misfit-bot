@@ -3,14 +3,25 @@ package main
 import (
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/misfit/bot/modules"
 )
 
-// ── TicketProvider resolution ─────────────────────────────────────────────
-// The dashboard never imports the tickets plugin; it resolves the provider
-// through the module manager by name and type-asserts the contract interface.
+// tickets.go — dashboard ↔ tickets module integration (v2).
+//
+// Provider resolution: the dashboard never imports the tickets plugin; it
+// resolves modules.TicketProvider through the manager by name.
+//
+// Routes:
+//
+//	GET  /tickets                                  page: panels + open list
+//	GET  /tickets/<guild>/<ticket>                 transcript viewer
+//	GET  /api/tickets?guild=<id>&scope=open|closed JSON lists
+//	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend|remove
+//	POST /api/tickets/<guild>/<ticket>/close       same path as in-chat close
 
 func (m *DashboardModule) ticketProvider() (modules.TicketProvider, bool) {
 	if m.ctx == nil || m.ctx.Bot == nil {
@@ -30,13 +41,8 @@ func (m *DashboardModule) ticketProvider() (modules.TicketProvider, bool) {
 	return tp, ok
 }
 
-// ── API: /api/tickets/... ────────────────────────────────────────────────
+// ── API ──────────────────────────────────────────────────────────────────
 
-// routeTicketsAPI dispatches:
-//
-//	GET  /api/tickets?guild=<id>            → open tickets + groups (staff+)
-//	GET  /api/tickets/<guild>/<ticket>      → one ticket JSON (staff+)
-//	POST /api/tickets/<guild>/<ticket>/close → close (owner/elevated or flag)
 func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request, meth string, parts []string) {
 	us := sessionOf(r)
 	if us == nil {
@@ -51,37 +57,46 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 	level := m.resolveLevel(us)
 
 	switch {
+	// GET /api/tickets?guild=&scope=
 	case meth == "GET" && len(parts) == 1:
 		guildID := r.URL.Query().Get("guild")
 		if guildID == "" || !m.allowed(guildID) {
 			writeError(w, http.StatusBadRequest, "guild parameter required")
 			return
 		}
-		tickets, err := tp.ListOpenTickets(guildID)
+		scope := r.URL.Query().Get("scope")
+		var (
+			tickets any
+			err     error
+		)
+		if scope == "closed" {
+			tickets, err = tp.ListClosedTickets(guildID)
+		} else {
+			tickets, err = tp.ListOpenTickets(guildID)
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		groups, _ := tp.ListGroups(guildID)
-		writeJSON(w, http.StatusOK, map[string]any{"tickets": tickets, "groups": groups})
+		types, _ := tp.ListTypes(guildID)
+		writeJSON(w, http.StatusOK, map[string]any{"tickets": tickets, "types": types})
 
-	case meth == "GET" && len(parts) == 3:
-		guildID, ticketID := parts[1], parts[2]
-		if !m.allowed(guildID) {
-			writeError(w, http.StatusForbidden, "no access to this guild")
+	// POST /api/tickets/<guild>/panels/<name>/<action>
+	case meth == "POST" && len(parts) == 5 && parts[2] == "panels":
+		guildID, name, action := parts[1], parts[3], parts[4]
+		// suspend/resume: staff (mod) may toggle; other actions need elevated.
+		canManage := levelGEQ(level, lvlStaff)
+		cfgWrites := levelGEQ(level, lvlElevated)
+		allowed := canManage
+		if action != "suspend" && action != "resume" {
+			allowed = cfgWrites
+		}
+		if !m.ticketsPanelAction(w, r, guildID, name, action, allowed) {
 			return
 		}
-		tk, err := tp.GetTicket(guildID, ticketID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if tk == nil {
-			writeError(w, http.StatusNotFound, "ticket not found")
-			return
-		}
-		writeJSON(w, http.StatusOK, tk)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "panel": name, "action": action})
 
+	// POST /api/tickets/<guild>/<ticket>/close
 	case meth == "POST" && len(parts) == 4 && parts[3] == "close":
 		guildID, ticketID := parts[1], parts[2]
 		canClose := levelGEQ(level, lvlElevated) || m.ticketsDashCloseAllowed()
@@ -108,8 +123,43 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// ticketsDashCloseAllowed reads the tickets module's allow_dashboard_close
-// flag through its WebConfigurable surface (never panics if absent).
+// ticketsPanelAction performs one panel mutation through the universal
+// web-exec pipeline — the SAME code path and validation as [p]tickets panel ….
+func (m *DashboardModule) ticketsPanelAction(w http.ResponseWriter, r *http.Request, guildID, name, action string, allowed bool) bool {
+	if !allowed {
+		writeError(w, http.StatusForbidden, "insufficient permissions")
+		return false
+	}
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return false
+	}
+	if !m.allowed(guildID) {
+		writeError(w, http.StatusForbidden, "no access to this guild")
+		return false
+	}
+	us := sessionOf(r)
+	if us == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return false
+	}
+	res, err := m.ctx.Bot.ExecuteCommand("tickets",
+		[]string{"panel", action, name}, guildID, "", us.userID.String(), m.execMode())
+	if err != nil {
+		code := http.StatusBadRequest
+		if strings.Contains(err.Error(), "unknown panel") || strings.Contains(err.Error(), "Unknown") {
+			code = http.StatusNotFound
+		} else if strings.Contains(err.Error(), "permission") || strings.Contains(err.Error(), "forbidden") {
+			code = http.StatusForbidden
+		}
+		writeError(w, code, err.Error())
+		return false
+	}
+	_ = res
+	return true
+}
+
+// ticketsDashCloseAllowed reads the module's allow_dashboard_close flag.
 func (m *DashboardModule) ticketsDashCloseAllowed() bool {
 	getter, ok := m.ctx.Bot.GetModuleManager().(interface {
 		Get(string) (modules.Module, bool)
@@ -132,10 +182,66 @@ func (m *DashboardModule) ticketsDashCloseAllowed() bool {
 	return vals["allow_dashboard_close"] == "true"
 }
 
+// serveTicketFile serves mirrored attachment files for the transcript viewer:
+// GET /api/ticketfiles/<guild>/<ticket>/<name> — auth-gated, traversal-safe.
+func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request, guildID, ticketID, filename string) {
+	us, _, ok := m.sessionFromCookie(r)
+	if !ok || us == nil {
+		http.Redirect(w, r, "/login", http.StatusFound)
+		return
+	}
+	if !m.allowed(guildID) || !validTicketFilename(filename) {
+		http.Error(w, "403", http.StatusForbidden)
+		return
+	}
+	tp, ok := m.ticketProvider()
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	tk, err := tp.GetTicket(guildID, ticketID)
+	if err != nil || tk == nil {
+		http.NotFound(w, r)
+		return
+	}
+	getter, _ := m.ctx.Bot.GetModuleManager().(interface {
+		Get(string) (modules.Module, bool)
+	})
+	mod, _ := getter.Get("tickets")
+	dataDirGetter, ok := mod.(interface{ DataDir() string })
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	base := filepath.Join(dataDirGetter.DataDir(), "tickets", guildID, ticketID, "files")
+	full := filepath.Join(base, filename)
+	if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(base)) {
+		http.Error(w, "403", http.StatusForbidden)
+		return
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeContent(w, r, filename, st.ModTime(), f)
+}
+
+func validTicketFilename(name string) bool {
+	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return false
+	}
+	return true
+}
+
 // ── Page handlers ─────────────────────────────────────────────────────────
 
-// handleTicketsPage renders the open-tickets list (staff+). Transcript view
-// is reached at /tickets/<guildID>/<ticketID>.
 func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Request) {
 	us, _, ok := m.sessionFromCookie(r)
 	if !ok || us == nil {
@@ -146,7 +252,6 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 	path := strings.TrimPrefix(r.URL.Path, "/tickets")
 	path = strings.Trim(path, "/")
 
-	// Transcript view.
 	if path != "" {
 		segs := strings.Split(path, "/")
 		if len(segs) == 2 {
@@ -164,8 +269,6 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 	if guildID == "" && len(d.Guilds) > 0 {
 		guildID = d.Guilds[0].ID
 	}
-	// Same access control as routeTicketsAPI/handleTranscriptPage: never leak
-	// another guild's ticket metadata to an authenticated but unauthorized user.
 	if guildID != "" && !m.allowed(guildID) {
 		http.Error(w, "403 no access to this guild", http.StatusForbidden)
 		return
@@ -173,17 +276,19 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 
 	payload := struct {
 		GuildID string
-		Tickets any
-		Groups  any
+		Open    any
+		Closed  any
+		Types   any
 		Error   string
 	}{GuildID: guildID}
 	if tp, ok := m.ticketProvider(); ok && guildID != "" {
-		tickets, err := tp.ListOpenTickets(guildID)
+		open, err := tp.ListOpenTickets(guildID)
 		if err != nil {
 			payload.Error = err.Error()
 		} else {
-			payload.Tickets = tickets
-			payload.Groups, _ = tp.ListGroups(guildID)
+			payload.Open = open
+			payload.Closed, _ = tp.ListClosedTickets(guildID)
+			payload.Types, _ = tp.ListTypes(guildID)
 		}
 	} else if !ok {
 		payload.Error = "tickets module is not loaded"
@@ -192,7 +297,6 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 	m.tmpl.render(w, "tickets", d)
 }
 
-// handleTranscriptPage renders one ticket's full conversation log.
 func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Request, us *userSession, level string, guildID, ticketID string) {
 	if !m.allowed(guildID) {
 		http.Error(w, "403 no access to this guild", http.StatusForbidden)

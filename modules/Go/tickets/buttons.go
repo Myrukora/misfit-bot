@@ -39,8 +39,6 @@ func (m *TicketsModule) registerButtons() {
 			m.onClaimButton(e, parts[1])
 		case len(parts) == 2 && parts[0] == "close":
 			m.onCloseButton(e, parts[1])
-		case len(parts) == 1 && parts[0] == "panel":
-			m.onPanelRefresh(e)
 		}
 	})
 }
@@ -74,15 +72,26 @@ func (m *TicketsModule) ephemeralErr(e *events.ComponentInteractionCreate, msg s
 
 // ── open ──────────────────────────────────────────────────────────────────
 
-func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, groupKey string) {
+func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, panelName string) {
 	guildID := guildIDOf(e)
 	if guildID == "" {
 		m.ephemeralErr(e, "Tickets only work inside a server.")
 		return
 	}
-	g, ok := m.group(groupKey)
+	m.mu.RLock()
+	panel, ok := m.cfg.Panels[panelName]
+	m.mu.RUnlock()
+	if !ok {
+		m.ephemeralErr(e, "This panel no longer exists.")
+		return
+	}
+	if panel.Suspended {
+		m.ephemeralErr(e, "This panel is currently suspended.")
+		return
+	}
+	g, ok := m.typeOf(panel.TypeKey)
 	if !ok || !g.Enabled {
-		m.ephemeralErr(e, "This ticket group is currently disabled.")
+		m.ephemeralErr(e, "This ticket type is currently disabled.")
 		return
 	}
 	opener := actorUser(e)
@@ -90,7 +99,7 @@ func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, group
 		m.ephemeralErr(e, "Could not resolve your user — try again.")
 		return
 	}
-	ticket, err := m.openTicket(g, opener, guildID)
+	ticket, err := m.openTicket(g, opener, guildID, panel.Name)
 	if err != nil {
 		m.ephemeralErr(e, err.Error())
 		return
@@ -125,9 +134,9 @@ func (m *TicketsModule) onClaimButton(e *events.ComponentInteractionCreate, tick
 	tk.ClaimedAt = time.Now().UTC()
 	m.mu.Unlock()
 
-	g, _ := m.group(tk.Group)
+	g, _ := m.typeOf(tk.EffectiveType())
 	if tk.MessageID != "" {
-		m.editPanelButtons(tk, g, "Claimed by "+name)
+		m.editTicketButtons(tk, g, "Claimed by "+name)
 	}
 	_ = m.store.save(tk)
 	e.CreateMessage(discord.MessageCreate{
@@ -149,13 +158,27 @@ func (m *TicketsModule) onCloseButton(e *events.ComponentInteractionCreate, tick
 		m.ephemeralErr(e, "This ticket is already closed.")
 		return
 	}
-	if err := m.CloseTicket(guildID, ticketID, e.User().ID.String()); err != nil {
+	// Acknowledge FIRST (3s interaction deadline), then run the close; the
+	// transcript pipeline continues in the background inside CloseTicket.
+	if err := m.closeTicketFromInteraction(guildID, ticketID, e.User().ID.String()); err != nil {
 		m.ephemeralErr(e, "Failed to close: "+err.Error())
 		return
 	}
 	e.CreateMessage(discord.MessageCreate{
-		Embeds: []discord.Embed{embedSuccess("Closed", "Ticket **"+ticketID+"** closed.")},
+		Embeds: []discord.Embed{embedSuccess("Closed", "Ticket **"+ticketID+"** closed — transcript is being saved.")},
 	})
+}
+
+// closeTicketFromInteraction runs CloseTicket with panic recovery so a close
+// failure never takes down the interaction handler.
+func (m *TicketsModule) closeTicketFromInteraction(guildID, ticketID, userID string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.ctx.Logger.Error("Tickets: panic closing %s: %v", ticketID, r)
+			err = fmt.Errorf("internal error")
+		}
+	}()
+	return m.CloseTicket(guildID, ticketID, userID)
 }
 
 // canManage checks ManageMessages (in-guild member perms) OR bot-level
@@ -173,19 +196,6 @@ func (m *TicketsModule) canManage(e *events.ComponentInteractionCreate) bool {
 
 // ── panel refresh ────────────────────────────────────────────────────────
 
-func (m *TicketsModule) onPanelRefresh(e *events.ComponentInteractionCreate) {
-	guildID := guildIDOf(e)
-	if guildID == "" || !m.canManage(e) {
-		m.ephemeralErr(e, "Only staff can refresh the panel.")
-		return
-	}
-	if _, err := m.postOrUpdatePanel(guildID); err != nil {
-		m.ephemeralErr(e, "Panel refresh failed: "+err.Error())
-		return
-	}
-	m.ephemeralReplyOK(e, "Panel refreshed.")
-}
-
 func (m *TicketsModule) ephemeralReplyOK(e *events.ComponentInteractionCreate, msg string) {
 	e.CreateMessage(discord.MessageCreate{
 		Embeds: []discord.Embed{embedSuccess("Tickets", msg)},
@@ -195,8 +205,9 @@ func (m *TicketsModule) ephemeralReplyOK(e *events.ComponentInteractionCreate, m
 
 // ── shared message edits ─────────────────────────────────────────────────
 
-// editPanelButtons rewrites the action row: claimed state or full disable.
-func (m *TicketsModule) editPanelButtons(tk *modules.Ticket, g GroupConfig, claimLabel string) {
+// editTicketButtons rewrites the in-channel action row: claimed state or
+// full disable after close.
+func (m *TicketsModule) editTicketButtons(tk *modules.Ticket, g TypeConfig, claimLabel string) {
 	if tk.MessageID == "" || tk.ChannelID == "" {
 		return
 	}
@@ -212,12 +223,11 @@ func (m *TicketsModule) editPanelButtons(tk *modules.Ticket, g GroupConfig, clai
 	}
 }
 
-// editClosedButtons disables every button on the panel message after close.
-func (m *TicketsModule) editClosedButtons(tk *modules.Ticket, g GroupConfig) {
+// editClosedButtons disables every button after close (greyed "Closed").
+func (m *TicketsModule) editClosedButtons(tk *modules.Ticket, g TypeConfig) {
 	if tk.MessageID == "" || tk.ChannelID == "" {
 		return
 	}
-	var row []discord.LayoutComponent
 	buttons := []discord.InteractiveComponent{}
 	if g.AllowClaimOn() {
 		buttons = append(buttons, discord.ButtonComponent{
@@ -231,15 +241,17 @@ func (m *TicketsModule) editClosedButtons(tk *modules.Ticket, g GroupConfig) {
 			CustomID: "tickets:close:" + tk.ID, Disabled: true,
 		})
 	}
-	if len(buttons) > 0 {
-		row = []discord.LayoutComponent{discord.NewActionRow(buttons...)}
-		update := discord.MessageUpdate{Components: &row}
-		mid, err1 := snowflake.Parse(tk.MessageID)
-		cid, err2 := snowflake.Parse(tk.ChannelID)
-		if err1 == nil && err2 == nil {
-			if _, err := m.ctx.Rest.UpdateMessage(cid, mid, update); err != nil {
-				m.ctx.Logger.Warn("Tickets: failed to grey buttons on %s: %v", tk.ID, err)
-			}
-		}
+	if len(buttons) == 0 {
+		return
+	}
+	row := []discord.LayoutComponent{discord.NewActionRow(buttons...)}
+	mid, err1 := snowflake.Parse(tk.MessageID)
+	cid, err2 := snowflake.Parse(tk.ChannelID)
+	if err1 != nil || err2 != nil {
+		return
+	}
+	update := discord.MessageUpdate{Components: &row}
+	if _, err := m.ctx.Rest.UpdateMessage(cid, mid, update); err != nil {
+		m.ctx.Logger.Warn("Tickets: failed to grey buttons on %s: %v", tk.ID, err)
 	}
 }

@@ -1,33 +1,74 @@
 {{define "transcript"}}{{template "header" .}}
 {{$t := .Content.Ticket}}
 <h2>Ticket <code>{{$t.ID}}</code></h2>
-<p class="muted">Group: <strong>{{$t.Group}}</strong> · Opener: <code>{{$t.OpenerID}}</code>{{if $t.ClaimerID}} · Claimed by <code>{{$t.ClaimerID}}</code>{{end}} · Status: <strong>{{$t.Status}}</strong></p>
+<p class="muted">Type: <strong>{{$t.Type}}</strong> · Opener: <code>{{$t.OpenerID}}</code>{{if $t.ClaimerID}} · Claimed by <code>{{$t.ClaimerID}}</code>{{end}} · Status: <strong>{{$t.Status}}</strong>{{if $t.Members}} · Members: {{range $m := $t.Members}}<code>{{$m}}</code> {{end}}{{end}}</p>
 <div class="card" style="margin-bottom:14px">
   {{if eq $t.Status "open"}}
   <button class="btn btn-danger btn-sm tk-close" data-id="{{$t.ID}}" data-guild="{{$.Content.GuildID}}" data-closeurl="{{.Content.CloseURL}}">Close ticket</button>
   {{else}}
-  <span class="badge lvl-regular">closed {{dateHuman $t.ClosedAt}}</span>
+  <span class="badge lvl-regular">closed{{if not $t.ClosedAt.IsZero}} {{dateHuman $t.ClosedAt}}{{end}}</span>
   {{end}}
 </div>
+
 <div class="card">
-  <h3>Transcript ({{len $t.Log}} entries)</h3>
+  <h3>Conversation ({{len $t.Log}} entries)</h3>
   {{if not $t.Log}}<p class="muted">No messages recorded.</p>{{end}}
+  {{$g := $.Content.GuildID}}
   {{range $t.Log}}
-  <div class="log-entry" style="padding:8px 0;border-bottom:1px solid var(--border)">
-    <div class="muted" style="font-size:.85em">
-      <strong{{if .Deleted}} style="text-decoration:line-through"{{end}}>{{if .AuthorName}}{{.AuthorName}}{{else}}<code>{{.AuthorID}}</code>{{end}}</strong>
-      · {{dateHuman .Timestamp}}{{if .Edited}} · <em>edited</em>{{end}}{{if .Deleted}} · <em>deleted</em>{{end}}
-    </div>
-    {{if .Content}}<div{{if .Deleted}} style="opacity:.55;text-decoration:line-through"{{end}}>{{.Content}}</div>{{end}}
-    {{range .Attachments}}
-      {{if eq .Kind "image"}}<img src="{{.URL}}" alt="{{.Filename}}" loading="lazy" style="max-width:min(420px,100%);border-radius:8px;margin-top:6px;display:block">
-      {{else if eq .Kind "video"}}<video controls preload="metadata" src="{{.URL}}" style="max-width:min(480px,100%);border-radius:8px;margin-top:6px;display:block"></video>
-      {{else}}<a href="{{.URL}}" download class="muted" style="display:block;margin-top:4px">📎 {{if .Filename}}{{.Filename}}{{else}}attachment{{end}}</a>
+  <div class="msg-entry" style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;gap:12px">
+    <div style="flex:none;width:40px;height:40px;border-radius:50%;background:#5865F2;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold">{{if .AuthorName}}{{substrUpper .AuthorName 1}}{{else}}?{{end}}</div>
+    <div style="min-width:0;flex:1">
+      <div>
+        <strong{{if .Deleted}} style="text-decoration:line-through"{{end}}>{{if .AuthorName}}{{.AuthorName}}{{else}}<code>{{.AuthorID}}</code>{{end}}</strong>
+        {{if .IsBot}}<span class="badge lvl-elevated">BOT</span>{{end}}
+        · <span class="muted" style="font-size:.85em">{{dateHuman .Timestamp}}</span>
+        {{if .Edited}}<span class="muted" style="font-size:.8em">· edited</span>{{end}}
+        {{if .Deleted}}<span class="badge lvl-regular">deleted</span>{{end}}
+      </div>
+      {{if .Content}}<div style="margin-top:2px;white-space:pre-wrap;word-wrap:break-word{{if .Deleted}};opacity:.55;text-decoration:line-through{{end}}">{{.Content}}</div>{{end}}
+
+      {{range .Attachments}}
+        {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
+        {{if eq .Kind "image"}}
+          <a href="{{$src}}" target="_blank" rel="noopener"><img src="{{$src}}" alt="{{.Filename}}" loading="lazy" class="zoomable" style="max-width:min(420px,100%);border-radius:8px;margin-top:8px;display:block;cursor:zoom-in"></a>
+        {{else if eq .Kind "video"}}
+          <video controls preload="metadata" src="{{$src}}" style="max-width:min(480px,100%);border-radius:8px;margin-top:8px;display:block"></video>
+        {{else if eq .Kind "audio"}}
+          <audio controls preload="metadata" src="{{$src}}" style="width:100%;max-width:480px;margin-top:8px;display:block"></audio>
+        {{else}}
+          <a href="{{$src}}" target="_blank" rel="noopener" class="muted" style="display:block;margin-top:4px">📎 {{if .Filename}}{{.Filename}}{{else}}attachment{{end}}</a>
+        {{end}}
       {{end}}
-    {{end}}
-    {{range .Stickers}}<img src="{{.URL}}" alt="sticker {{.Filename}}" loading="lazy" style="max-width:160px;margin-top:6px;display:block">{{end}}
+
+      {{range .Stickers}}
+      <img src="{{.URL}}" alt="sticker {{.Filename}}" loading="lazy" style="max-width:160px;margin-top:6px;display:block;border-radius:8px">
+      {{end}}
+    </div>
   </div>
   {{end}}
 </div>
+
+<div id="lightbox" role="dialog" aria-modal="true" tabindex="-1" onclick="closeLightbox()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center">
+  <img id="lightbox-img" alt="" style="max-width:95vw;max-height:95vh;border-radius:8px">
+</div>
 <p class="muted" style="margin-top:10px"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a></p>
+
+<script>
+function closeLightbox() {
+  const lb = document.getElementById('lightbox');
+  lb.style.display = 'none';
+  document.getElementById('lightbox-img').removeAttribute('src');
+}
+document.querySelectorAll('img.zoomable').forEach(img => {
+  img.addEventListener('click', () => {
+    const lb = document.getElementById('lightbox');
+    document.getElementById('lightbox-img').src = img.src;
+    lb.style.display = 'flex';
+    lb.focus();
+  });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeLightbox();
+});
+</script>
 {{template "footer" .}}{{end}}

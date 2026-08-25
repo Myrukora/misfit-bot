@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/misfit/bot/commands"
 	"github.com/disgoorg/disgo/events"
+	"github.com/misfit/bot/commands"
 	lua "github.com/yuin/gopher-lua"
 )
 

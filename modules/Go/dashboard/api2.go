@@ -592,6 +592,14 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 	case "tickets":
 		m.routeTicketsAPI(w, r, meth, parts)
 		return
+	case "ticketfiles":
+		// /api/ticketfiles/<guild>/<ticket>/<filename> — mirrored attachments.
+		if meth == "GET" && len(parts) == 4 {
+			m.serveTicketFile(w, r, parts[1], parts[2], parts[3])
+			return
+		}
+		writeError(w, http.StatusNotFound, "not found")
+		return
 	case "presence":
 		if meth == "POST" {
 			us := sessionOf(r)

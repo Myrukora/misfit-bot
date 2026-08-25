@@ -1,25 +1,35 @@
 {{define "tickets"}}{{template "header" .}}
 <h2>Tickets</h2>
-{{if .Content.Error}}<div class="card"><p class="muted">{{.Content.Error}}</p></div>
-{{else if not .Content.GuildID}}<div class="card"><p class="muted">No manageable servers found.</p></div>
-{{else}}
-<div class="card">
-  <h3>Open tickets</h3>
-  {{if gt (len $.Guilds) 0}}
-  <select class="cfg-field guild-nav" data-path="/tickets" aria-label="Server" style="max-width:280px;margin-bottom:12px">
-    {{range $.Guilds}}<option value="{{.ID}}"{{if eq .ID $.Content.GuildID}} selected{{end}}>{{.Name}}</option>{{end}}
-  </select>
+{{if .Content.Error}}<div class="card"><p class="muted">{{.Content.Error}}</p></div>{{end}}
+{{if .Content.GuildID}}
+<select class="cfg-field guild-nav" data-path="/tickets" aria-label="Server" style="max-width:280px;margin-bottom:14px">
+  {{range $.Guilds}}<option value="{{.ID}}"{{if eq .ID $.Content.GuildID}} selected{{end}}>{{.Name}}</option>{{end}}
+</select>
+
+<div class="card" style="margin-bottom:14px">
+  <h3>Ticket types</h3>
+  <div id="panel-cards">
+  {{range .Content.Types}}
+    {{$t := .}}
+    <div style="margin-bottom:10px"><strong>{{$t.Label}}</strong> <span class="muted">({{$t.Key}})</span></div>
   {{end}}
-  {{if .Content.Tickets}}
+  {{if not .Content.Types}}<p class="muted">No ticket types configured yet — run <code>tickets type add &lt;key&gt;</code> in Discord.</p>{{end}}
+  </div>
+  <div class="muted" style="margin-top:8px;font-size:.9em">Manage panels with Discord commands (<code>tickets panel …</code>) — the dashboard mirrors their state here after your next visit.</div>
+</div>
+
+<div class="card" style="margin-bottom:14px">
+  <h3>Open tickets</h3>
+  {{if .Content.Open}}
   <table style="width:100%;border-collapse:collapse">
     <thead><tr class="muted" style="text-align:left">
-      <th style="padding:6px 8px">Ticket</th><th>Group</th><th>Opener</th><th>Claimed</th><th>Opened</th><th></th>
+      <th style="padding:6px 8px">Ticket</th><th>Type</th><th>Opener</th><th>Claimed</th><th>Opened</th><th></th>
     </tr></thead>
     <tbody>
-      {{range .Content.Tickets}}
+      {{range .Content.Open}}
       <tr data-guild="{{$.Content.GuildID}}">
         <td style="padding:6px 8px"><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
-        <td>{{.Group}}</td>
+        <td>{{.Type}}</td>
         <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
         <td>{{if .ClaimerID}}<code>{{.ClaimerID}}</code>{{else}}—{{end}}</td>
         <td title="{{.OpenedAt}}">{{dateHuman .OpenedAt}}</td>
@@ -28,8 +38,28 @@
       {{end}}
     </tbody>
   </table>
-  {{else if not .Content.Error}}<p class="muted">No open tickets 🎉</p>{{end}}
+  {{else}}<p class="muted">No open tickets 🎉</p>{{end}}
 </div>
-<p class="muted" style="margin-top:10px">Transcripts: click a ticket ID above. Closing here uses the same path as the in-chat Close button.</p>
-{{end}}
+
+<div class="card">
+  <h3>Closed tickets (archive)</h3>
+  {{if .Content.Closed}}
+  <table style="width:100%;border-collapse:collapse">
+    <thead><tr class="muted" style="text-align:left">
+      <th style="padding:6px 8px">Ticket</th><th>Type</th><th>Opener</th><th>Closed</th>
+    </tr></thead>
+    <tbody>
+      {{range .Content.Closed}}
+      <tr>
+        <td style="padding:6px 8px"><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+        <td>{{.Type}}</td>
+        <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+        <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}<p class="muted">Nothing archived yet.</p>{{end}}
+</div>
+{{else if not .Content.Error}}<div class="card"><p class="muted">No manageable servers found.</p></div>{{end}}
 {{template "footer" .}}{{end}}
