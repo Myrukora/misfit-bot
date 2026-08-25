@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/disgoorg/disgo/rest"
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/logger"
-	"github.com/disgoorg/disgo/rest"
 )
 
 // PythonLoader handles loading and managing Python modules.

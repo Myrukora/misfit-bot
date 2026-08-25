@@ -6,9 +6,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/misfit/bot/commands"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
+	"github.com/misfit/bot/commands"
 )
 
 type Module interface {

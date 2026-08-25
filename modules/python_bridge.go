@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/misfit/bot/embed"
-	"github.com/misfit/bot/logger"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/logger"
 )
 
 const discordAPIBase = "https://discord.com/api/v10"

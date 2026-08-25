@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/rest"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/modules"
-	"github.com/disgoorg/disgo/discord"
-	"github.com/disgoorg/disgo/rest"
-	"github.com/disgoorg/snowflake/v2"
 )
 
 type CleanupModule struct {

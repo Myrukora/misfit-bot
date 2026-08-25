@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/misfit/bot/logger"
 	"github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/logger"
 	"gopkg.in/hraban/opus.v2"
 )
 

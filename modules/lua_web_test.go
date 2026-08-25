@@ -3,9 +3,9 @@ package modules
 import (
 	"testing"
 
-	"github.com/misfit/bot/commands"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/commands"
 	"github.com/yuin/gopher-lua"
 )
 
