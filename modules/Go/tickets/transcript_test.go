@@ -46,7 +46,7 @@ func TestTranscriptHTMLEscapesAndStructures(t *testing.T) {
 	if !strings.Contains(out, "msg deleted") {
 		t.Fatal("deleted message not marked")
 	}
-	if !strings.Contains(out, `<img class="attachment`) && !strings.Contains(out, `class="att img"`) {
+	if !strings.Contains(out, "<img class='attachment") {
 		t.Fatal("image attachment not rendered as image")
 	}
 }
