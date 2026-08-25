@@ -102,12 +102,12 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 
 	g, _ := m.typeOf(tk.EffectiveType())
 	m.editClosedButtons(tk, g)
-
-	// T5 will add: lock channel overwrites, transcript HTML build+post,
-	// attachment mirroring. For now persistence keeps v1 semantics.
+	// v2 close tail: lock channel → full history merge → attachment mirror →
+	// HTML transcript → log channel. Best-effort pieces never fail the close.
 	if err := m.store.save(tk); err != nil {
 		return fmt.Errorf("failed to persist close: %w", err)
 	}
+	m.closeWithTranscript(tk, g)
 	m.postCloseSummary(tk, g, closerName)
 	return nil
 }

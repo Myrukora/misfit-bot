@@ -42,7 +42,12 @@ func (m *TicketsModule) Dependencies() []string {
 	return []string{"dashboard"} // soft dep: dashboard renders transcripts if present
 }
 
-func (m *TicketsModule) Commands() []commands.Command           { return m.prefixCommands() }
+func (m *TicketsModule) Commands() []commands.Command {
+	out := make([]commands.Command, 0, len(m.prefixCommands())+len(m.inChannelCommands()))
+	out = append(out, m.prefixCommands()...)
+	out = append(out, m.inChannelCommands()...)
+	return out
+}
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return nil }
 
 // OnLoad stores context, loads config + persisted state and registers event
