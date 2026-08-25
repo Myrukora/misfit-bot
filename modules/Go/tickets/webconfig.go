@@ -16,9 +16,9 @@ func fPtr(f float64) *float64 { return &f }
 func (m *TicketsModule) prefixCommands() []commands.Command {
 	return []commands.Command{
 		{
-			Name: "tickets", Description: "Ticket system utilities (owner)",
+			Name: "tickets", Description: "Ticket system utilities (owner + elevated)",
 			Usage: "tickets panel|reload", Category: "Tickets",
-			SuperOwnerOnly: true,
+			OwnerOnly: true,
 			Execute: func(ctx *commands.Context) error {
 				if len(ctx.Args) == 0 {
 					return ctx.Respond(embed.Warning("⚠️ Usage", "`tickets panel` — post/refresh the control panel\n`tickets reload` — reload groups from config"))
