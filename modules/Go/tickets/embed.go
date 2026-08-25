@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -46,7 +47,12 @@ func embedInfo(title, desc string) discord.Embed {
 	return discord.NewEmbed().WithDescription("**" + title + "**\n" + desc).WithColor(0x5865F2)
 }
 
-// groupFromType adapts a TypeConfig to the template engine's GroupConfig view.
+// groupFromType adapts a TypeConfig to the template engine's GroupConfig
+// view. Label falls back to the key so {group}/{type} never render empty.
 func groupFromType(g TypeConfig) GroupConfig {
-	return GroupConfig{Key: g.Key, Label: g.Label}
+	label := g.Label
+	if strings.TrimSpace(label) == "" {
+		label = g.Key
+	}
+	return GroupConfig{Key: g.Key, Label: label}
 }

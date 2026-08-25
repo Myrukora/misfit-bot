@@ -86,6 +86,9 @@ func (m *TicketsModule) cmdSetup(ctx *commands.Context) error {
 		panelRows []string
 	)
 	for k, t := range m.cfg.Types {
+		if t == nil {
+			continue
+		}
 		state := "🟢"
 		if !t.Enabled || t.Category == "" {
 			state = "🟡"
@@ -167,6 +170,8 @@ func (m *TicketsModule) cmdPanel(ctx *commands.Context) error {
 		return ctx.Respond(embed.Info("Panels", strings.Join(rows, "\n")))
 
 	case "create":
+		// Short form: `panel create <name> <type>` (uses current channel).
+		// Long form: `panel create <name> [#channel] <type>`.
 		if len(args) < 3 {
 			return ctx.Respond(embed.Warning("⚠️ Usage", "`tickets panel create <name> [#channel] <type>`\nThe type must exist first (`tickets type add <key>`)."))
 		}
@@ -174,13 +179,13 @@ func (m *TicketsModule) cmdPanel(ctx *commands.Context) error {
 		if !validPanelName(name) {
 			return ctx.Respond(embed.Error("❌ Error", "Panel names: letters, digits, `-`, `_` only (no spaces)."))
 		}
-		channelArg := args[2]
-		typeKey := ""
-		if len(args) >= 4 {
-			typeKey = args[3]
+		var channelArg, typeKey string
+		if len(args) == 3 {
+			channelArg = "" // current channel
+			typeKey = args[2]
 		} else {
-			// allow omitting channel: use current channel
-			channelArg = "<#" + ctx.ChannelID + ">"
+			channelArg = args[2]
+			typeKey = args[3]
 		}
 		chID := parseChannelRef(channelArg, ctx.ChannelID)
 		if chID == "" {
@@ -231,11 +236,16 @@ func (m *TicketsModule) cmdPanel(ctx *commands.Context) error {
 		return ctx.Respond(embed.Success("✅ Updated", "Panel `"+name+"` "+field+" set."))
 
 	case "move":
-		if len(args) < 3 {
+		// Short form: `panel move <name>` (moves to current channel).
+		if len(args) < 2 {
 			return ctx.Respond(embed.Warning("⚠️ Usage", "`tickets panel move <name> [#channel]`"))
 		}
 		name := args[1]
-		chID := parseChannelRef(args[2], ctx.ChannelID)
+		channelArg := ""
+		if len(args) >= 3 {
+			channelArg = args[2]
+		}
+		chID := parseChannelRef(channelArg, ctx.ChannelID)
 		if chID == "" {
 			return ctx.Respond(embed.Error("❌ Error", "Could not parse the channel."))
 		}
@@ -287,7 +297,7 @@ func (m *TicketsModule) cmdPanel(ctx *commands.Context) error {
 		if p.Suspended {
 			state = "suspended ⏸ (buttons disabled; other panels unaffected)"
 		}
-		return ctx.Respond(embed.Success("✅ "+strings.Title(args[0]), "`"+p.Name+"` "+state))
+		return ctx.Respond(embed.Success("✅ "+titleWord(args[0]), "`"+p.Name+"` "+state))
 
 	case "remove":
 		if len(args) < 2 {
@@ -333,9 +343,9 @@ func (m *TicketsModule) cmdType(ctx *commands.Context) error {
 			return ctx.Respond(embed.Error("❌ Error", "Type `"+key+"` already exists."))
 		}
 		m.cfg.Types[key] = &TypeConfig{
-			Key: key, Label: strings.Title(key),
+			Key: key, Label: titleCase(key),
 			Color:       colorValue(defaultTicketColor),
-			ButtonLabel: strings.Title(key),
+			ButtonLabel: titleCase(key),
 			AllowClaim:  boolPtr(true), AllowClose: boolPtr(true),
 		}
 		err := m.cfg.save(m.ctx.DataDir)
@@ -386,12 +396,17 @@ func (m *TicketsModule) cmdType(ctx *commands.Context) error {
 			return ctx.Respond(embed.Error("❌ Error", "Set a category first: `tickets type set "+key+" category <#category>` (paste the **ID**, right-click → Copy ID)."))
 		}
 		t.Enabled = args[0] == "enable"
+		enabled := t.Enabled // snapshot: no reads after unlock
 		err := m.cfg.save(m.ctx.DataDir)
 		m.mu.Unlock()
 		if err != nil {
 			return ctx.Respond(embed.Error("❌ Error", err.Error()))
 		}
-		return ctx.Respond(embed.Success("✅ "+strings.Title(args[0])+"d", "Type `"+key+"` is now "+map[bool]string{true: "enabled 🟢", false: "disabled 🔴"}[t.Enabled]+"."))
+		state := "disabled 🔴"
+		if enabled {
+			state = "enabled 🟢"
+		}
+		return ctx.Respond(embed.Success("✅ "+titleWord(args[0])+"d", "Type `"+key+"` is now "+state+"."))
 
 	case "remove":
 		if len(args) < 2 {
@@ -554,12 +569,13 @@ func (m *TicketsModule) cmdAccess(ctx *commands.Context) error {
 			}
 		}
 		t.AccessRoles = mapKeysSorted(set)
+		accessSnapshot := t.AccessRoles // snapshot: no reads after unlock
 		err := m.cfg.save(m.ctx.DataDir)
 		m.mu.Unlock()
 		if err != nil {
 			return ctx.Respond(embed.Error("❌ Error", err.Error()))
 		}
-		return ctx.Respond(embed.Success("✅ Access updated", "`"+key+"` openers: "+rolesOrNone(t.AccessRoles)))
+		return ctx.Respond(embed.Success("✅ Access updated", "`"+key+"` openers: "+rolesOrNone(accessSnapshot)))
 	}
 	return ctx.Respond(embed.Warning("⚠️ Usage", "`tickets access add|remove <type> <role…>` · `tickets access list`"))
 }

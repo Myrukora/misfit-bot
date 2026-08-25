@@ -183,7 +183,7 @@ func (m *DashboardModule) ticketsDashCloseAllowed() bool {
 }
 
 // serveTicketFile serves mirrored attachment files for the transcript viewer:
-// GET /api/tickets/files/<guild>/<ticket>/<name> — auth-gated, traversal-safe.
+// GET /api/ticketfiles/<guild>/<ticket>/<name> — auth-gated, traversal-safe.
 func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request, guildID, ticketID, filename string) {
 	us, _, ok := m.sessionFromCookie(r)
 	if !ok || us == nil {

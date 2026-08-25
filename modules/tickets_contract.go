@@ -40,8 +40,9 @@ type Ticket struct {
 	Type           string     `json:"type"`
 	Group          string     `json:"group"` // legacy alias of Type (v1 stores)
 	GuildID        string     `json:"guild_id"`
-	ChannelID      string     `json:"channel_id"` // private text channel holding the conversation
-	MessageID      string     `json:"message_id"` // in-channel embed carrying Claim/Close buttons
+	ChannelID      string     `json:"channel_id"`             // private text channel holding the conversation
+	ChannelName    string     `json:"channel_name,omitempty"` // stored at creation for collision detection
+	MessageID      string     `json:"message_id"`             // in-channel embed carrying Claim/Close buttons
 	PanelName      string     `json:"panel_name,omitempty"`
 	OpenerID       string     `json:"opener_id"`
 	ClaimerID      string     `json:"claimer_id"` // "" while unclaimed

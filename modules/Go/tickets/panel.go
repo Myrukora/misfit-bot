@@ -41,15 +41,35 @@ func buildPanelRows(p PanelConfig, t TypeConfig) []discord.LayoutComponent {
 		label = t.Label
 	}
 	disabled := p.Suspended || !t.Enabled
-	buttons := []discord.InteractiveComponent{
-		discord.ButtonComponent{
-			Style:    discord.ButtonStylePrimary,
-			Label:    label,
-			CustomID: "tickets:open:" + p.Name,
-			Disabled: disabled,
-		},
+	btn := discord.ButtonComponent{
+		Style:    discord.ButtonStylePrimary,
+		Label:    label,
+		CustomID: "tickets:open:" + p.Name,
+		Disabled: disabled,
 	}
-	return []discord.LayoutComponent{discord.NewActionRow(buttons...)}
+	if e := parseButtonEmoji(t.ButtonEmoji); e != nil {
+		btn.Emoji = e
+	}
+	return []discord.LayoutComponent{discord.NewActionRow(btn)}
+}
+
+// parseButtonEmoji converts user config ("👍" or "<:name:id>"/":name:id:")
+// into a *discord.ComponentEmoji; nil when unset/invalid.
+func parseButtonEmoji(raw string) *discord.ComponentEmoji {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	if strings.HasPrefix(raw, "<:") && strings.HasSuffix(raw, ">") {
+		parts := strings.SplitN(strings.Trim(raw, "<>"), ":", 3)
+		if len(parts) == 3 {
+			if id, err := snowflake.Parse(parts[2]); err == nil {
+				return &discord.ComponentEmoji{Name: parts[1], ID: id}
+			}
+		}
+		return nil
+	}
+	return &discord.ComponentEmoji{Name: raw}
 }
 
 // postOrUpdatePanel posts the panel embed (or edits in place if we already
@@ -113,14 +133,8 @@ func (m *TicketsModule) setPanelSuspended(name string, suspended bool) (PanelCon
 	if t, ok := m.typeOf(p.TypeKey); ok {
 		if mid, err1 := snowflake.Parse(p.MessageID); err1 == nil {
 			if cid, err2 := snowflake.Parse(p.ChannelID); err2 == nil {
-				update := discord.MessageUpdate{Components: &[]discord.LayoutComponent{
-					discord.NewActionRow(discord.ButtonComponent{
-						Style:    discord.ButtonStylePrimary,
-						Label:    firstNonEmpty(t.ButtonLabel, t.Label),
-						CustomID: "tickets:open:" + p.Name,
-						Disabled: suspended,
-					}),
-				}}
+				row := buildPanelRows(p, t) // single source of truth for the row
+				update := discord.MessageUpdate{Components: &row}
 				if _, err := m.ctx.Rest.UpdateMessage(cid, mid, update); err != nil {
 					m.ctx.Logger.Warn("Tickets: suspend edit failed on %s: %v", name, err)
 				}

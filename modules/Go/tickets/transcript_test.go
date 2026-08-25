@@ -35,8 +35,8 @@ func TestTranscriptHTMLEscapesAndStructures(t *testing.T) {
 	if strings.Contains(out, "<script>alert") {
 		t.Fatal("XSS: raw script tag leaked into transcript")
 	}
-	if !strings.Contains(out, "&lt;script&gt;") && !strings.Contains(out, "alert(1)") == false {
-		t.Fatal("escaping sanity broken")
+	if !strings.Contains(out, "&lt;script&gt;") {
+		t.Fatal("escaping sanity broken: escaped script tag missing")
 	}
 	for _, want := range []string{"crashes", "try this", "a.png"} {
 		if !strings.Contains(out, want) {

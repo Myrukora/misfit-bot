@@ -73,6 +73,8 @@ func (c *Config) RetentionDays() int {
 }
 
 // retentionDays is an int that records whether the YAML key was present.
+// A YAML null (e.g. from MarshalYAML of an unset value) counts as unset so a
+// save→reload round-trip can never silently disable the default retention.
 type retentionDays struct {
 	value int
 	set   bool
@@ -80,6 +82,11 @@ type retentionDays struct {
 
 // UnmarshalYAML implements yaml.Unmarshaler.
 func (r *retentionDays) UnmarshalYAML(node *yaml.Node) error {
+	if node.Tag == "!!null" {
+		r.set = false
+		r.value = 0
+		return nil
+	}
 	r.set = true
 	if node.Kind == yaml.ScalarNode {
 		if n, err := strconv.Atoi(strings.TrimSpace(node.Value)); err == nil {
@@ -214,6 +221,7 @@ func migrateV1(raw []byte, cfg *Config) error {
 func validateTypes(types map[string]*TypeConfig) error {
 	for k, t := range types {
 		if t == nil {
+			delete(types, k) // YAML "key:" with no body → drop, never reach consumers
 			continue
 		}
 		if strings.TrimSpace(t.Key) == "" {

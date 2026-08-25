@@ -23,8 +23,9 @@ import (
 const maxAttachmentBytes = 25 << 20 // 25MB per file
 
 // closeWithTranscript is the v2 close tail: lock channel → mirror files →
-// build HTML → post to log channel. Best-effort pieces never fail the close.
-func (m *TicketsModule) closeWithTranscript(tk *modules.Ticket, g TypeConfig) {
+// build HTML → post to log channel. Runs in a recovered goroutine (see
+// CloseTicket); closedBy is the actual closer's user ID for the header line.
+func (m *TicketsModule) closeWithTranscript(tk *modules.Ticket, g TypeConfig, closedBy string) {
 	m.lockTicketChannel(tk, g)
 
 	m.mu.RLock()
@@ -53,7 +54,7 @@ func (m *TicketsModule) closeWithTranscript(tk *modules.Ticket, g TypeConfig) {
 		tk.TranscriptPath = rel
 		_ = m.store.save(tk)
 	}
-	m.postTranscriptToLogChannel(tk, g, htmlPath, htmlStr)
+	m.postTranscriptToLogChannel(tk, g, htmlPath, closedBy)
 }
 
 // lockTicketChannel strips send perms from opener/helpers/members; history
@@ -150,7 +151,8 @@ func sortLogByTime(log []modules.LogEntry) {
 }
 
 // mirrorAttachments downloads every referenced attachment into filesDir and
-// rewrites Media.LocalPath relative to dataDir.
+// rewrites Media.LocalPath relative to dataDir. Files are prefixed with
+// msgID-index so same-named uploads never overwrite each other.
 func (m *TicketsModule) mirrorAttachments(tk *modules.Ticket, filesDir string) {
 	if err := os.MkdirAll(filesDir, 0755); err != nil {
 		return
@@ -161,12 +163,14 @@ func (m *TicketsModule) mirrorAttachments(tk *modules.Ticket, filesDir string) {
 	m.mu.RUnlock()
 
 	for i := range tk.Log {
-		for j := range tk.Log[i].Attachments {
-			med := &tk.Log[i].Attachments[j]
+		entry := &tk.Log[i]
+		for j := range entry.Attachments {
+			med := &entry.Attachments[j]
 			if med.URL == "" || med.LocalPath != "" || med.Kind == "sticker" {
 				continue
 			}
-			local, err := downloadAttachment(client, med.URL, filesDir, med.Filename, maxAttachmentBytes)
+			prefix := fmt.Sprintf("%s-%d", entry.MsgID, j)
+			local, err := downloadAttachment(client, med.URL, filesDir, prefix, med.Filename, maxAttachmentBytes)
 			if err != nil {
 				m.ctx.Logger.Warn("Tickets: attachment %s failed: %v", med.Filename, err)
 				continue
@@ -178,7 +182,7 @@ func (m *TicketsModule) mirrorAttachments(tk *modules.Ticket, filesDir string) {
 	}
 }
 
-func downloadAttachment(client *http.Client, url, dir, filename string, maxBytes int64) (string, error) {
+func downloadAttachment(client *http.Client, url, dir, prefix, filename string, maxBytes int64) (string, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", err
@@ -191,7 +195,11 @@ func downloadAttachment(client *http.Client, url, dir, filename string, maxBytes
 	if name == "" {
 		name = fmt.Sprintf("file-%d", time.Now().UnixNano())
 	}
-	name = strings.ReplaceAll(name, "/", "_")
+	name = filepath.Base(filepath.FromSlash(strings.ReplaceAll(name, "\\", "_")))
+	if name == "." || name == ".." || name == "/" {
+		name = "file"
+	}
+	name = prefix + "-" + name
 	path := filepath.Join(dir, name)
 	f, err := os.Create(path)
 	if err != nil {
@@ -250,8 +258,8 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 			cls += " deleted"
 		}
 		initial := "?"
-		if e.AuthorName != "" {
-			initial = strings.ToUpper(e.AuthorName[:1])
+		if r := []rune(e.AuthorName); len(r) > 0 {
+			initial = strings.ToUpper(string(r[0]))
 		}
 		b.WriteString("<div class='" + cls + "' data-msg='" + esc(e.MsgID) + "'>")
 		b.WriteString("<div class='avatar'>" + esc(initial) + "</div><div class='body'>")
@@ -302,7 +310,7 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 
 // postTranscriptToLogChannel uploads the HTML file to the configured log
 // channel with a short summary embed.
-func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeConfig, htmlPath, _ string) {
+func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeConfig, htmlPath, closedBy string) {
 	m.mu.RLock()
 	logCh := ""
 	if m.cfg != nil {
@@ -325,9 +333,13 @@ func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeCon
 	if label == "" {
 		label = tk.EffectiveType()
 	}
+	claimLine := ""
+	if tk.ClaimerID != "" {
+		claimLine = fmt.Sprintf(" · claimed by <@%s>", tk.ClaimerID)
+	}
 	create := discord.MessageCreate{
-		Content: fmt.Sprintf("📜 Transcript of **%s** (`%s`) — opened by <@%s>, closed by <@%s>",
-			label, tk.ID, tk.OpenerID, firstNonEmpty(tk.ClaimerID, "unknown")),
+		Content: fmt.Sprintf("📜 Transcript of **%s** (`%s`) — opened by <@%s>%s · closed by <@%s>",
+			label, tk.ID, tk.OpenerID, claimLine, closedBy),
 		Files: []*discord.File{{Name: "ticket-" + tk.ID + ".html", Reader: f}},
 	}
 	if _, err := m.ctx.Rest.CreateMessage(chID, create); err != nil {

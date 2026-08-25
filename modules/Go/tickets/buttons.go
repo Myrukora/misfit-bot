@@ -158,13 +158,27 @@ func (m *TicketsModule) onCloseButton(e *events.ComponentInteractionCreate, tick
 		m.ephemeralErr(e, "This ticket is already closed.")
 		return
 	}
-	if err := m.CloseTicket(guildID, ticketID, e.User().ID.String()); err != nil {
+	// Acknowledge FIRST (3s interaction deadline), then run the close; the
+	// transcript pipeline continues in the background inside CloseTicket.
+	if err := m.closeTicketFromInteraction(guildID, ticketID, e.User().ID.String()); err != nil {
 		m.ephemeralErr(e, "Failed to close: "+err.Error())
 		return
 	}
 	e.CreateMessage(discord.MessageCreate{
-		Embeds: []discord.Embed{embedSuccess("Closed", "Ticket **"+ticketID+"** closed.")},
+		Embeds: []discord.Embed{embedSuccess("Closed", "Ticket **"+ticketID+"** closed — transcript is being saved.")},
 	})
+}
+
+// closeTicketFromInteraction runs CloseTicket with panic recovery so a close
+// failure never takes down the interaction handler.
+func (m *TicketsModule) closeTicketFromInteraction(guildID, ticketID, userID string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			m.ctx.Logger.Error("Tickets: panic closing %s: %v", ticketID, r)
+			err = fmt.Errorf("internal error")
+		}
+	}()
+	return m.CloseTicket(guildID, ticketID, userID)
 }
 
 // canManage checks ManageMessages (in-guild member perms) OR bot-level

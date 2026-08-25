@@ -126,33 +126,42 @@ func (m *TicketsModule) panelsSnapshot() []PanelConfig {
 	return out
 }
 
-// setGroupsYAML — v1 dashboard setter shim: converts the YAML list into v2
-// types in place. Panels keep working because panel.TypeKey values match the
-// migrated keys.
+// setGroupsYAML — v1 dashboard setter shim: MERGES the legacy YAML list into
+// v2 types. Existing v2-only fields (helper/access roles, welcome message,
+// button emoji) are preserved for keys that already exist; only the legacy
+// GroupConfig fields are overwritten. Blank payloads are rejected so a stray
+// empty save can never wipe the type list.
 func (m *TicketsModule) setGroupsYAML(guildID, yamlText string) error {
 	groups, err := parseGroupsYAML(yamlText)
 	if err != nil {
 		return err
 	}
+	if len(groups) == 0 {
+		return fmt.Errorf("empty groups list — use `tickets type remove <key>` to delete individual types")
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	newTypes := map[string]*TypeConfig{}
 	for _, g := range groups {
 		gc := g
-		newTypes[gc.Key] = &TypeConfig{
-			Key: gc.Key, Label: gc.Label, Enabled: gc.Enabled,
-			Category: gc.ParentChannel, PingRoles: gc.PingRoles,
-			EmbedBody: gc.EmbedTemplate, Color: gc.Color,
-			AllowClaim: gc.AllowClaim, AllowClose: gc.AllowClose,
-			ButtonLabel: gc.Label,
+		existing, ok := m.cfg.Types[gc.Key]
+		var t *TypeConfig
+		if ok && existing != nil {
+			t = existing // merge: keep v2-only fields
+		} else {
+			t = &TypeConfig{Key: gc.Key}
 		}
-	}
-	// Drop panels pointing at removed types.
-	for name, p := range m.cfg.Panels {
-		if _, ok := newTypes[p.TypeKey]; !ok && len(newTypes) > 0 {
-			delete(m.cfg.Panels, name)
+		t.Label = gc.Label
+		t.Enabled = gc.Enabled
+		t.Category = gc.ParentChannel
+		t.PingRoles = gc.PingRoles
+		t.EmbedBody = gc.EmbedTemplate
+		t.Color = gc.Color
+		t.AllowClaim = gc.AllowClaim
+		t.AllowClose = gc.AllowClose
+		if t.ButtonLabel == "" || t.ButtonLabel == t.Key {
+			t.ButtonLabel = gc.Label
 		}
+		m.cfg.Types[gc.Key] = t
 	}
-	m.cfg.Types = newTypes
 	return m.cfg.save(m.ctx.DataDir)
 }

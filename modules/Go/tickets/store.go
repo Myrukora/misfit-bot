@@ -181,6 +181,21 @@ func (s *store) listOpen(guildID string) []modules.TicketSummary {
 	return out
 }
 
+// openTicketsSnapshot returns copies of all open tickets across guilds under
+// the STORE lock — module code must never touch s.tickets directly.
+func (s *store) openTicketsSnapshot() map[string]map[string]*modules.Ticket {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]map[string]*modules.Ticket, len(s.tickets))
+	for gid, m := range s.tickets {
+		out[gid] = make(map[string]*modules.Ticket, len(m))
+		for id, tk := range m {
+			out[gid][id] = copyTicket(tk)
+		}
+	}
+	return out
+}
+
 // listClosed returns summaries of closed tickets by scanning ticket files
 // (closed ones are not held in memory).
 func (s *store) listClosed(guildID string) ([]modules.TicketSummary, error) {

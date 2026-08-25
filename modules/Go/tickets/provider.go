@@ -103,11 +103,21 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	g, _ := m.typeOf(tk.EffectiveType())
 	m.editClosedButtons(tk, g)
 	// v2 close tail: lock channel → full history merge → attachment mirror →
-	// HTML transcript → log channel. Best-effort pieces never fail the close.
+	// HTML transcript → log channel. This involves paging potentially thousands
+	// of messages and downloading files, so it runs in a recovered goroutine —
+	// CloseTicket must return promptly (interaction 3s deadline; dashboard HTTP).
 	if err := m.store.save(tk); err != nil {
 		return fmt.Errorf("failed to persist close: %w", err)
 	}
-	m.closeWithTranscript(tk, g)
+	closerID := byUserID
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				m.ctx.Logger.Error("Tickets: panic in close tail for %s: %v", tk.ID, r)
+			}
+		}()
+		m.closeWithTranscript(tk, g, closerID)
+	}()
 	m.postCloseSummary(tk, g, closerName)
 	return nil
 }

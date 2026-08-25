@@ -72,44 +72,42 @@ func buildChannelName(openerName string, at time.Time, taken map[string]bool) st
 }
 
 // takenChannelNames lists channel names already used by live tickets in this
-// guild (from the open-ticket index).
+// guild, via the store's own lock (never touch store.tickets directly).
 func (m *TicketsModule) takenChannelNames() map[string]bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	out := map[string]bool{}
-	for _, tk := range m.store.tickets {
+	for _, tk := range m.store.openTicketsSnapshot() {
 		for _, t := range tk {
-			if name, _, ok := splitTicketChannelName(t); ok {
-				out[name] = true
+			if t.ChannelName != "" {
+				out[t.ChannelName] = true
 			}
 		}
 	}
 	return out
 }
 
-// splitTicketChannelName reconstructs the channel base name from a ticket's
-// opener + open time (mirrors buildChannelName without collision suffix).
-func splitTicketChannelName(t *modules.Ticket) (name string, openedAt time.Time, ok bool) {
-	if t == nil || t.OpenedAt.IsZero() || t.OpenerID == "" {
-		return "", time.Time{}, false
-	}
-	return sanitizeChannelName(t.OpenerID) + "-" + t.OpenedAt.Format("01-02-06"), t.OpenedAt, true
+// memberHasRole checks a single role membership via the bot's member fetch.
+func (m *TicketsModule) memberHasRole(guildID, userID, roleID string) bool {
+	return m.memberHasAnyRole(guildID, userID, []string{roleID})
 }
 
-// memberHasRole checks role membership via the bot's member fetch.
-func (m *TicketsModule) memberHasRole(guildID, userID, roleID string) bool {
+// memberHasAnyRole fetches the member ONCE and compares against the wanted
+// role set (avoids N REST calls for N roles).
+func (m *TicketsModule) memberHasAnyRole(guildID, userID string, roleIDs []string) bool {
 	gid, e1 := snowflake.Parse(guildID)
 	uid, e2 := snowflake.Parse(userID)
-	rid, e3 := snowflake.Parse(roleID)
-	if e1 != nil || e2 != nil || e3 != nil {
+	if e1 != nil || e2 != nil || len(roleIDs) == 0 {
 		return false
 	}
 	mem, err := m.ctx.Rest.GetMember(gid, uid)
 	if err != nil || mem == nil {
 		return false
 	}
+	held := make(map[snowflake.ID]bool, len(mem.RoleIDs))
 	for _, r := range mem.RoleIDs {
-		if r == rid {
+		held[r] = true
+	}
+	for _, want := range roleIDs {
+		if rid, err := snowflake.Parse(want); err == nil && held[rid] {
 			return true
 		}
 	}
@@ -146,6 +144,7 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 	}
 
 	name := buildChannelName(opener.EffectiveName(), time.Now(), m.takenChannelNames())
+	ticket.ChannelName = name
 	ch, err := m.ctx.Rest.CreateGuildChannel(snowflake.MustParse(guildID), discord.GuildTextChannelCreate{
 		Name:                 name,
 		Topic:                "misfit-ticket:" + ticket.ID,
@@ -160,8 +159,11 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 
 	guildName := m.resolveGuildName(guildID)
 	fresh := m.fetchOpenerUser(guildID, ticket.OpenerID, opener)
+	welcome := renderTemplate(
+		firstNonEmpty(g.WelcomeMsg, "Welcome {user.mention}! Please describe your issue."),
+		ticket, groupFromType(g), fresh, guildName)
 	create := discord.MessageCreate{
-		Content: buildPingLine(g.PingRoles, ticket.OpenerID),
+		Content: buildPingLine(g.PingRoles, ticket.OpenerID) + "\n" + welcome,
 		Embeds:  []discord.Embed{buildOpenEmbed(ticket, g, fresh, guildName)},
 	}
 	if _, err := m.ctx.Rest.CreateMessage(ch.ID(), create); err != nil {
@@ -176,16 +178,12 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 
 // openerHasAccess reports whether the user holds any access role OR is
 // owner/elevated (they always pass; mods pass via helper roles normally).
+// The member record is fetched ONCE and the role set compared locally.
 func (m *TicketsModule) openerHasAccess(guildID, userID string, accessRoles []string) bool {
 	if m.ctx.Bot.IsOwner(userID) || m.ctx.Bot.IsElevated(userID) {
 		return true
 	}
-	for _, r := range accessRoles {
-		if m.memberHasRole(guildID, userID, r) {
-			return true
-		}
-	}
-	return false
+	return m.memberHasAnyRole(guildID, userID, accessRoles)
 }
 
 func buildPingLine(pingRoles []string, openerID string) string {

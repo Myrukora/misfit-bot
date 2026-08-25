@@ -65,8 +65,8 @@ func codeOrNone(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "*not set*"
 	}
-	if len(s) > 120 {
-		s = s[:117] + "…"
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:117]) + "…"
 	}
 	return "`" + s + "`"
 }
@@ -89,4 +89,33 @@ func mapKeysSorted(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// titleWord upper-cases the first rune of a word ("suspend" → "Suspend").
+func titleWord(s string) string {
+	r := []rune(s)
+	if len(r) == 0 {
+		return s
+	}
+	return strings.ToUpper(string(r[0])) + string(r[1:])
+}
+
+// titleCase converts an identifier ("contact_staff" / "bug-reports") into a
+// display label ("Contact Staff") — replaces the deprecated strings.Title.
+func titleCase(key string) string {
+	parts := strings.FieldsFunc(key, func(r rune) bool { return r == '-' || r == '_' || r == ' ' })
+	if len(parts) == 0 {
+		return key
+	}
+	var b strings.Builder
+	for i, p := range parts {
+		if p == "" {
+			continue
+		}
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(titleWord(p))
+	}
+	return b.String()
 }

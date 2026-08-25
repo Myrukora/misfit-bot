@@ -18,6 +18,8 @@ var discordPermManageMessages = discord.PermissionManageMessages
 func timeNowUTC() time.Time { return time.Now().UTC() }
 
 // memberPermissions computes a member's base guild permissions via REST.
+// Discord does NOT include @everyone in member.roles, so its bits are added
+// explicitly (role ID == guild ID).
 func (m *TicketsModule) memberPermissions(guildID, userID string) (discord.Permissions, bool) {
 	gid, e1 := snowflake.Parse(guildID)
 	uid, e2 := snowflake.Parse(userID)
@@ -34,6 +36,10 @@ func (m *TicketsModule) memberPermissions(guildID, userID string) (discord.Permi
 	}
 	var perms discord.Permissions
 	for _, r := range guild.Roles {
+		if r.ID == gid { // @everyone shares the guild ID
+			perms |= r.Permissions
+			continue
+		}
 		for _, mr := range mem.RoleIDs {
 			if r.ID == mr {
 				perms |= r.Permissions
@@ -46,24 +52,42 @@ func (m *TicketsModule) memberPermissions(guildID, userID string) (discord.Permi
 	return perms, perms != 0
 }
 
-// applyMemberOverwrite adds/removes one member's individual overwrite on the
-// ticket channel (best-effort; registry already updated).
+// applyMemberOverwrite updates ONE member's overwrite on the ticket channel.
+// disgo's UpdateChannel REPLACES the whole permission_overwrites list, so we
+// must read the current set, modify just this member's entry, and write the
+// complete list back — otherwise @everyone/bot/opener/helper overwrites are
+// wiped and everyone loses access to the ticket.
 func (m *TicketsModule) applyMemberOverwrite(tk *modules.Ticket, g TypeConfig, memberID string, grant bool) error {
 	cid, e1 := snowflake.Parse(tk.ChannelID)
 	uid, e2 := snowflake.Parse(memberID)
 	if e1 != nil || e2 != nil {
 		return fmt.Errorf("bad IDs")
 	}
-	closed := tk.Status != "open"
-	var overwrite discord.PermissionOverwrite
-	if grant {
-		allow, deny := interactionPerms(closed)
-		overwrite = discord.MemberPermissionOverwrite{UserID: uid, Allow: allow, Deny: deny}
-	} else {
-		overwrite = discord.MemberPermissionOverwrite{UserID: uid, Deny: permView | permHistory}
+	ch, err := m.ctx.Rest.GetChannel(cid)
+	if err != nil || ch == nil {
+		return fmt.Errorf("channel fetch failed: %w", err)
 	}
-	_, err := m.ctx.Rest.UpdateChannel(cid, discord.GuildTextChannelUpdate{
-		PermissionOverwrites: &[]discord.PermissionOverwrite{overwrite},
+	if _, ok := ch.(discord.GuildTextChannel); !ok {
+		return fmt.Errorf("not a text channel")
+	}
+	// Rebuild the full overwrite set from config, then layer the member change.
+	members := make([]string, 0, len(tk.Members)+1)
+	for _, id := range tk.Members {
+		if id != memberID {
+			members = append(members, id)
+		}
+	}
+	if grant {
+		members = append(members, memberID)
+	}
+	full := m.overwritesFor(tk.GuildID, tk.OpenerID, g, members, tk.Status != "open")
+	if !grant {
+		// Removed members get an explicit view-deny so they lose access even
+		// if role overwrites would otherwise let them in.
+		full = append(full, discord.MemberPermissionOverwrite{UserID: uid, Deny: permView | permHistory})
+	}
+	_, err = m.ctx.Rest.UpdateChannel(cid, discord.GuildTextChannelUpdate{
+		PermissionOverwrites: &full,
 	})
 	return err
 }
@@ -116,16 +140,22 @@ func (m *TicketsModule) isHelper(ctx *commands.Context, tk *modules.Ticket, user
 	if !ok {
 		return false
 	}
-	for _, r := range g.HelperRoles {
-		if m.memberHasRole(ctx.GuildID, userID, r) {
-			return true
-		}
+	if m.memberHasAnyRole(ctx.GuildID, userID, g.HelperRoles) {
+		return true
 	}
 	// Moderators (ManageMessages) always pass.
 	if perms, ok := m.memberPermissions(ctx.GuildID, userID); ok && perms.Has(discordPermManageMessages) {
 		return true
 	}
 	return false
+}
+
+func isHelperByType(m *TicketsModule, tk *modules.Ticket, userID string) bool {
+	g, ok := m.typeOf(tk.EffectiveType())
+	if !ok {
+		return false
+	}
+	return m.memberHasAnyRole(tk.GuildID, userID, g.HelperRoles)
 }
 
 func (m *TicketsModule) inChannelCommands() []commands.Command {
@@ -141,12 +171,6 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 			isOpener := userID == tk.OpenerID
 			if !isOpener && !m.isHelper(ctx, tk, userID) {
 				return ctx.Respond(embed.Error("❌ Error", "Only helpers or the ticket opener can close."))
-			}
-			if isOpener && !isHelperByType(m, tk, userID) {
-				g, _ := m.typeOf(tk.EffectiveType())
-				if !g.AllowCloseOn() {
-					return ctx.Respond(embed.Error("❌ Error", "The opener may not close this type of ticket — ask staff."))
-				}
 			}
 			if err := m.CloseTicket(ctx.GuildID, tk.ID, userID); err != nil {
 				return ctx.Respond(embed.Error("❌ Error", "Failed to close: "+err.Error()))
@@ -262,17 +286,4 @@ func (m *TicketsModule) addRemoveMember(ctx *commands.Context, add bool) error {
 		action = "removed"
 	}
 	return ctx.Respond(embed.Success("✅ Member "+action, "<@"+target+"> "+verb+" ticket `"+tk.ID+"`."))
-}
-
-func isHelperByType(m *TicketsModule, tk *modules.Ticket, userID string) bool {
-	g, ok := m.typeOf(tk.EffectiveType())
-	if !ok {
-		return false
-	}
-	for _, r := range g.HelperRoles {
-		if m.memberHasRole(tk.GuildID, userID, r) {
-			return true
-		}
-	}
-	return false
 }
