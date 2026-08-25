@@ -181,6 +181,31 @@ func (s *store) listOpen(guildID string) []modules.TicketSummary {
 	return out
 }
 
+// listClosed returns summaries of closed tickets by scanning ticket files
+// (closed ones are not held in memory).
+func (s *store) listClosed(guildID string) ([]modules.TicketSummary, error) {
+	dir := filepath.Join(ticketsRoot(s.dataDir), guildID)
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var out []modules.TicketSummary
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || e.Name() == "index.json" {
+			continue
+		}
+		tk, err := readTicketFile(filepath.Join(dir, e.Name()))
+		if err != nil || tk == nil || tk.Status != "closed" {
+			continue
+		}
+		out = append(out, summaryOf(tk))
+	}
+	return out, nil
+}
+
 // openIDs lists open ticket IDs from the on-disk index (rebuilt when absent).
 func (s *store) openIDs(guildID string) []string {
 	s.mu.Lock()
@@ -407,9 +432,10 @@ func (s *store) flushAll() error {
 }
 
 func summaryOf(tk *modules.Ticket) modules.TicketSummary {
+	typ := tk.EffectiveType()
 	return modules.TicketSummary{
-		ID: tk.ID, Group: tk.Group, GuildID: tk.GuildID,
+		ID: tk.ID, Type: typ, Group: typ, GuildID: tk.GuildID,
 		OpenerID: tk.OpenerID, ClaimerID: tk.ClaimerID,
-		Status: tk.Status, OpenedAt: tk.OpenedAt,
+		Status: tk.Status, OpenedAt: tk.OpenedAt, ClosedAt: tk.ClosedAt,
 	}
 }

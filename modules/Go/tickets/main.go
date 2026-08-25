@@ -16,10 +16,11 @@ import (
 type TicketsModule struct {
 	mu          sync.RWMutex
 	ctx         *modules.Context
-	cfg         Config
+	cfg         *Config
 	store       *store
+	botSelfID   string            // cached GetSelfUserID for overwrites
 	loaded      bool              // OnLoad done, OnUnload not yet run
-	panelMsgIDs map[string]string // guildID -> control-panel message ID
+	panelMsgIDs map[string]string // legacy; superseded by cfg.Panels registry
 }
 
 // New is the plugin entry symbol. It MUST return the modules.Module
@@ -68,11 +69,14 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.registerButtons()
 	m.registerLogging()
 
+	// Cache self ID for overwrite computation ([p]add etc. need it too).
 	m.mu.Lock()
+	m.botSelfID = ctx.Bot.GetSelfUserID()
 	m.loaded = true
 	m.mu.Unlock()
 
-	ctx.Logger.Info("Tickets module loaded (%d groups configured)", len(cfg.parsed))
+	ctx.Logger.Info("Tickets module loaded (v%d config: %d types, %d panels)",
+		cfg.Version, len(cfg.Types), len(cfg.Panels))
 	return nil
 }
 

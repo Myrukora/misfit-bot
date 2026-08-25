@@ -8,13 +8,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	defaultRetentionDays = 30
-	defaultTicketColor   = 0x5865F2 // blurple
-)
+// groups.go — v1 legacy shims kept ONLY for migrateV1 (parse old groups_yaml)
+// and the v1 dashboard textarea setter, which now routes into v2 types.
+// New code should use TypeConfig + the CLI/webconfig v2 paths.
 
-// GroupConfig is one ticket group: its own settings, panel button and
-// enable/disable switch.
+// GroupConfig is the v1 ticket group shape.
 type GroupConfig struct {
 	Key           string     `yaml:"key" json:"key"`
 	Label         string     `yaml:"label" json:"label"`
@@ -22,47 +20,18 @@ type GroupConfig struct {
 	ParentChannel string     `yaml:"parent_channel" json:"parent_channel"`
 	PingRoles     []string   `yaml:"ping_roles" json:"ping_roles"`
 	EmbedTemplate string     `yaml:"embed_template" json:"embed_template"`
-	Color         colorValue `yaml:"color" json:"color"`             // accepts "0x5865F2", "#5865f2", 5865F2 or 5793138
+	Color         colorValue `yaml:"color" json:"color"`
 	AllowClaim    *bool      `yaml:"allow_claim" json:"allow_claim"` // nil = default true
 	AllowClose    *bool      `yaml:"allow_close" json:"allow_close"`
 
-	Seq int `yaml:"seq,omitempty" json:"-"` // next ticket number per group (persisted)
+	Seq int `yaml:"seq,omitempty" json:"-"`
 }
 
-// AllowClaimOn/AllowCloseOn resolve the pointer fields with defaults.
 func (g GroupConfig) AllowClaimOn() bool { return g.AllowClaim == nil || *g.AllowClaim }
 func (g GroupConfig) AllowCloseOn() bool { return g.AllowClose == nil || *g.AllowClose }
 
-// colorValue accepts hex strings ("0x5865F2", "#5865f2", "5865F2") and plain
-// ints in YAML, so owners can type colors naturally. Invalid values unmarshal
-// to 0 and fall back to blurple at parse time (never an error, never black).
-type colorValue int
-
-// UnmarshalYAML implements yaml.Unmarshaler.
-func (c *colorValue) UnmarshalYAML(node *yaml.Node) error {
-	switch node.Kind {
-	case yaml.ScalarNode:
-		if n, err := strconv.ParseInt(node.Value, 0, 32); err == nil && n >= 0 && n <= 0xFFFFFF {
-			*c = colorValue(n)
-			return nil
-		}
-		s := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(node.Value, "#"), "0x"), "0X")
-		if n, err := strconv.ParseInt(s, 16, 32); err == nil && n >= 0 && n <= 0xFFFFFF {
-			*c = colorValue(n)
-			return nil
-		}
-		*c = 0 // invalid → fallback at parse time
-		return nil
-	default:
-		*c = 0
-		return nil
-	}
-}
-
-// parseGroupsYAML validates + parses the groups textarea value. Defaults are
-// applied here so both the config loader and the dashboard setter share one
-// code path. Structural errors (duplicates, enabled-without-parent, empty
-// key) reject the WHOLE list — the caller keeps the previous value.
+// parseGroupsYAML validates + parses the legacy groups textarea. Structural
+// errors reject the WHOLE list — callers keep the previous value.
 func parseGroupsYAML(in string) ([]GroupConfig, error) {
 	var groups []GroupConfig
 	s := strings.TrimSpace(in)
@@ -93,7 +62,7 @@ func parseGroupsYAML(in string) ([]GroupConfig, error) {
 			g.EmbedTemplate = "{user} opened a **{group}** ticket."
 		}
 		if g.Color == 0 {
-			g.Color = defaultTicketColor // invalid/absent → blurple, never black
+			g.Color = colorValue(defaultTicketColor)
 		}
 	}
 	return groups, nil
@@ -109,30 +78,57 @@ func colorFromHex(s string) (int, error) {
 	return int(v), nil
 }
 
-// ── Group registry helpers (on TicketsModule) ────────────────────────────
+// ── Type registry helpers (on TicketsModule) ─────────────────────────────
 
-// group returns the current parsed config for one group key.
-func (m *TicketsModule) group(key string) (GroupConfig, bool) {
+// typeOf returns the current config for one type key.
+func (m *TicketsModule) typeOf(key string) (TypeConfig, bool) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	for _, g := range m.cfg.parsed {
-		if g.Key == key {
-			return g, true
-		}
+	t, ok := m.cfg.Types[key]
+	if !ok || t == nil {
+		return TypeConfig{}, false
 	}
-	return GroupConfig{}, false
+	return *t, true
 }
 
-// groupsSnapshot returns a copy of the parsed group list.
-func (m *TicketsModule) groupsSnapshot() []GroupConfig {
+// typesSnapshot returns copies of all configured types sorted by key.
+func (m *TicketsModule) typesSnapshot() []TypeConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make([]GroupConfig, len(m.cfg.parsed))
-	copy(out, m.cfg.parsed)
+	out := make([]TypeConfig, 0, len(m.cfg.Types))
+	for _, t := range m.cfg.Types {
+		if t != nil {
+			out = append(out, *t)
+		}
+	}
+	for i := 1; i < len(out); i++ { // tiny n; insertion sort keeps deps minimal
+		for j := i; j > 0 && out[j].Key < out[j-1].Key; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
 	return out
 }
 
-// setGroupsYAML validates + stores a new groups list (dashboard setter path).
+// panelsSnapshot returns copies of all registered panels for one guild scope
+// (panels are global config today; guild filtering happens by stored channel).
+func (m *TicketsModule) panelsSnapshot() []PanelConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]PanelConfig, 0, len(m.cfg.Panels))
+	for _, p := range m.cfg.Panels {
+		out = append(out, p)
+	}
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j].Name < out[j-1].Name; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+// setGroupsYAML — v1 dashboard setter shim: converts the YAML list into v2
+// types in place. Panels keep working because panel.TypeKey values match the
+// migrated keys.
 func (m *TicketsModule) setGroupsYAML(guildID, yamlText string) error {
 	groups, err := parseGroupsYAML(yamlText)
 	if err != nil {
@@ -140,15 +136,23 @@ func (m *TicketsModule) setGroupsYAML(guildID, yamlText string) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	old := m.cfg.GroupsYAML
-	m.cfg.GroupsYAML = yamlText
-	m.cfg.parsed = groups
-	if err := m.cfg.save(m.ctx.DataDir); err != nil {
-		m.cfg.GroupsYAML = old
-		m.cfg.parsed = nil
-		parseAgain, _ := parseGroupsYAML(old)
-		m.cfg.parsed = parseAgain
-		return fmt.Errorf("save failed: %w", err)
+	newTypes := map[string]*TypeConfig{}
+	for _, g := range groups {
+		gc := g
+		newTypes[gc.Key] = &TypeConfig{
+			Key: gc.Key, Label: gc.Label, Enabled: gc.Enabled,
+			Category: gc.ParentChannel, PingRoles: gc.PingRoles,
+			EmbedBody: gc.EmbedTemplate, Color: gc.Color,
+			AllowClaim: gc.AllowClaim, AllowClose: gc.AllowClose,
+			ButtonLabel: gc.Label,
+		}
 	}
-	return nil
+	// Drop panels pointing at removed types.
+	for name, p := range m.cfg.Panels {
+		if _, ok := newTypes[p.TypeKey]; !ok && len(newTypes) > 0 {
+			delete(m.cfg.Panels, name)
+		}
+	}
+	m.cfg.Types = newTypes
+	return m.cfg.save(m.ctx.DataDir)
 }

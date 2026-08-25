@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"strings"
+	"sort"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -11,18 +11,14 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
-// ── modules.TicketProvider implementation ─────────────────────────────────
-// The dashboard reaches the tickets module exclusively through this
-// interface; CloseTicket is the SAME path the in-chat Close button uses.
+// provider.go — modules.TicketProvider implementation. The dashboard reaches
+// the tickets module exclusively through this interface; CloseTicket is the
+// SAME path the in-chat [p]close command uses.
 
-// validGuildID reports whether s is a well-formed Discord snowflake. Every
-// provider entry point validates IDs explicitly so path building
-// (filepath.Join(ticketsRoot, guildID, ...)) never depends on router shape:
-// a non-snowflake guildID cannot traverse, and ticketIDs are checked against
-// the strict "<group>-<digits>" scheme in the store.
+// validGuildID reports whether s is a well-formed Discord snowflake.
 func validGuildID(s string) bool {
 	_, err := snowflake.Parse(s)
-	return err == nil && strings.TrimSpace(s) != ""
+	return err == nil && s != ""
 }
 
 // ListOpenTickets returns every open ticket in the guild, oldest first.
@@ -34,6 +30,22 @@ func (m *TicketsModule) ListOpenTickets(guildID string) ([]modules.TicketSummary
 		return nil, fmt.Errorf("invalid guildID")
 	}
 	return m.store.listOpen(guildID), nil
+}
+
+// ListClosedTickets returns closed tickets newest-first (archive UI).
+func (m *TicketsModule) ListClosedTickets(guildID string) ([]modules.TicketSummary, error) {
+	if !m.isLoaded() {
+		return nil, fmt.Errorf("tickets module is not loaded")
+	}
+	if !validGuildID(guildID) {
+		return nil, fmt.Errorf("invalid guildID")
+	}
+	out, err := m.store.listClosed(guildID)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ClosedAt.After(out[j].ClosedAt) })
+	return out, nil
 }
 
 // GetTicket returns one ticket incl. its full log. (nil, nil) = not found.
@@ -50,9 +62,7 @@ func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, er
 	return m.store.load(guildID, ticketID)
 }
 
-// CloseTicket closes a ticket on behalf of byUserID: marks it closed, greys
-// the panel buttons, archives the thread, appends a closure log entry and
-// updates the index. Idempotent for already-closed tickets (returns nil).
+// CloseTicket closes a ticket on behalf of byUserID. Idempotent.
 func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	if !m.isLoaded() {
 		return fmt.Errorf("tickets module is not loaded")
@@ -70,8 +80,7 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	if tk == nil {
 		return fmt.Errorf("ticket %s not found", ticketID)
 	}
-	// Resolve the closer's display name BEFORE taking any lock — this makes a
-	// Discord REST call that can block for seconds under rate limiting.
+	// Resolve closer display name BEFORE locks (REST call can block).
 	closerName := byUserID
 	if mem, ok := m.memberName(guildID, byUserID); ok {
 		closerName = mem
@@ -82,17 +91,20 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 		return nil // idempotent
 	}
 	tk.Status = "closed"
-	tk.ClosedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	tk.ClosedAt = now
 	tk.Log = append(tk.Log, modules.LogEntry{
 		MsgID: "system-close-" + tk.ID, AuthorID: byUserID,
 		AuthorName: closerName, IsBot: true,
-		Timestamp: tk.ClosedAt, Content: "_Ticket closed._",
+		Timestamp: now, Content: "_Ticket closed._",
 	})
 	m.mu.Unlock()
 
-	g, _ := m.group(tk.Group)
+	g, _ := m.typeOf(tk.EffectiveType())
 	m.editClosedButtons(tk, g)
-	m.archiveThread(tk)
+
+	// T5 will add: lock channel overwrites, transcript HTML build+post,
+	// attachment mirroring. For now persistence keeps v1 semantics.
 	if err := m.store.save(tk); err != nil {
 		return fmt.Errorf("failed to persist close: %w", err)
 	}
@@ -100,59 +112,62 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	return nil
 }
 
-// ListGroups exposes configured groups (dashboard filter UI).
-func (m *TicketsModule) ListGroups(guildID string) ([]modules.GroupSummary, error) {
-	groups := m.groupsSnapshot()
-	out := make([]modules.GroupSummary, len(groups))
-	for i, g := range groups {
-		out[i] = modules.GroupSummary{Key: g.Key, Label: g.Label, Enabled: g.Enabled}
+// ListTypes exposes configured types for dashboard editors.
+func (m *TicketsModule) ListTypes(guildID string) ([]modules.TypeSummary, error) {
+	if !m.isLoaded() {
+		return nil, fmt.Errorf("tickets module is not loaded")
+	}
+	types := m.typesSnapshot()
+	out := make([]modules.TypeSummary, len(types))
+	for i, t := range types {
+		out[i] = modules.TypeSummary{
+			Key: t.Key, Label: t.Label, Enabled: t.Enabled,
+			ButtonLabel: t.ButtonLabel, ButtonEmoji: t.ButtonEmoji,
+			Color: int(t.Color),
+		}
 	}
 	return out, nil
 }
 
-// archiveThread archives+locks the ticket thread so it stays readable but
-// frozen. Best-effort: failures are logged, never fatal to closing.
-func (m *TicketsModule) archiveThread(tk *modules.Ticket) {
-	cid, err := snowflake.Parse(tk.ChannelID)
-	if err != nil {
-		return
-	}
-	archived := true
-	locked := true
-	update := discord.GuildThreadUpdate{Archived: &archived, Locked: &locked}
-	if _, err := m.ctx.Rest.UpdateChannel(cid, update); err != nil {
-		m.ctx.Logger.Warn("Tickets: failed to archive thread %s: %v", tk.ChannelID, err)
-	}
-}
-
 // postCloseSummary drops a compact summary into log_channel when configured.
-func (m *TicketsModule) postCloseSummary(tk *modules.Ticket, g GroupConfig, closedBy string) {
+func (m *TicketsModule) postCloseSummary(tk *modules.Ticket, g TypeConfig, closedBy string) {
 	m.mu.RLock()
-	gcfg, ok := m.cfg.Guilds[tk.GuildID]
+	logCh := ""
+	if m.cfg != nil {
+		logCh = m.cfg.LogChannel
+	}
 	m.mu.RUnlock()
-	if !ok || gcfg.LogChannel == "" {
+	if logCh == "" {
 		return
 	}
-	chID, err := snowflake.Parse(gcfg.LogChannel)
+	chID, err := snowflake.Parse(logCh)
 	if err != nil {
 		return
 	}
-	msgCount := len(tk.Log)
-	desc := fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s> · %d messages\nClosed by **%s**",
-		g.Label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, msgCount, closedBy)
-	create := discord.MessageCreate{
-		Embeds: []discord.Embed{embedInfo("Ticket closed", desc)},
+	label := g.Label
+	if label == "" {
+		label = tk.EffectiveType()
 	}
+	desc := fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s>%s\nClosed by **%s**",
+		label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, claimedSuffix(tk), closedBy)
+	create := discord.MessageCreate{Embeds: []discord.Embed{embedInfo("Ticket closed", desc)}}
 	if _, err := m.ctx.Rest.CreateMessage(chID, create); err != nil {
 		m.ctx.Logger.Warn("Tickets: failed to post close summary: %v", err)
 	}
 }
 
-// memberName resolves a display name via REST cache fallback chain.
+func claimedSuffix(tk *modules.Ticket) string {
+	if tk.ClaimerID != "" {
+		return fmt.Sprintf(" · claimed by <@%s>", tk.ClaimerID)
+	}
+	return ""
+}
+
+// memberName resolves a display name via REST.
 func (m *TicketsModule) memberName(guildID, userID string) (string, bool) {
-	gid, err1 := snowflake.Parse(guildID)
-	uid, err2 := snowflake.Parse(userID)
-	if err1 != nil || err2 != nil {
+	gid, e1 := snowflake.Parse(guildID)
+	uid, e2 := snowflake.Parse(userID)
+	if e1 != nil || e2 != nil {
 		return "", false
 	}
 	mem, err := m.ctx.Rest.GetMember(gid, uid)
