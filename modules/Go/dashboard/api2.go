@@ -354,6 +354,11 @@ func tailLines(path string, n int) ([]string, error) {
 // (server-side, in ExecuteCommand), OwnerOnly requires owner/elevated, and
 // RequiredPerm commands check the user's cached perms for the given guild.
 // The response is the captured embed/text, never raw process output.
+//
+// The exec allowlist (DashboardConfig.ExecAllowlist) is the security
+// boundary: when non-empty, any command not in the list is refused before
+// ExecuteCommand is called, so an owner can lock the dashboard to a safe
+// subset even if it's reachable on the network.
 func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *userSession) {
 	if !m.checkCSRF(r) {
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
@@ -373,6 +378,10 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 		writeError(w, http.StatusBadRequest, "command required")
 		return
 	}
+	if !m.execAllowed(body.Command) {
+		writeError(w, http.StatusForbidden, "this command is not enabled for the dashboard")
+		return
+	}
 	res, err := m.ctx.Bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String(), m.execMode())
 	if err != nil {
 		code := http.StatusBadRequest
@@ -385,6 +394,35 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 	writeJSON(w, http.StatusOK, map[string]any{
 		"title": res.Title, "description": res.Description, "color": res.Color, "text": res.Text,
 	})
+}
+
+// execAllowed reports whether a command name may be run via the dashboard's
+// Run button. An empty allowlist means "allow all"; a non-empty one allows
+// only its entries. This is the sole security boundary for /api/exec.
+func (m *DashboardModule) execAllowed(name string) bool {
+	allowlist := m.execAllowlist()
+	if len(allowlist) == 0 {
+		return true
+	}
+	for _, allowed := range allowlist {
+		if allowed == name {
+			return true
+		}
+	}
+	return false
+}
+
+// execAllowlist returns a copy of the configured exec allowlist, read under
+// the config lock so it stays consistent with cfg swaps.
+func (m *DashboardModule) execAllowlist() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg == nil {
+		return nil
+	}
+	out := make([]string, len(m.cfg.ExecAllowlist))
+	copy(out, m.cfg.ExecAllowlist)
+	return out
 }
 
 // ── /api/updater/* (owner only) ──────────────────────────────────────────

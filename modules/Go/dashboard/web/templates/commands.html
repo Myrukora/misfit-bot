@@ -48,40 +48,6 @@
         <div><span class="lbl">Owner only</span> {{yesno .OwnerOnly}}</div>
         {{if .SuperOwnerOnly}}<div><span class="lbl">Super-owner only</span> {{yesno .SuperOwnerOnly}}</div>{{end}}
         {{if .UsableIn}}<div><span class="lbl">Usable in</span> {{joinOr .UsableIn ", " "nowhere cached"}}</div>{{end}}
-        {{if and .Usable (not .SuperOwnerOnly)}}
-        <div class="cmd-run" data-command="{{.Name}}" data-guild="{{$.Content.guild}}">
-          {{if $.Content.channels}}
-          <select class="cfg-field cmd-run-channel" aria-label="Channel for {{.Name}}">
-            <option value="">— channel —</option>
-            {{range $.Content.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-          </select>
-          {{else}}
-          <input type="text" class="cfg-field cmd-run-channel" placeholder="channel ID (optional)" aria-label="Optional channel ID for {{.Name}}">
-          {{end}}
-          {{if .Options}}
-          {{range .Options}}
-          {{if eq .Type "subcommand"}}
-          <div class="cmd-arg cmd-sub" data-arg="{{.Name}}">
-            <label class="cmd-arg-label" title="{{.Description}}">subcommand{{if .Required}} <em>*</em>{{end}}</label>
-            <select class="cfg-field cmd-arg-input cmd-sub-select" aria-label="subcommand">
-              {{range .Choices}}<option value="{{.}}">{{.}}</option>{{end}}
-            </select>
-            {{range .Sub}}
-            <div class="cmd-sub-group" data-sub="{{.Name}}">
-              {{range .Args}}{{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}{{end}}
-            </div>
-            {{end}}
-          </div>
-          {{else}}
-          {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}
-          {{end}}
-          {{end}}
-          {{else if .FreeArgs}}
-          <input type="text" class="cfg-field cmd-args-free" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
-          {{end}}
-          <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
-          <div class="cmd-run-result" role="status" aria-live="polite" hidden></div>
-        </div>
         {{end}}
       </div>
     </details>
