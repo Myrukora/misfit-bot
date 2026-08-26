@@ -92,3 +92,6 @@ modules/Go/*/*.so
 scratch/
 *.local.yml
 *.local.yaml
+
+# Leftover git worktrees from dev sessions
+.worktrees/
