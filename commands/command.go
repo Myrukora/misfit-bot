@@ -101,6 +101,10 @@ type Interface interface {
 	UnloadAllModules() error
 	GetModuleManager() interface{}
 	GetUpdater() interface{}
+	// CommandOverrides returns the per-command override store (nil when the
+	// feature is disabled). Enabling it is a one-liner in main(); dispatchers
+	// and the dashboard read through this accessor.
+	CommandOverrides() *CommandOverrides
 	GetAllModuleCommands() []Command
 	GetAllModuleCommandsByModule() []ModuleCommands // module name → its prefix commands, in load order
 	GetAvailableModuleNames() []string

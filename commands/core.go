@@ -128,6 +128,9 @@ func init() {
 				if cmd.SuperOwnerOnly && !ctx.Bot.IsOwner(userID) {
 					return false
 				}
+				if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
+					return false
+				}
 				return ctx.Bot.CanUse(userID, userPerms, cmd.RequiredPerm, cmd.OwnerOnly, guildOwnerID)
 			}
 
@@ -139,6 +142,9 @@ func init() {
 				allCmds = append(allCmds, ctx.Bot.GetAllModuleCommands()...)
 				for _, cmd := range allCmds {
 					if cmd.Name == cmdName || util.ContainsStr(cmd.Aliases, cmdName) {
+						if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
+							continue
+						}
 						if !canUse(cmd) {
 							return ctx.Respond(embed.Error("🚫 Permission Denied", fmt.Sprintf("You don't have permission to use `%s`.", ctx.Args[0])))
 						}

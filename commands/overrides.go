@@ -194,6 +194,24 @@ func (o *CommandOverrides) Allowed(cmd, guildID, channelID string, memberPerms d
 	return true
 }
 
+// IsDisabled reports whether the command is disabled globally or in the given
+// guild. Used to filter disabled commands out of the [p]help listing. A nil or
+// unreadable store returns false (everything shown).
+func (o *CommandOverrides) IsDisabled(cmd, guildID string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if g, ok := o.data.Global[cmd]; ok && g.Disabled != nil && *g.Disabled {
+		return true
+	}
+	if guildID == "" {
+		return false
+	}
+	if gc, ok := o.data.Guilds[guildID][cmd]; ok && gc.Disabled != nil && *gc.Disabled {
+		return true
+	}
+	return false
+}
+
 // EffectiveRequiredPerm returns the effective RequiredPerm for a command: the
 // global override when present, otherwise the base command's own permission.
 // The dispatcher passes this to CanUse so owner/elevated still bypass via the
