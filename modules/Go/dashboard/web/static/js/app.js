@@ -190,6 +190,21 @@
         }
         setMetric('m-cmds', s.commands);
         if (s.runtime) { setMetric('m-mem', s.runtime.alloc_mb); setMetric('m-goros', s.runtime.goroutines); }
+        // Live system info card (staff+).
+        if (s.runtime) {
+          const goEl = document.getElementById('sys-go');
+          if (goEl && s.runtime.go_version) goEl.textContent = s.runtime.go_version;
+          const heapEl = document.getElementById('sys-heap');
+          if (heapEl) heapEl.textContent = s.runtime.alloc_mb + ' MB';
+          const gEl = document.getElementById('sys-goros');
+          if (gEl) gEl.textContent = s.runtime.goroutines;
+        }
+        const sysUptime = document.getElementById('sys-uptime');
+        if (sysUptime) sysUptime.textContent = s.uptime;
+        const sysMods = document.getElementById('sys-mods');
+        if (sysMods) sysMods.textContent = s.modules_loaded + '/' + s.modules_available;
+        const sysCmds = document.getElementById('sys-cmds');
+        if (sysCmds) sysCmds.textContent = s.commands;
       } catch (_) {}
     }
     refresh();

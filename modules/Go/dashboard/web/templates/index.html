@@ -24,6 +24,18 @@
 
 {{if .ShowConfig}}
 <section class="card reveal" style="--d:.32s">
+  <h3>System</h3>
+  <div class="sys-grid">
+    <div class="sys-row"><span class="sys-lbl">Go runtime</span><code id="sys-go">{{.Content.Runtime.go_version}}</code></div>
+    <div class="sys-row"><span class="sys-lbl">Heap</span><code id="sys-heap">{{.Content.Runtime.alloc_mb}} MB</code></div>
+    <div class="sys-row"><span class="sys-lbl">Goroutines</span><code id="sys-goros">{{.Content.Runtime.goroutines}}</code></div>
+    <div class="sys-row"><span class="sys-lbl">Uptime</span><code>{{.Content.Uptime}}</code></div>
+    <div class="sys-row"><span class="sys-lbl">Loaded modules</span><code>{{.Content.ModulesLoaded}}/{{.Content.ModulesAvail}}</code></div>
+    <div class="sys-row"><span class="sys-lbl">Commands</span><code>{{.Content.Commands}}</code></div>
+  </div>
+</section>
+
+<section class="card reveal" style="--d:.34s">
   <h3>Loaded modules</h3>
   {{if .Content.Modules}}<div class="chips">{{range .Content.Modules}}<span class="chip">{{.}}</span>{{end}}</div>{{else}}<p class="muted">No modules loaded.</p>{{end}}
   <div class="quick-links" style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
