@@ -706,12 +706,18 @@
     // lists exist only when the page URL had ?guild= — for the "All servers"
     // view (or a different guild picked in the modal) fetch them on demand
     // from /api/guild/<id> (channels + roles, cache-served).
+    // guildLoadGen increments on every guild selection change; responses from
+    // stale requests (user switched guilds before the fetch resolved) must not
+    // overwrite the active pickers or toast against the wrong guild.
+    let guildLoadGen = 0;
     async function loadGuildEntities(guildID, checkedCh, checkedRo) {
+      const gen = ++guildLoadGen;
       channelsBox.replaceChildren();
       rolesBox.replaceChildren();
       if (!guildID) return;
       try {
         const d = await req('GET', '/api/guild/' + encodeURIComponent(guildID));
+        if (guildSel.value !== guildID || gen !== guildLoadGen) return; // stale
         const mkItem = (id, name) => {
           const label = document.createElement('label');
           label.className = 'multi-item';
@@ -729,7 +735,9 @@
         syncPicker(channelsBox, checkedCh);
         syncPicker(rolesBox, checkedRo);
       } catch (e) {
-        toast('Failed to load channels/roles: ' + e.message, 'err');
+        if (guildSel.value === guildID && gen === guildLoadGen) {
+          toast('Failed to load channels/roles: ' + e.message, 'err');
+        }
       }
     }
     guildSel.addEventListener('change', () => {
@@ -740,11 +748,6 @@
     document.getElementById('gear-close').addEventListener('click', closeModal);
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && !modal.hidden) closeModal();
-    });
-
-    guildSel.addEventListener('change', () => {
-      document.getElementById('gear-fields').hidden = guildSel.value === '';
-      refreshHint();
     });
     globalToggle.addEventListener('change', refreshHint);
     modOnlyToggle.addEventListener('change', refreshHint);

@@ -183,7 +183,16 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		// kept as a redirect so old links still land somewhere sensible.
 		if r.Method == "GET" {
 			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
-				http.Redirect(w, r, "/admin", http.StatusSeeOther)
+				us := sessionOf(r)
+				level := m.resolveLevel(us)
+				switch {
+				case level == lvlOwner:
+					http.Redirect(w, r, "/admin", http.StatusSeeOther)
+				case len(r.URL.Query().Get("guild")) > 0 && m.canManageGuild(us, r.URL.Query().Get("guild")):
+					http.Redirect(w, r, "/g/"+r.URL.Query().Get("guild")+"/modules", http.StatusSeeOther)
+				default:
+					http.Redirect(w, r, "/", http.StatusSeeOther)
+				}
 			})(w, r)
 			return
 		}
