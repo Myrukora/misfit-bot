@@ -3,19 +3,17 @@ package commands
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/updater"
 	"github.com/disgoorg/disgo/discord"
-	"gopkg.in/yaml.v3"
 )
 
 var mentionRegex = regexp.MustCompile(`^<@!?(\d+)>$`)
@@ -562,73 +560,37 @@ func init() {
 		OwnerOnly:   true,
 		Category:    "core",
 		Execute: func(ctx *Context) error {
-			configDir := ctx.Bot.GetConfigDir()
+			cfgDir := ctx.Bot.GetConfigDir()
+			svc := config.NewBackupService(cfgDir)
 
 			if len(ctx.Args) == 0 {
-				// Default: create a new backup
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				dst := filepath.Join(configDir, fmt.Sprintf("config_backup_%s.yml", timestamp))
-
-				input, err := os.ReadFile(src)
+				name, err := svc.Create()
 				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config: %v", err)))
+					return ctx.Respond(embed.Error("❌ Error", err.Error()))
 				}
-				if err := os.WriteFile(dst, input, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to write backup: %v", err)))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `config_backup_%s.yml`", timestamp)))
+				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `%s`", name)))
 			}
 
 			subcmd := strings.ToLower(ctx.Args[0])
 
 			switch subcmd {
 			case "create":
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				dst := filepath.Join(configDir, fmt.Sprintf("config_backup_%s.yml", timestamp))
-
-				input, err := os.ReadFile(src)
+				name, err := svc.Create()
 				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config: %v", err)))
+					return ctx.Respond(embed.Error("❌ Error", err.Error()))
 				}
-				if err := os.WriteFile(dst, input, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to write backup: %v", err)))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `config_backup_%s.yml`", timestamp)))
+				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `%s`", name)))
 
 			case "verify":
 				if len(ctx.Args) < 2 {
 					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
 				}
 				backupFile := ctx.Args[1]
-				if !strings.HasSuffix(backupFile, ".yml") && !strings.HasSuffix(backupFile, ".yaml") {
-					backupFile += ".yml"
+				if warn, err := svc.Verify(backupFile); err != nil {
+					return ctx.Respond(embed.Error("❌ Error", err.Error()))
+				} else if warn != "" {
+					return ctx.Respond(embed.Warning("⚠️ Warning", fmt.Sprintf("Backup file `%s` parsed successfully, but %s. Restore may fail.", backupFile, warn)))
 				}
-				backupPath := filepath.Join(configDir, backupFile)
-
-				// Check if file exists
-				if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Backup file `%s` not found.", backupFile)))
-				}
-
-				// Try to parse as YAML
-				data, err := os.ReadFile(backupPath)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read backup file: %v", err)))
-				}
-
-				// Use yaml.Unmarshal to validate syntax
-				var testMap map[string]interface{}
-				if err := yaml.Unmarshal(data, &testMap); err != nil {
-					return ctx.Respond(embed.Error("❌ Invalid YAML", fmt.Sprintf("Backup file is invalid:\n`%s`", err.Error())))
-				}
-
-				// Check if it has required bot config
-				if testMap["bot"] == nil {
-					return ctx.Respond(embed.Warning("⚠️ Warning", "Backup file parsed successfully, but missing `bot` section. Restore may fail."))
-				}
-
 				return ctx.Respond(embed.Success("✅ Backup Valid", fmt.Sprintf("Backup file `%s` is valid YAML and contains bot configuration.", backupFile)))
 
 			case "restore":
@@ -636,10 +598,6 @@ func init() {
 					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
 				}
 				backupFile := ctx.Args[1]
-				if !strings.HasSuffix(backupFile, ".yml") && !strings.HasSuffix(backupFile, ".yaml") {
-					backupFile += ".yml"
-				}
-
 				// Check for --confirm flag (also accepts a trailing true/yes —
 				// the /backup restore confirm:true slash option and the
 				// dashboard's confirm switch both arrive as a positional arg).
@@ -653,65 +611,23 @@ func init() {
 						hasConfirm = true
 					}
 				}
-
 				if !hasConfirm {
 					return ctx.Respond(embed.Warning("⚠️ Confirmation Required", fmt.Sprintf("To restore from `%s`, use: `"+ctx.Bot.GetPrefix()+"backup restore %s --confirm`", backupFile, backupFile)))
 				}
-
-				backupPath := filepath.Join(configDir, backupFile)
-
-				// Check if file exists
-				if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Backup file `%s` not found.", backupFile)))
-				}
-
-				// Verify the backup first
-				data, err := os.ReadFile(backupPath)
+				safe, err := svc.Restore(backupFile, true)
 				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read backup file: %v", err)))
+					return ctx.Respond(embed.Error("❌ Error", err.Error()))
 				}
-
-				var testMap map[string]interface{}
-				if err := yaml.Unmarshal(data, &testMap); err != nil {
-					return ctx.Respond(embed.Error("❌ Invalid Backup", fmt.Sprintf("Backup file is invalid YAML:\n`%s`", err.Error())))
-				}
-
-				// Backup current config before restoring
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				safeBackup := filepath.Join(configDir, fmt.Sprintf("config_pre_restore_%s.yml", timestamp))
-				if curConfig, readErr := os.ReadFile(src); readErr == nil {
-					os.WriteFile(safeBackup, curConfig, 0644)
-				}
-
-				// Restore the backup
-				restoredPath := filepath.Join(configDir, "config.yml")
-				if err := os.WriteFile(restoredPath, data, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to restore config: %v", err)))
-				}
-
-				return ctx.Respond(embed.Success("✅ Config Restored", fmt.Sprintf("Config restored from `%s`.\nPre-restore backup saved to `config_pre_restore_%s.yml`.\n**Restart required to apply changes.**", backupFile, timestamp)))
+				return ctx.Respond(embed.Success("✅ Config Restored", fmt.Sprintf("Config restored from `%s`.\nPre-restore backup saved to `%s`.\n**Restart required to apply changes.**", backupFile, safe)))
 
 			case "list":
-				// List all backup files
-				entries, err := os.ReadDir(configDir)
+				backups, err := svc.List()
 				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config directory: %v", err)))
+					return ctx.Respond(embed.Error("❌ Error", err.Error()))
 				}
-
-				var backups []string
-				for _, entry := range entries {
-					name := entry.Name()
-					if strings.HasPrefix(name, "config_backup_") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")) {
-						backups = append(backups, name)
-					}
-				}
-
 				if len(backups) == 0 {
 					return ctx.Respond(embed.Info("📦 Backups", "No backup files found."))
 				}
-
-				sort.Strings(backups)
 				var desc string
 				for i, b := range backups {
 					desc += fmt.Sprintf("%d. `%s`\n", i+1, b)
