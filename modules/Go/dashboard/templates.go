@@ -38,6 +38,26 @@ type renderData struct {
 	IsRegular   bool
 	ShowSidebar bool // false = standalone page (login/setup): no sidebar/topbar
 	Raw         bool
+	// ModuleNav carries the per-module sidebar sections (Task 10): loaded
+	// modules that implement WebTabser (extra tabs) and/or WebConfigurable
+	// (implicit Settings entry). Empty for standalone pages.
+	ModuleNav []moduleNavItem
+}
+
+// moduleNavItem is one per-module sidebar group: the module's display name
+// plus its links (Settings when WebConfigurable, plus each declared WebTab).
+type moduleNavItem struct {
+	Name     string       // module name (display)
+	Settings string       // settings URL when the module is WebConfigurable, else ""
+	Tabs     []navTabItem // declared extra tabs
+	Active   bool         // true when the current page belongs to this module
+}
+
+// navTabItem is one extra tab link inside a module's sidebar group.
+type navTabItem struct {
+	Name   string
+	URL    string
+	Active bool
 }
 
 var tmplFuncs = template.FuncMap{
@@ -176,6 +196,17 @@ func loadTemplates() (*templateBundle, error) {
 func (b *templateBundle) render(w io.Writer, page string, data renderData) error {
 	if data.Page == "" {
 		data.Page = page
+	}
+	// Per-module nav active state: a tab is active when its URL path matches
+	// the current page (e.g. /tickets vs page "tickets").
+	for i := range data.ModuleNav {
+		item := &data.ModuleNav[i]
+		for j := range item.Tabs {
+			if strings.TrimPrefix(item.Tabs[j].URL, "/") == data.Page {
+				item.Tabs[j].Active = true
+				item.Active = true
+			}
+		}
 	}
 	return b.tmpl.ExecuteTemplate(w, page, data)
 }

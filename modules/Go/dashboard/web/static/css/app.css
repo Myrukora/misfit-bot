@@ -217,6 +217,15 @@ code {
 .brand-sub { font-size: 11px; color: var(--muted); letter-spacing: 0.14em; text-transform: uppercase; }
 
 .nav { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+
+/* ── per-module sidebar sections (Task 10) ───────────────────────────── */
+.nav-module { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 6px 10px; margin: 2px 0; border-left: 2px solid var(--border); border-radius: 0 8px 8px 0; }
+.nav-module-name { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted-foreground); padding: 2px 8px; }
+.nav-sub { display: block; padding: 5px 8px 5px 18px; border-radius: 7px; color: var(--muted-foreground); font-size: 13.5px; text-decoration: none; }
+.nav-sub:hover { color: var(--foreground); background: var(--card); }
+.nav-sub.active { color: var(--foreground); background: var(--card); font-weight: 600; }
+.sidebar.collapsed .nav-module-name { font-size: 0; padding: 2px 0; }
+.sidebar.collapsed .nav-sub { font-size: 0; padding-left: 0; padding-right: 0; }
 .nav-item {
   position: relative;
   display: flex;
