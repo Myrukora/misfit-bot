@@ -12,7 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/modules"
 	"github.com/misfit/bot/updater"
 	"gopkg.in/yaml.v3"
@@ -205,6 +208,122 @@ func (m *DashboardModule) apiPresence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := m.ctx.Bot.SetPresence(body.Type, body.Status, body.Text); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// ── /api/backups (owner only) ─────────────────────────────────────────────
+// Mirrors the [p]backup command through the shared config.BackupService, so
+// the dashboard and the (removed) command always behave identically.
+
+// apiBackupsList returns the timestamped backup files in the config dir.
+func (m *DashboardModule) apiBackupsList(w http.ResponseWriter, r *http.Request) {
+	svc := config.NewBackupService(m.ctx.Bot.GetConfigDir())
+	names, err := svc.List()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if names == nil {
+		names = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"backups": names})
+}
+
+// apiBackupsAction performs one backup operation: create, verify or restore.
+// Restore overwrites config.yml (after the service writes a pre-restore
+// safety copy) — the UI asks for confirmation first.
+func (m *DashboardModule) apiBackupsAction(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	var body struct {
+		Action string `json:"action"`
+		Name   string `json:"name"`
+	}
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	svc := config.NewBackupService(m.ctx.Bot.GetConfigDir())
+	switch body.Action {
+	case "create":
+		name, err := svc.Create()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "created": name})
+	case "verify":
+		warn, err := svc.Verify(body.Name)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		res := map[string]any{"ok": true, "name": body.Name}
+		if warn != "" {
+			res["warning"] = warn
+		}
+		writeJSON(w, http.StatusOK, res)
+	case "restore":
+		pre, err := svc.Restore(body.Name, true)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pre_restore_backup": pre})
+	default:
+		writeError(w, http.StatusBadRequest, "unknown action: "+body.Action)
+	}
+}
+
+// ── /api/nickname ─────────────────────────────────────────────────────────
+// Sets the bot's per-guild nickname via the Discord REST endpoint for the
+// current member. Empty nick clears the nickname. Guild managers (staff+) may
+// rename the bot in guilds they manage — the same power Discord's permission
+// system gives anyone with Change Nickname.
+
+// apiNickname applies a per-guild nickname change.
+func (m *DashboardModule) apiNickname(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	us := sessionOf(r)
+	if us == nil {
+		writeError(w, http.StatusUnauthorized, "not logged in")
+		return
+	}
+	var body struct {
+		GuildID string `json:"guildID"`
+		Nick    string `json:"nick"`
+	}
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.GuildID == "" {
+		writeError(w, http.StatusBadRequest, "guild required")
+		return
+	}
+	if !m.canManageGuild(us, body.GuildID) {
+		writeError(w, http.StatusForbidden, "you may not manage this guild")
+		return
+	}
+	if m.client == nil {
+		writeError(w, http.StatusServiceUnavailable, "bot client not ready")
+		return
+	}
+	gid, err := snowflake.Parse(body.GuildID)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid guild id")
+		return
+	}
+	nick := strings.TrimSpace(body.Nick)
+	if _, err := m.client.Rest.UpdateCurrentMember(gid, discord.CurrentMemberUpdate{Nick: &nick}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -777,6 +896,27 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 		writeError(w, http.StatusNotFound, "not found")
 		return
+	case "backups":
+		// Owner only — restore overwrites config.yml, the same power the
+		// removed [p]backup command reserved for the owner.
+		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
+			writeError(w, http.StatusForbidden, "owner only")
+			return
+		}
+		switch {
+		case meth == "GET" && len(parts) == 1:
+			m.apiBackupsList(w, r)
+		case meth == "POST" && len(parts) == 1:
+			m.apiBackupsAction(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+		return
+	case "nickname":
+		if meth == "POST" {
+			m.apiNickname(w, r)
+			return
+		}
 	case "presence":
 		if meth == "POST" {
 			us := sessionOf(r)

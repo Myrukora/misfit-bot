@@ -127,8 +127,17 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "settings":
+		// Kept as a live route until Task 11c retires it with a redirect; the
+		// Configuration tab is the new home for core config.
 		if r.Method == "GET" {
 			m.handleSettingsPage(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
+	case "configuration":
+		if r.Method == "GET" {
+			m.requireAuthed(m.handleConfigurationPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)

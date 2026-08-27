@@ -142,6 +142,8 @@ func pageTitle(page string) string {
 		return "Modules"
 	case "settings":
 		return "Settings"
+	case "configuration":
+		return "Configuration"
 	case "permissions":
 		return "Permissions"
 	case "logs":

@@ -333,6 +333,82 @@
     });
   });
 
+  // ── Backups panel (owner only, Configuration tab) ────────────────────────
+  const bkList = document.getElementById('bk-list');
+  if (bkList) {
+    async function loadBackups() {
+      try {
+        const d = await req('GET', '/api/backups');
+        bkList.replaceChildren(...d.backups.map(name => {
+          const o = document.createElement('option');
+          o.value = name;
+          o.textContent = name;
+          return o;
+        }));
+        if (!d.backups.length) {
+          const o = document.createElement('option');
+          o.value = '';
+          o.textContent = 'no backups yet';
+          bkList.appendChild(o);
+        }
+      } catch (e) {
+        toast('Backup list failed: ' + e.message, 'err');
+      }
+    }
+    loadBackups();
+    const bkCreate = document.getElementById('bk-create');
+    if (bkCreate) bkCreate.addEventListener('click', async () => {
+      const restore = spin(bkCreate);
+      try {
+        const r = await req('POST', '/api/backups', { action: 'create' });
+        toast('Backup created: ' + r.created, 'ok');
+        loadBackups();
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const bkVerify = document.getElementById('bk-verify');
+    if (bkVerify) bkVerify.addEventListener('click', async () => {
+      if (!bkList.value) { toast('Select a backup first', 'info'); return; }
+      const restore = spin(bkVerify);
+      try {
+        const r = await req('POST', '/api/backups', { action: 'verify', name: bkList.value });
+        toast(r.warning ? 'Warning: ' + r.warning : 'Backup OK: ' + r.name, r.warning ? 'info' : 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const bkRestore = document.getElementById('bk-restore');
+    if (bkRestore) bkRestore.addEventListener('click', async () => {
+      if (!bkList.value) { toast('Select a backup first', 'info'); return; }
+      if (!confirm('Restore ' + bkList.value + '? config.yml will be overwritten (a pre-restore safety copy is written first).')) return;
+      const restore = spin(bkRestore);
+      try {
+        await req('POST', '/api/backups', { action: 'restore', name: bkList.value });
+        toast('Restored — restart the bot to apply the restored config', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+  }
+
+  // ── Nickname (Configuration tab, per-server) ────────────────────────────
+  const nickSave = document.getElementById('nick-save');
+  if (nickSave) {
+    nickSave.addEventListener('click', async () => {
+      const input = document.getElementById('bot-nick');
+      const guild = new URLSearchParams(location.search).get('guild') || '';
+      if (!guild || guild === 'all') { toast('Select a server first', 'info'); return; }
+      const restore = spin(nickSave);
+      try {
+        await req('POST', '/api/nickname', { guildID: guild, nick: input.value });
+        toast(input.value ? 'Nickname set' : 'Nickname cleared', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+  }
+
   // ── Updater panel (owner only) ─────────────────────────────────────────
   const updPanel = document.getElementById('updater-status');
   if (updPanel) {

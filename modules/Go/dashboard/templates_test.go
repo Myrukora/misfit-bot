@@ -71,6 +71,19 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
 		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9"}},
 		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
+		// Configuration tab: core sections + backups + identity + module panels.
+		{"configuration", configurationPageData{
+			GuildID:   "1",
+			GuildName: "G",
+			Sections: []settingsSection{
+				{Title: "Bot", Help: "h", Fields: []fieldRender{{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"", "online", "idle", "dnd", "invisible"}}}},
+			},
+			DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "d1", Label: "D", Type: "toggle", Value: "true"}}},
+			Modules:       []moduleConfigView{{Name: "cleanup", Fields: []fieldRender{{Key: "m1", Label: "M", Type: "text", Value: "v"}}}},
+		}},
+		// Owner-only panels (Backups/Updater) render when IsOwner is set by
+		// mkData; a staff view must not include them.
+		{"configuration", configurationPageData{GuildID: "", Sections: nil}},
 	}
 
 	for i, c := range cases {
