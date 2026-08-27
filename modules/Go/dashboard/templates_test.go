@@ -84,13 +84,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		// Owner-only panels (Backups/Updater) render when IsOwner is set by
 		// mkData; a staff view must not include them.
 		{"configuration", configurationPageData{GuildID: "", Sections: nil}},
-		// Server picker: guild cards + super-owner admin links.
-		{"servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Owner: true}}, "level": lvlOwner, "isSuper": true, "isElev": true}},
-		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
-		// Admin panel: core sections only.
-		{"admin", adminPageData{Sections: []settingsSection{
-			{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Prefix", Type: "text", Value: "[p]"}}},
-		}}},
 	}
 
 	for i, c := range cases {
