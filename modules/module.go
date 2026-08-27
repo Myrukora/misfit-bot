@@ -82,6 +82,30 @@ func IsWebConfigurable(m Module) (WebConfigurable, bool) {
 	return wc, ok
 }
 
+// WebTab describes one extra dashboard page a module contributes to the
+// sidebar, beyond its settings panel. Slug is the FULL URL path the dashboard
+// links to (e.g. "/tickets") — existing routes keep working, the sidebar just
+// gains a module-grouped entry. The dashboard additionally renders an
+// implicit "Settings" sub-item for modules that implement WebConfigurable.
+type WebTab struct {
+	Name string // display name, e.g. "Tickets"
+	Slug string // full URL path, e.g. "/tickets" (must start with "/")
+}
+
+// WebTabser is the optional interface a module implements to declare extra
+// dashboard tabs. Type-assert with IsWebTabser (same pattern as
+// IsWebConfigurable); modules that don't are simply absent from the sidebar
+// beyond their settings panel.
+type WebTabser interface {
+	WebTabs() []WebTab
+}
+
+// IsWebTabser type-asserts a module to WebTabser.
+func IsWebTabser(m Module) (WebTabser, bool) {
+	wt, ok := m.(WebTabser)
+	return wt, ok
+}
+
 // HasWebConfig is the opt-in marker for wrapper types whose Go struct ALWAYS
 // satisfies WebConfigurable even when their integration file is absent
 // (LuaModule / PythonModule). Consumers (the dashboard's webCfg) must treat a

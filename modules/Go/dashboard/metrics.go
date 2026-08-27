@@ -50,6 +50,7 @@ func (m *DashboardModule) metrics() metricsSnapshot {
 	s.Runtime["sys_mb"] = ms.Sys / 1024 / 1024
 	s.Runtime["goroutines"] = runtime.NumGoroutine()
 	s.Runtime["gc_cycles"] = ms.NumGC
+	s.Runtime["go_version"] = runtime.Version()
 	s.Runtime["uptime_seconds"] = int64(time.Since(m.ctx.Bot.GetStartTime()).Seconds())
 	return s
 }

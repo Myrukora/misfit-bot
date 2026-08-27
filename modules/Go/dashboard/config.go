@@ -28,6 +28,13 @@ type DashboardConfig struct {
 	// to be usable in Discord; slash works without it and mirrors what users
 	// type natively.
 	ExecMode string `yaml:"exec_mode"`
+	// ExecAllowlist is the allowlist of command names the dashboard's Run
+	// button may execute. EMPTY BLOCKS ALL commands — the allowlist is opt-in
+	// only, so nothing is runnable from the web until names are added. This is
+	// the security boundary: /api/exec refuses any command not in the list, so
+	// an owner can lock the dashboard down to a safe subset even if it's
+	// reachable on the network.
+	ExecAllowlist []string `yaml:"exec_allowlist"`
 }
 
 // defaultConfig returns the default dashboard module configuration.
@@ -112,7 +119,25 @@ func loadConfig(dir string) (*DashboardConfig, error) {
 	if c.ExecMode != "slash" {
 		c.ExecMode = "prefix"
 	}
+	c.ExecAllowlist = normalizeAllowlist(c.ExecAllowlist)
 	return c, nil
+}
+
+// normalizeAllowlist trims whitespace and drops empty entries from the exec
+// allowlist, returning a non-nil slice. Order is preserved; duplicates collapse
+// to first occurrence so the set is stable across reads.
+func normalizeAllowlist(in []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, name := range in {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
 }
 
 // Save persists the dashboard config to disk (0600).

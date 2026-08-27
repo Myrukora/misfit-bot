@@ -1,93 +1,103 @@
-{{define "cmdarg"}}
-<div class="cmd-arg" data-arg="{{.Arg.Name}}">
-  <label class="cmd-arg-label" title="{{.Arg.Description}}">{{.Arg.Name}}{{if .Arg.Required}} <em>*</em>{{end}}</label>
-  {{if eq .Arg.Type "channel"}}
-    {{if .Ctx.channels}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="channel ID" aria-label="{{.Arg.Name}}">{{end}}
-  {{else if eq .Arg.Type "role"}}
-    {{if .Ctx.roles}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="role ID" aria-label="{{.Arg.Name}}">{{end}}
-  {{else if eq .Arg.Type "user"}}
-    {{if .Ctx.members}}<select class="cfg-field cmd-arg-input"><option value="">— none —</option>{{range .Ctx.members}}<option value="{{.ID}}">{{.Name}}</option>{{end}}</select>{{else}}<input type="text" class="cfg-field cmd-arg-input" placeholder="user ID" aria-label="{{.Arg.Name}}">{{end}}
-  {{else if eq .Arg.Type "int"}}
-    <input type="number" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
-  {{else if eq .Arg.Type "bool"}}
-    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="true" selected>yes</option><option value="false">no</option></select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option><option value="true">yes</option><option value="false">no</option></select>{{end}}
-  {{else if .Arg.Choices}}
-    {{if .Arg.Required}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}">{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{else}}<select class="cfg-field cmd-arg-input" aria-label="{{.Arg.Name}}"><option value="">— none —</option>{{range .Arg.Choices}}<option value="{{.}}">{{.}}</option>{{end}}</select>{{end}}
-  {{else}}
-    <input type="text" class="cfg-field cmd-arg-input" placeholder="{{.Arg.Description}}" aria-label="{{.Arg.Name}}">
-  {{end}}
-</div>
-{{end}}
 {{define "commands"}}{{template "header" .}}
 <h2>Commands</h2>
 <div class="toolbar">
   <div class="search-wrap"><svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="cmd-search" aria-label="Filter commands" placeholder="Filter commands…" class="cfg-field"></div>
-  {{if gt (len $.Guilds) 0}}<select class="cfg-field cmd-guild guild-nav" data-path="/commands" aria-label="Server for pickers">
+  {{if gt (len .Guilds) 0}}<select class="cfg-field cmd-guild guild-nav" data-path="/commands" aria-label="Server for pickers">
     <option value="">All servers (type IDs)</option>
-    {{range $.Guilds}}<option value="{{.ID}}" {{if eq $.Content.guild .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+    {{range .Guilds}}<option value="{{.ID}}" {{if eq $.Content.guild .ID}}selected{{end}}>{{.Name}}</option>{{end}}
   </select>{{end}}
   {{if .Content.canRaw}}<label class="switch"><input type="checkbox" id="cmd-raw" {{if .Raw}}checked{{end}}><span class="track"><span class="knob"></span></span><span class="switch-label">show non-usable (raw)</span></label>{{end}}
 </div>
 <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} visible to you{{if .Content.guild}} in this server{{end}} · shown as {{if eq .Content.mode "slash"}}<code>/slash</code>{{else}}<code>prefix</code>{{end}} commands{{if .Content.canRaw}} (change in Settings){{end}}.</p>
+
+{{if .Content.canManage}}
+<div class="cmd-tabs" role="tablist" aria-label="Command groups">
+  {{range .Content.groups}}<button type="button" class="cmd-tab{{if eq .Module $.Content.selectedTab}} cmd-tab-active{{end}}" data-tab="{{.Module}}" role="tab" aria-selected="{{if eq .Module $.Content.selectedTab}}true{{else}}false{{end}}">{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</button>{{end}}
+</div>
+{{end}}
+
 {{range .Content.groups}}
-<section class="module-block">
-  <h3>{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</h3>
+<section class="cmd-grid" data-tab="{{.Module}}" {{if .Module}}{{if $.Content.canManage}}{{if ne .Module $.Content.selectedTab}} hidden{{end}}{{end}}{{end}}>
+  <div class="grid-head">
+    <h3>{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</h3>
+  </div>
   {{range .Categories}}
   <div class="cat">
     <div class="cat-name">{{.Name}}</div>
+    <div class="cards">
     {{range .Commands}}
-    <details class="cmd">
+    <details class="cmd-card" data-name="{{.Name}}">
       <summary>
-        <span class="cmd-name">{{.Name}}{{if eq .Kind "slash"}} <small>/</small>{{else}}{{if .Aliases}} <small>{{join .Aliases ", "}}</small>{{end}}{{end}}</span>
-        <span class="cmd-desc">{{.Description}}</span>
+        <span class="card-name">{{.Name}}{{if eq .Kind "slash"}} <small>/</small>{{else}}{{if .Aliases}} <small>{{join .Aliases ", "}}</small>{{end}}{{end}}</span>
         <span class="usable {{if .Usable}}yes{{else}}no{{end}}">{{if .Usable}}Usable{{else}}Locked{{end}}</span>
       </summary>
-      <div class="cmd-detail">
-        <div><span class="lbl">Usage</span> <code>{{if .Usage}}{{.Usage}}{{else}}{{.Name}}{{end}}</code></div>
-        <div><span class="lbl">Permissions</span> {{.RequiredPerm}}</div>
-        <div><span class="lbl">Owner only</span> {{yesno .OwnerOnly}}</div>
-        {{if .SuperOwnerOnly}}<div><span class="lbl">Super-owner only</span> {{yesno .SuperOwnerOnly}}</div>{{end}}
-        {{if .UsableIn}}<div><span class="lbl">Usable in</span> {{joinOr .UsableIn ", " "nowhere cached"}}</div>{{end}}
+      <div class="card-body">
+        <div class="row"><span class="lbl">Usage</span> <code>{{if .Usage}}{{.Usage}}{{else}}{{.Name}}{{end}}</code></div>
+        <div class="row"><span class="lbl">Permissions</span> {{.RequiredPerm}}</div>
+        <div class="row"><span class="lbl">Owner only</span> {{yesno .OwnerOnly}}</div>
+        {{if .SuperOwnerOnly}}<div class="row"><span class="lbl">Super-owner only</span> {{yesno .SuperOwnerOnly}}</div>{{end}}
+        {{if .UsableIn}}<div class="row"><span class="lbl">Usable in</span> {{joinOr .UsableIn ", " "nowhere cached"}}</div>{{end}}
         {{if and .Usable (not .SuperOwnerOnly)}}
-        <div class="cmd-run" data-command="{{.Name}}" data-guild="{{$.Content.guild}}">
-          {{if $.Content.channels}}
-          <select class="cfg-field cmd-run-channel" aria-label="Channel for {{.Name}}">
-            <option value="">— channel —</option>
-            {{range $.Content.channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
-          </select>
-          {{else}}
-          <input type="text" class="cfg-field cmd-run-channel" placeholder="channel ID (optional)" aria-label="Optional channel ID for {{.Name}}">
-          {{end}}
-          {{if .Options}}
-          {{range .Options}}
-          {{if eq .Type "subcommand"}}
-          <div class="cmd-arg cmd-sub" data-arg="{{.Name}}">
-            <label class="cmd-arg-label" title="{{.Description}}">subcommand{{if .Required}} <em>*</em>{{end}}</label>
-            <select class="cfg-field cmd-arg-input cmd-sub-select" aria-label="subcommand">
-              {{range .Choices}}<option value="{{.}}">{{.}}</option>{{end}}
-            </select>
-            {{range .Sub}}
-            <div class="cmd-sub-group" data-sub="{{.Name}}">
-              {{range .Args}}{{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}{{end}}
-            </div>
-            {{end}}
-          </div>
-          {{else}}
-          {{template "cmdarg" (dict "Arg" . "Ctx" $.Content)}}
-          {{end}}
-          {{end}}
-          {{else if .FreeArgs}}
-          <input type="text" class="cfg-field cmd-args-free" placeholder="arguments (space-separated)" aria-label="Arguments for {{.Name}}">
-          {{end}}
-          <button type="button" class="btn btn-ghost btn-sm run-cmd">Run</button>
-          <div class="cmd-run-result" role="status" aria-live="polite" hidden></div>
+        <div class="card-actions">
+          {{if .CanExec}}<button type="button" class="btn btn-ghost btn-sm run-cmd" data-name="{{.Name}}" data-guild="{{$.Content.guild}}">Run</button>{{end}}
+          {{if $.Content.canManage}}<button type="button" class="btn btn-ghost btn-sm gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-global-disabled="{{.GlobalDisabled}}" data-guild-disabled="{{.GuildDisabled}}" data-has-guild="{{.HasGuildOverride}}" data-modonly="{{.ModOnly}}" data-channels="{{join .AllowedChannels ","}}" data-roles="{{join .AllowedRoles ","}}" data-global-requiredperm="{{.RequiredPerm}}">⚙ Config</button>{{end}}
         </div>
         {{end}}
       </div>
     </details>
     {{end}}
+    </div>
   </div>
   {{end}}
 </section>
 {{end}}
+
+{{if .Content.canManage}}
+<div class="gear-modal" id="cmd-gear-modal" hidden>
+  <div class="gear-backdrop"></div>
+  <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Command configuration">
+    <div class="gear-head">
+      <h4>Configure <code id="gear-cmd-name"></code></h4>
+      <button type="button" class="gear-close" id="gear-close" aria-label="Close">✕</button>
+    </div>
+    <div class="gear-body">
+      <!-- Owner/elevated scope: disable everywhere + mod-only -->
+      <div class="gear-scope" id="gear-global-scope" {{if and (ne .Content.level "owner") (ne .Content.level "elevated")}}hidden{{end}}>
+        <label class="switch"><input type="checkbox" id="gear-global-toggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Disable everywhere</span></label>
+        <label class="switch"><input type="checkbox" id="gear-modonly-toggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Staff (manage-messages) only</span></label>
+      </div>
+      <!-- Staff scope: disable in this server only -->
+      <div class="gear-scope gear-scope-local" id="gear-local-scope" hidden>
+        <div class="gear-guild-row">
+          <select class="cfg-field gear-guild" id="gear-guild" aria-label="Server for local config">
+            <option value="">— server —</option>
+            {{range .Content.guilds}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <label class="switch"><input type="checkbox" id="gear-local-toggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Disable in this server</span></label>
+      </div>
+      <div class="gear-fields" id="gear-fields">
+        <div class="gear-field">
+          <span class="field-label">Allowed channels</span>
+          <div class="multi" id="gear-channels">
+            {{range .Content.channels}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}
+          </div>
+        </div>
+        <div class="gear-field">
+          <span class="field-label">Allowed roles</span>
+          <div class="multi" id="gear-roles">
+            {{range .Content.roles}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}
+          </div>
+        </div>
+      </div>
+      <p class="gear-hint muted" id="gear-hint">Changes save immediately.</p>
+    </div>
+    <div class="gear-foot">
+      <button type="button" class="btn btn-primary btn-sm" id="gear-save">Save</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="gear-clear">Clear overrides</button>
+    </div>
+  </div>
+</div>
+{{end}}
+
 {{template "footer" .}}{{end}}

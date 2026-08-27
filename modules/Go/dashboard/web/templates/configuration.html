@@ -1,0 +1,88 @@
+{{define "configuration"}}{{template "header" .}}
+{{with .Content}}
+<h2>Configuration {{if .GuildID}}<small class="muted">· {{.GuildName}} ({{.GuildID}})</small>{{else}}<small class="muted">· core / global</small>{{end}}</h2>
+<div class="toolbar">
+  <p class="muted">Core bot config, backups and per-server identity. Channel / user pickers populate from the selected server.</p>
+  {{if gt (len $.Guilds) 0}}<select class="cfg-field guild-nav" data-path="/configuration" aria-label="Server for pickers">
+    <option value="all">All servers (type IDs)</option>
+    {{range $.Guilds}}<option value="{{.ID}}" {{if eq $.Content.GuildID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+  </select>{{end}}
+</div>
+
+{{if .Sections}}
+{{range .Sections}}
+<section class="card reveal in">
+  <h3>{{.Title}}</h3>
+  {{if .Help}}<p class="muted section-help">{{.Help}}</p>{{end}}
+  <form class="cfg-form core-form">
+    {{range .Fields}}{{template "field" .}}{{end}}
+    <div class="inline-form">
+      <button type="button" class="btn btn-blurple save-section">Save {{.Title}}</button>
+    </div>
+  </form>
+</section>
+{{end}}
+{{end}}
+
+{{if $.IsOwner}}
+<section class="card reveal">
+  <h3>Backups</h3>
+  <p class="muted section-help">Config backups (config_backup_*.yml). Restore overwrites config.yml — a pre-restore safety copy is written first.</p>
+  <div class="inline-form">
+    <button type="button" class="btn btn-ghost btn-sm" id="bk-create">Create backup</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="bk-verify">Verify selected</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="bk-restore">Restore selected</button>
+    <select id="bk-list" class="cfg-field" aria-label="Backup file"></select>
+  </div>
+</section>
+
+<section class="card reveal">
+  <h3>Updater status</h3>
+  <p class="muted section-help">Live updater state; actions mirror the owner-only <code>[p]update</code> commands.</p>
+  <div class="updater-status" id="updater-status">Loading…</div>
+  <div class="inline-form">
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-check">Check now</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-apply">Update now</button>
+    <button type="button" class="btn btn-ghost btn-sm" id="upd-test">Send test embeds</button>
+  </div>
+</section>
+{{end}}
+
+{{if .GuildID}}
+<section class="card reveal">
+  <h3>Identity (per-server)</h3>
+  <p class="muted section-help">Nickname for the bot in this server; empty clears it. The bot's global name is managed on the Discord Developer Portal.</p>
+  <div class="inline-form">
+    <input type="text" id="bot-nick" class="cfg-field" placeholder="nickname (empty = clear)" value="">
+    <button type="button" class="btn btn-blurple btn-sm" id="nick-save">Set nickname</button>
+  </div>
+</section>
+{{end}}
+
+{{if .DashboardSelf.Fields}}
+<section class="card reveal">
+  <h3>Dashboard (self-config)</h3>
+  <form class="module-cfg cfg-form" data-module="{{.DashboardSelf.Name}}" data-guild="{{$.Content.GuildID}}">
+    {{range .DashboardSelf.Fields}}{{template "field" .}}{{end}}
+    <div class="inline-form">
+      <button type="button" class="btn btn-blurple save-module">Save changes</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{range .Modules}}
+<section class="card reveal">
+  <h3>{{.Name}}</h3>
+  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{$.Content.GuildID}}">
+    {{range .Fields}}{{template "field" .}}{{end}}
+    <div class="inline-form">
+      <button type="button" class="btn btn-blurple save-module">Save changes</button>
+    </div>
+  </form>
+</section>
+{{end}}
+
+{{if not (or .Sections .DashboardSelf.Fields .Modules)}}<p class="muted">No configurable settings here.</p>{{end}}
+{{end}}
+{{template "footer" .}}{{end}}

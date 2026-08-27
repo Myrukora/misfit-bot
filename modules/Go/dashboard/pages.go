@@ -92,6 +92,7 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	us := sessionOf(r)
 	raw := r.URL.Query().Get("raw") == "true"
 	guildID := r.URL.Query().Get("guild")
+	level := m.resolveLevel(us)
 	var views []cmdView
 	if guildID != "" {
 		views = m.filterCatalog(us, raw, true, guildID)
@@ -103,13 +104,24 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	content := map[string]any{
 		"groups": groupCommands(views),
 		"guild":  guildID,
-		"count":  len(views),
-		"mode":   m.execMode(),
-		"canRaw": d.IsOwner || d.IsElevated,
+		// Active category tab (module name); JS switches it client-side,
+		// the server just picks the default so SSR renders the Core grid.
+		"selectedTab": "core",
+		"count":       len(views),
+		"mode":        m.execMode(),
+		"canRaw":      d.IsOwner || d.IsElevated,
+		// canManage gates the staff-facing per-command gear modal: a staff member
+		// can edit overrides only for guilds they manage.
+		"canManage": levelGEQ(level, lvlStaff),
+		// level feeds the gear modal so it can show the right scope controls
+		// (owner sees global disable + mod-only; staff sees local-only).
+		"level": level,
+		// guilds feeds the per-command guild selector in the gear modal.
+		"guilds": m.manageableGuildList(us),
 	}
-	// Picker entity lists for the click-driven Run forms (channels, roles,
-	// members) — populated only when a guild is selected AND the user shares
-	// it with the bot, so cached entity names don't leak to non-members.
+	// Picker entity lists for the modal's allowed-channel / allowed-role
+	// multi-selects — populated only when a guild is selected AND the user
+	// shares it with the bot, so cached entity names don't leak to members.
 	if guildID != "" && m.canViewGuildEntities(us, guildID) {
 		if detail, err := m.buildGuildDetail(guildID); err == nil {
 			content["channels"] = detail.Channels
@@ -118,13 +130,22 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 				roles = append(roles, entityOpt{ID: r.ID, Name: r.Name})
 			}
 			content["roles"] = roles
-			if detail.MemberCount <= maxMemberPicker {
-				content["members"] = m.memberOpts(guildID)
-			}
 		}
 	}
 	d.Content = content
 	m.tmpl.render(w, "commands", d)
+}
+
+// manageableGuildList returns the guilds the user can manage as guildOpt rows,
+// for rendering in the per-command gear modal's guild selector.
+func (m *DashboardModule) manageableGuildList(us *userSession) []guildOpt {
+	var guilds []guildOpt
+	for _, id := range m.manageableGuildIDs(us) {
+		if g := m.guildSummary(id, us); g != nil {
+			guilds = append(guilds, *g)
+		}
+	}
+	return guilds
 }
 
 // canViewGuildEntities reports whether the session may see a guild's cached
@@ -309,6 +330,90 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	m.tmpl.render(w, "settings", d)
 }
 
+// ── /configuration ────────────────────────────────────────────────────────
+
+// configurationPageData is the payload for the Configuration tab: core bot
+// config sections (same schema-driven field rendering as Settings), plus the
+// Backups panel and per-guild identity controls.
+type configurationPageData struct {
+	GuildID   string
+	GuildName string
+	Sections  []settingsSection // core/global config, grouped
+	// DashboardSelf + module configs render below the core sections, exactly
+	// as they did on /settings (module panels keep living here for now).
+	DashboardSelf moduleConfigView
+	Modules       []moduleConfigView
+}
+
+// handleConfigurationPage renders the Configuration tab: status/presence,
+// backups, identity (nickname), updater, logging, dashboard infra and the
+// owner-only secrets — every key the removed [p]set/[p]status/[p]logs/[p]backup
+// commands owned, editable through the same Config.Set validation.
+func (m *DashboardModule) handleConfigurationPage(w http.ResponseWriter, r *http.Request) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	level := m.resolveLevel(us)
+	guildID := r.URL.Query().Get("guild")
+
+	// Same auto-select / opt-out semantics as /settings: ?guild=all means "no
+	// server selected"; no param auto-selects the first manageable server so
+	// the nickname picker has a context out of the box.
+	if guildID == "all" {
+		guildID = ""
+	} else if guildID == "" {
+		if mg := m.manageableGuildIDs(us); len(mg) > 0 {
+			guildID = mg[0]
+		}
+	}
+
+	if guildID != "" {
+		if !m.canManageGuild(us, guildID) {
+			http.Error(w, "403 Forbidden — you may not manage this guild", http.StatusForbidden)
+			return
+		}
+	} else if level != lvlOwner && level != lvlElevated {
+		http.Error(w, "403 Forbidden", http.StatusForbidden)
+		return
+	}
+
+	data := configurationPageData{GuildID: guildID}
+	if guildID != "" {
+		if detail, err := m.buildGuildDetail(guildID); err == nil {
+			data.GuildName = detail.Name
+		}
+	}
+	// Core sections render for owner/elevated; the selected server only powers
+	// the pickers (notify channel, user picker).
+	if level == lvlOwner || level == lvlElevated {
+		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID, us)
+	}
+	// Dashboard self-config + other WebConfigurable modules keep rendering on
+	// this page (Task 10 will move them under per-module sidebar sections).
+	if wc, ok := m.webCfg("dashboard"); ok {
+		data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, guildID)
+	}
+	for _, name := range m.ctx.Bot.GetLoadedModuleNames() {
+		if name == "dashboard" {
+			continue
+		}
+		wc, ok := m.webCfg(name)
+		if !ok {
+			continue
+		}
+		mv := m.buildModuleView(wc, name, us, level, guildID)
+		if len(mv.Fields) > 0 {
+			data.Modules = append(data.Modules, mv)
+		}
+	}
+
+	d := m.baseData(us)
+	d.Content = data
+	m.tmpl.render(w, "configuration", d)
+}
+
 // ── core settings (schema-driven, grouped into sections) ────────────────
 
 // coreSettingsFields renders every core bot setting as a typed, labeled field
@@ -350,6 +455,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Pick from the selected server's members or type the ID. Owner only — elevated users cannot transfer ownership.", Type: "user", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
 			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
 			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+			fieldRender{Key: "status", Label: "Presence status", Help: "Status shown alongside the activity (online, idle, dnd, invisible). Persisted and applied on every restart. The live activity type/text is set from the Configuration tab.", Type: "select", Value: vals["status"], Options: []string{"", "online", "idle", "dnd", "invisible"}},
 		),
 		sec("Logging", "File logging (JSON, daily rotation).",
 			fieldRender{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Restart required.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},
@@ -488,11 +594,37 @@ func (m *DashboardModule) populateEntities(fr *fieldRender, guildID string, us *
 
 // ── /permissions ──────────────────────────────────────────────────────────
 
+// resolveUsernames maps user IDs to display names, cache-first. The member
+// cache is enumerated once and reused for the whole request (per-request memo,
+// no per-ID scans). IDs absent from the cache stay raw — the REST fallback the
+// plan mentions is skipped: a private bot's elevated list is always in cache.
+func (m *DashboardModule) resolveUsernames(ids []string) map[string]string {
+	out := make(map[string]string, len(ids))
+	if m.client == nil || len(ids) == 0 {
+		return out
+	}
+	byID := make(map[string]string, 64)
+	for g := range m.client.Caches.Guilds() {
+		for member := range m.client.Caches.Members(g.ID) {
+			byID[member.User.ID.String()] = member.User.Username
+		}
+	}
+	for _, id := range ids {
+		if name, ok := byID[id]; ok {
+			out[id] = name
+		}
+	}
+	return out
+}
+
 func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.Request) {
+	elevated := m.permMgr().GetElevated()
+	names := m.resolveUsernames(append([]string{m.ctx.Bot.GetOwnerID()}, elevated...))
 	d := m.baseData(sessionOf(r))
 	d.Content = map[string]any{
-		"elevated": m.permMgr().GetElevated(),
+		"elevated": elevated,
 		"owner_id": m.ctx.Bot.GetOwnerID(),
+		"names":    names,
 	}
 	m.tmpl.render(w, "permissions", d)
 }

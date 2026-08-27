@@ -69,8 +69,21 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"commands", commandsContent},
 		{"guild", guildContent},
 		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
-		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9"}},
+		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
 		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
+		// Configuration tab: core sections + backups + identity + module panels.
+		{"configuration", configurationPageData{
+			GuildID:   "1",
+			GuildName: "G",
+			Sections: []settingsSection{
+				{Title: "Bot", Help: "h", Fields: []fieldRender{{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"", "online", "idle", "dnd", "invisible"}}}},
+			},
+			DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "d1", Label: "D", Type: "toggle", Value: "true"}}},
+			Modules:       []moduleConfigView{{Name: "cleanup", Fields: []fieldRender{{Key: "m1", Label: "M", Type: "text", Value: "v"}}}},
+		}},
+		// Owner-only panels (Backups/Updater) render when IsOwner is set by
+		// mkData; a staff view must not include them.
+		{"configuration", configurationPageData{GuildID: "", Sections: nil}},
 	}
 
 	for i, c := range cases {
@@ -214,8 +227,8 @@ func TestCommandsRunAffordance(t *testing.T) {
 	groups := []moduleGroup{{
 		Module: "core",
 		Categories: []catGroup{{Name: "general", Commands: []cmdView{
-			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true},
-			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
+			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, CanExec: true},
+			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
 			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
 		}}},
 	}}
@@ -227,13 +240,14 @@ func TestCommandsRunAffordance(t *testing.T) {
 		t.Fatalf("render commands: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `data-command="ping"`) {
+	// Run affordance is the .run-cmd button, which carries data-name + data-guild.
+	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
 		t.Error("usable command missing Run affordance")
 	}
-	if strings.Contains(out, `data-command="secret"`) {
+	if strings.Contains(out, `run-cmd" data-name="secret"`) {
 		t.Error("SuperOwnerOnly command must never render a Run affordance")
 	}
-	if strings.Contains(out, `data-command="locked"`) {
+	if strings.Contains(out, `run-cmd" data-name="locked"`) {
 		t.Error("non-usable command must not render a Run affordance")
 	}
 	if !strings.Contains(out, `data-guild="1"`) {

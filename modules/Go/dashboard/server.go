@@ -2,8 +2,12 @@ package main
 
 import (
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/misfit/bot/modules"
 )
 
 // buildHandler assembles the global middleware chain and route table.
@@ -127,8 +131,25 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "settings":
+		// Task 11c: the Configuration tab is the new home for core config;
+		// /settings redirects (module settings moved to per-module sections).
 		if r.Method == "GET" {
-			m.handleSettingsPage(w, r)
+			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
+				// Preserve the selected guild so old /settings?guild=<id>
+				// links keep targeting the same server.
+				target := "/configuration"
+				if g := r.URL.Query().Get("guild"); g != "" {
+					target += "?guild=" + url.QueryEscape(g)
+				}
+				http.Redirect(w, r, target, http.StatusSeeOther)
+			})(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
+	case "configuration":
+		if r.Method == "GET" {
+			m.requireAuthed(m.handleConfigurationPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)
@@ -190,6 +211,60 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		// Owner/elevated see core/global config nav. Staff still see guild nav.
 		d.ShowConfig = level == lvlOwner || level == lvlElevated
 		d.ShowStaff = level == lvlOwner || level == lvlElevated || level == lvlStaff
+		// Per-module sidebar sections (Task 10): every loaded module that
+		// declares WebTabs and/or is WebConfigurable gets a sidebar group.
+		d.ModuleNav = m.moduleNav(us)
 	}
 	return d
+}
+
+// moduleNav assembles the per-module sidebar groups for the current session:
+// one group per loaded module that implements WebTabser (extra tabs) or
+// WebConfigurable (implicit Settings link). Visibility mirrors the tickets
+// page: extra tabs render for any authed user; the Settings link only for
+// viewers who can reach module config (staff+ sees guild-scoped fields).
+func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
+	if m.ctx == nil || m.ctx.Bot == nil {
+		return nil
+	}
+	mgr, ok := m.ctx.Bot.GetModuleManager().(*modules.Manager)
+	if !ok {
+		return nil
+	}
+	level := m.resolveLevel(us)
+	var out []moduleNavItem
+	for _, name := range m.ctx.Bot.GetLoadedModuleNames() {
+		if name == "dashboard" {
+			continue // the dashboard itself has its own nav entries
+		}
+		mod, ok := mgr.Get(name)
+		if !ok {
+			continue
+		}
+		item := moduleNavItem{Name: name}
+		// Settings link: only when the module opted into WebConfigurable
+		// (same HasWebConfig filter as webCfg) AND the viewer can reach the
+		// settings page (staff+; regular users have no settings).
+		if _, isWC := m.webCfg(name); isWC {
+			if levelGEQ(level, lvlStaff) || level == lvlOwner || level == lvlElevated {
+				item.Settings = "/configuration#" + name
+			}
+		}
+		if wt, isWT := modules.IsWebTabser(mod); isWT {
+			for _, tab := range wt.WebTabs() {
+				if tab.Slug == "" {
+					continue
+				}
+				item.Tabs = append(item.Tabs, navTabItem{Name: tab.Name, URL: tab.Slug})
+			}
+		}
+		if item.Settings == "" && len(item.Tabs) == 0 {
+			continue // nothing to show for this module
+		}
+		// Active state: current page path belongs to one of this module's tabs.
+		out = append(out, item)
+	}
+	// Sort groups by module name for stable nav order.
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

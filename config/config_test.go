@@ -350,3 +350,43 @@ func TestModulesAutoLoadValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusKeyValidation guards the persisted presence status key
+// (bot.status): only online/idle/dnd/invisible (case-insensitive, trimmed)
+// or empty are accepted, everything else is rejected; the normalized value
+// round-trips through Load.
+func TestStatusKeyValidation(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	for _, v := range []string{"online", "idle", "  DND  ", "invisible"} {
+		if err := cfg.Set("status", v); err != nil {
+			t.Errorf("status %q rejected: %v", v, err)
+		}
+	}
+	if cfg.Bot.Status != "invisible" {
+		t.Errorf("status = %q, want invisible (normalized)", cfg.Bot.Status)
+	}
+	// Empty clears the persisted status (bot boots with Discord defaults).
+	if err := cfg.Set("status", ""); err != nil {
+		t.Errorf("empty status rejected: %v", err)
+	}
+	if cfg.Bot.Status != "" {
+		t.Errorf("status not cleared: %q", cfg.Bot.Status)
+	}
+	for _, v := range []string{"away", "busy", "offline", "banana"} {
+		if err := cfg.Set("status", v); err == nil {
+			t.Errorf("status %q accepted; want error", v)
+		}
+	}
+	if err := cfg.Set("status", "idle"); err != nil {
+		t.Fatalf("set idle: %v", err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Bot.Status != "idle" {
+		t.Errorf("round-trip status = %q, want idle", got.Bot.Status)
+	}
+}

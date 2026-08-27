@@ -321,6 +321,7 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"owner_id":               m.ctx.Bot.GetOwnerID(),
 		"tos_url":                m.ctx.Bot.GetToS(),
 		"privacy_url":            m.ctx.Bot.GetPrivacy(),
+		"status":                 m.cfgValue(cfg, "bot", "status"),
 		"log_level":              m.cfgValue(cfg, "logging", "level"),
 		"log_enabled":            m.cfgValue(cfg, "logging", "enabled"),
 		"log_file_path":          m.cfgValue(cfg, "logging", "file_path"),
@@ -402,7 +403,7 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 	}
 	allowed := map[string]bool{
 		"prefix": true, "owner_id": true,
-		"tos_url": true, "privacy_url": true,
+		"tos_url": true, "privacy_url": true, "status": true,
 		"log_level": true, "log_enabled": true, "log_file_path": true, "modules_auto_load": true,
 		"dashboard_listen": true, "dashboard_public_url": true,
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
@@ -454,6 +455,10 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		case "oauth_client_secret":
 			m.refreshOAuth()
 			m.sessions.clear() // invalidate existing sessions (secret changed)
+		case "status":
+			// Apply the new presence status live so it takes effect immediately
+			// rather than waiting for the next restart.
+			m.applyPresenceFromConfig()
 		}
 	}
 	if anyErr {
@@ -461,4 +466,24 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+// applyPresenceFromConfig reads the persisted bot.status from config.yml and
+// applies it to the live presence so a status change from the Configuration tab
+// takes effect immediately (without a restart). It is a best-effort fire-and-
+// forget call: a nil client or a transient gateway error is logged, never
+// surfaced to the request that triggered it.
+func (m *DashboardModule) applyPresenceFromConfig() {
+	if m.ctx == nil || m.ctx.Bot == nil {
+		return
+	}
+	cfg := m.rawConfig()
+	status := m.cfgValue(cfg, "bot", "status")
+	if status == "" {
+		return // no status set; leave the current presence untouched
+	}
+	// Empty activity type means "only set the status, keep the current activity".
+	if err := m.ctx.Bot.SetPresence("", status, ""); err != nil {
+		m.logger.Warn("dashboard: failed to apply persisted presence status %q: %v", status, err)
+	}
 }

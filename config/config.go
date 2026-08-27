@@ -70,6 +70,10 @@ type BotConfig struct {
 	ToS         string   `yaml:"tos_url"`
 	Privacy     string   `yaml:"privacy_url"`
 	Name        string   `yaml:"name"`
+	// Status is the Discord presence status (online/idle/dnd/invisible). It is
+	// applied on every (re)start via SetPresence so the bot comes up with the
+	// owner's chosen status instead of always online.
+	Status string `yaml:"status"`
 }
 
 type ModulesConfig struct {
@@ -190,6 +194,13 @@ func (c *Config) Set(key, value string) error {
 		c.Bot.Privacy = value
 	case "name":
 		c.Bot.Name = value
+	case "status":
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "", "online", "idle", "dnd", "invisible":
+			c.Bot.Status = strings.ToLower(strings.TrimSpace(value))
+		default:
+			return fmt.Errorf("invalid status: %q (must be online/idle/dnd/invisible)", value)
+		}
 	case "log_level":
 		switch value {
 		case "debug", "info", "warn", "error":

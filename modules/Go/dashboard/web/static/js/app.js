@@ -190,6 +190,21 @@
         }
         setMetric('m-cmds', s.commands);
         if (s.runtime) { setMetric('m-mem', s.runtime.alloc_mb); setMetric('m-goros', s.runtime.goroutines); }
+        // Live system info card (staff+).
+        if (s.runtime) {
+          const goEl = document.getElementById('sys-go');
+          if (goEl && s.runtime.go_version) goEl.textContent = s.runtime.go_version;
+          const heapEl = document.getElementById('sys-heap');
+          if (heapEl) heapEl.textContent = s.runtime.alloc_mb + ' MB';
+          const gEl = document.getElementById('sys-goros');
+          if (gEl) gEl.textContent = s.runtime.goroutines;
+        }
+        const sysUptime = document.getElementById('sys-uptime');
+        if (sysUptime) sysUptime.textContent = s.uptime;
+        const sysMods = document.getElementById('sys-mods');
+        if (sysMods) sysMods.textContent = s.modules_loaded + '/' + s.modules_available;
+        const sysCmds = document.getElementById('sys-cmds');
+        if (sysCmds) sysCmds.textContent = s.commands;
       } catch (_) {}
     }
     refresh();
@@ -317,6 +332,82 @@
       }
     });
   });
+
+  // ── Backups panel (owner only, Configuration tab) ────────────────────────
+  const bkList = document.getElementById('bk-list');
+  if (bkList) {
+    async function loadBackups() {
+      try {
+        const d = await req('GET', '/api/backups');
+        bkList.replaceChildren(...d.backups.map(name => {
+          const o = document.createElement('option');
+          o.value = name;
+          o.textContent = name;
+          return o;
+        }));
+        if (!d.backups.length) {
+          const o = document.createElement('option');
+          o.value = '';
+          o.textContent = 'no backups yet';
+          bkList.appendChild(o);
+        }
+      } catch (e) {
+        toast('Backup list failed: ' + e.message, 'err');
+      }
+    }
+    loadBackups();
+    const bkCreate = document.getElementById('bk-create');
+    if (bkCreate) bkCreate.addEventListener('click', async () => {
+      const restore = spin(bkCreate);
+      try {
+        const r = await req('POST', '/api/backups', { action: 'create' });
+        toast('Backup created: ' + r.created, 'ok');
+        loadBackups();
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const bkVerify = document.getElementById('bk-verify');
+    if (bkVerify) bkVerify.addEventListener('click', async () => {
+      if (!bkList.value) { toast('Select a backup first', 'info'); return; }
+      const restore = spin(bkVerify);
+      try {
+        const r = await req('POST', '/api/backups', { action: 'verify', name: bkList.value });
+        toast(r.warning ? 'Warning: ' + r.warning : 'Backup OK: ' + r.name, r.warning ? 'info' : 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+    const bkRestore = document.getElementById('bk-restore');
+    if (bkRestore) bkRestore.addEventListener('click', async () => {
+      if (!bkList.value) { toast('Select a backup first', 'info'); return; }
+      if (!confirm('Restore ' + bkList.value + '? config.yml will be overwritten (a pre-restore safety copy is written first).')) return;
+      const restore = spin(bkRestore);
+      try {
+        await req('POST', '/api/backups', { action: 'restore', name: bkList.value });
+        toast('Restored — restart the bot to apply the restored config', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+  }
+
+  // ── Nickname (Configuration tab, per-server) ────────────────────────────
+  const nickSave = document.getElementById('nick-save');
+  if (nickSave) {
+    nickSave.addEventListener('click', async () => {
+      const input = document.getElementById('bot-nick');
+      const guild = new URLSearchParams(location.search).get('guild') || '';
+      if (!guild || guild === 'all') { toast('Select a server first', 'info'); return; }
+      const restore = spin(nickSave);
+      try {
+        await req('POST', '/api/nickname', { guildID: guild, nick: input.value });
+        toast(input.value ? 'Nickname set' : 'Nickname cleared', 'ok');
+      } catch (e) {
+        toast(e.message, 'err');
+      } finally { restore(); }
+    });
+  }
 
   // ── Updater panel (owner only) ─────────────────────────────────────────
   const updPanel = document.getElementById('updater-status');
@@ -471,58 +562,6 @@
     });
   });
 
-  // ── Command runner (Run button on /commands) ───────────────────────────
-  // Subcommand selectors: reveal the selected subcommand's nested args.
-  document.querySelectorAll('.cmd-sub-select').forEach(sel => {
-    const toggle = () => {
-      sel.closest('.cmd-sub').querySelectorAll('.cmd-sub-group').forEach(g => {
-        g.classList.toggle('active', g.dataset.sub === sel.value);
-      });
-    };
-    sel.addEventListener('change', toggle);
-    toggle();
-  });
-  document.querySelectorAll('.run-cmd').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const wrap = btn.closest('.cmd-run');
-      const result = wrap.querySelector('.cmd-run-result');
-      const command = wrap.dataset.command;
-      const guild = wrap.dataset.guild || '';
-      // Channel context: dropdown (guild selected) or free text fallback.
-      const channelEl = wrap.querySelector('.cmd-run-channel');
-      const channel = channelEl ? channelEl.value.trim() : '';
-      // Typed args: option inputs in declaration order, empty ones skipped.
-      // Subcommand selectors contribute their selected subcommand name, and
-      // only the ACTIVE subcommand's nested inputs are collected.
-      const free = wrap.querySelector('.cmd-args-free');
-      let args = [];
-      if (free) {
-        args = free.value.trim() ? free.value.trim().split(/\s+/) : [];
-      } else {
-        wrap.querySelectorAll('.cmd-arg-input').forEach(inp => {
-          const group = inp.closest('.cmd-sub-group');
-          if (group && !group.classList.contains('active')) return;
-          const v = inp.value.trim();
-          if (v) args.push(v);
-        });
-      }
-      const restore = spin(btn);
-      result.hidden = false;
-      result.textContent = 'Running…';
-      try {
-        const r = await req('POST', '/api/exec', { command, args, guild, channel });
-        let out = '';
-        if (r.text) out = r.text;
-        else if (r.title || r.description) out = (r.title ? '[' + r.title + ']\n' : '') + (r.description || '');
-        result.textContent = out || '(no response)';
-      } catch (e) {
-        result.textContent = 'error: ' + e.message;
-      } finally {
-        restore();
-      }
-    });
-  });
-
   // ── Logs ───────────────────────────────────────────────────────────────
   const logBox = document.getElementById('log-box');
   if (logBox) {
@@ -544,5 +583,203 @@
     }
     if (refreshBtn) refreshBtn.addEventListener('click', () => load(200, refreshBtn));
     if (moreBtn) moreBtn.addEventListener('click', () => load(500, moreBtn));
+  }
+
+  // ── Commands: Carl-style grid + category tabs ────────────────────────────
+  const tabs = document.querySelectorAll('.cmd-tab');
+  const grids = document.querySelectorAll('.cmd-grid');
+  if (tabs.length && grids.length) {
+    function showTab(tab) {
+      tabs.forEach(t => t.classList.toggle('cmd-tab-active', t === tab));
+      grids.forEach(g => { g.hidden = g.dataset.tab !== tab; });
+    }
+    tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab)));
+  }
+
+  // ── Commands: Run button ───────────────────────────────────────────────────
+  document.querySelectorAll('.run-cmd').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.name;
+      const guild = btn.dataset.guild || '';
+      const label = btn.textContent;
+      const restore = spin(btn);
+      btn.textContent = 'Running…';
+      try {
+        const r = await req('POST', '/api/exec', { command: name, args: [], guild });
+        toast((r.title ? '[' + r.title + '] ' : '') + (r.text || r.description || 'ok'), 'ok');
+      } catch (e) {
+        toast(name + ': ' + e.message, 'err');
+      } finally {
+        btn.textContent = label;
+        restore();
+      }
+    });
+  });
+
+  // ── Commands: per-command config gear modal ────────────────────────────────
+  const modal = document.getElementById('cmd-gear-modal');
+  if (modal) {
+    const nameEl = document.getElementById('gear-cmd-name');
+    const globalScope = document.getElementById('gear-global-scope');
+    const globalToggle = document.getElementById('gear-global-toggle');
+    const modOnlyToggle = document.getElementById('gear-modonly-toggle');
+    const localScope = document.getElementById('gear-local-scope');
+    const guildSel = document.getElementById('gear-guild');
+    const localToggle = document.getElementById('gear-local-toggle');
+    const channelsBox = document.getElementById('gear-channels');
+    const rolesBox = document.getElementById('gear-roles');
+    const hintEl = document.getElementById('gear-hint');
+    let current = { name: '', guild: '', globalDisabled: false, guildDisabled: false, modOnly: false };
+
+    // Owner sees global disable + mod-only; elevated sees global disable only;
+    // staff sees local-only. The scope blocks are pre-rendered hidden/visible
+    // by the template from .Content.level, but re-assert here too so the modal
+    // is correct regardless of which command row opened it.
+    function applyScopeVisibility() {
+      // Level comes from the template-rendered data attribute, never from the
+      // scope block's current hidden state (that would misclassify staff,
+      // whose global block starts hidden, as non-staff).
+      const level = document.querySelector('body')?.dataset.level
+        || document.querySelector('meta[name="x-level"]')?.content
+        || 'regular';
+      const isOwner = level === 'owner' || level === 'elevated';
+      const isStaff = isOwner || level === 'staff';
+      globalScope.hidden = !isOwner;
+      localScope.hidden = !isStaff;
+      // Channel/role pickers only make sense at the local (staff) scope.
+      const showFields = isStaff && guildSel.value !== '';
+      document.getElementById('gear-fields').hidden = !showFields;
+    }
+
+    function openModal(btn) {
+      current = {
+        name: btn.dataset.name,
+        guild: btn.dataset.guild || '',
+        globalDisabled: btn.dataset.globalDisabled === 'true',
+        guildDisabled: btn.dataset.guildDisabled === 'true',
+        modOnly: btn.dataset.modonly === 'true',
+        channelIDs: splitList(btn.dataset.channels),
+        roleIDs: splitList(btn.dataset.roles),
+      };
+      nameEl.textContent = current.name;
+      globalToggle.checked = current.globalDisabled;
+      modOnlyToggle.checked = current.modOnly;
+      guildSel.value = current.guild;
+      localToggle.checked = current.guildDisabled;
+      // Preselect the channels/roles the modal should show (staff scope).
+      syncPicker(channelsBox, current.channelIDs);
+      syncPicker(rolesBox, current.roleIDs);
+      applyScopeVisibility();
+      refreshHint();
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+
+    // splitList turns a comma-joined data attribute into a string array.
+    function splitList(s) {
+      return (s || '').split(',').filter(x => x.length > 0);
+    }
+
+    // syncPicker checks the boxes matching ids against the multi-select.
+    function syncPicker(box, ids) {
+      const map = new Set(ids || []);
+      box.querySelectorAll('input').forEach(inp => { inp.checked = map.has(inp.value); });
+    }
+
+    function closeModal() { modal.hidden = true; document.body.style.overflow = ''; }
+
+    function refreshHint() {
+      if (globalToggle.checked) {
+        hintEl.textContent = 'This command is disabled everywhere. Uncheck to re-enable it across all servers.';
+      } else if (localToggle.checked) {
+        hintEl.textContent = 'Disabled in this server only. Other servers keep it enabled.';
+      } else {
+        hintEl.textContent = 'This command is enabled. Toggle a switch above to restrict it.';
+      }
+    }
+
+    document.querySelectorAll('.gear-btn').forEach(btn => {
+      btn.addEventListener('click', () => openModal(btn));
+    });
+    modal.querySelector('.gear-backdrop').addEventListener('click', closeModal);
+    document.getElementById('gear-close').addEventListener('click', closeModal);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    guildSel.addEventListener('change', () => {
+      document.getElementById('gear-fields').hidden = guildSel.value === '';
+      refreshHint();
+    });
+    globalToggle.addEventListener('change', refreshHint);
+    modOnlyToggle.addEventListener('change', refreshHint);
+    localToggle.addEventListener('change', refreshHint);
+
+    // Collect the currently-checked channel / role IDs.
+    function selectedIDs(box) {
+      return Array.from(box.querySelectorAll('input:checked')).map(c => c.value);
+    }
+
+    async function saveModal() {
+      const restore = spin(document.getElementById('gear-save'));
+      try {
+        const name = current.name;
+        const channels = selectedIDs(channelsBox);
+        const roles = selectedIDs(rolesBox);
+        const modOnly = modOnlyToggle.checked;
+
+        if (globalToggle.checked) {
+          // Owner: disable everywhere + mod-only. Clear any local override so
+          // the global state is the single source of truth.
+          await req('POST', '/api/cmdcfg/toggle', { name, disabled: true, guildID: '', modOnly, channels: [], roles: [] });
+          if (current.guild) {
+            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+          }
+          toast(name + ' disabled everywhere', 'ok');
+        } else if (guildSel.value && localToggle.checked) {
+          // Staff: disable in this guild, narrowing channels/roles.
+          await req('POST', '/api/cmdcfg/toggle', { name, disabled: true, guildID: guildSel.value, channels, roles, modOnly });
+          toast(name + ' disabled in ' + guildSel.options[guildSel.selectedIndex].text, 'ok');
+        } else if (!globalToggle.checked && !localToggle.checked) {
+          // No disable toggled: persist channel/role/mod-only narrowing only
+          // at the staff scope (channels/roles are local-scoped overrides).
+          if (guildSel.value) {
+            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: guildSel.value, channels, roles, modOnly });
+            toast(name + ' restrictions updated', 'ok');
+          }
+        }
+        closeModal();
+        location.reload();
+      } catch (e) {
+        // `name` is block-scoped to the try block — in the catch it would
+        // resolve to window.name. Use current.name.
+        toast(current.name + ': ' + e.message, 'err');
+      } finally {
+        restore();
+      }
+    }
+
+    document.getElementById('gear-save').addEventListener('click', saveModal);
+
+    document.getElementById('gear-clear').addEventListener('click', async () => {
+      const restore = spin(document.getElementById('gear-clear'));
+      try {
+        // Clear global override.
+        if (globalToggle.checked || current.globalDisabled) {
+          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: '', channels: [], roles: [], modOnly: false });
+        }
+        // Clear local override.
+        if (current.guild) {
+          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+        }
+        toast('Overrides cleared for ' + current.name, 'ok');
+        closeModal();
+        location.reload();
+      } catch (e) {
+        toast(current.name + ': ' + e.message, 'err');
+      } finally {
+        restore();
+      }
+    });
   }
 })();

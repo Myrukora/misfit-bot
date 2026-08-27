@@ -3,19 +3,16 @@ package commands
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/updater"
-	"github.com/disgoorg/disgo/discord"
-	"gopkg.in/yaml.v3"
 )
 
 var mentionRegex = regexp.MustCompile(`^<@!?(\d+)>$`)
@@ -128,6 +125,9 @@ func init() {
 				if cmd.SuperOwnerOnly && !ctx.Bot.IsOwner(userID) {
 					return false
 				}
+				if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
+					return false
+				}
 				return ctx.Bot.CanUse(userID, userPerms, cmd.RequiredPerm, cmd.OwnerOnly, guildOwnerID)
 			}
 
@@ -139,6 +139,9 @@ func init() {
 				allCmds = append(allCmds, ctx.Bot.GetAllModuleCommands()...)
 				for _, cmd := range allCmds {
 					if cmd.Name == cmdName || util.ContainsStr(cmd.Aliases, cmdName) {
+						if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
+							continue
+						}
 						if !canUse(cmd) {
 							return ctx.Respond(embed.Error("🚫 Permission Denied", fmt.Sprintf("You don't have permission to use `%s`.", ctx.Args[0])))
 						}
@@ -418,25 +421,6 @@ func init() {
 	})
 
 	RegisterCoreCommand(Command{
-		Name:        "set",
-		Description: "Change a bot setting live, like the prefix, status text, or owner ID.",
-		Usage:       "set <key> <value>",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) < 2 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "set <key> <value>\nAvailable: prefix, token, owner_id, name, tos_url, privacy_url, log_level, log_enabled, dashboard_listen, dashboard_public_url, oauth_client_secret"))
-			}
-			key := ctx.Args[0]
-			value := strings.Join(ctx.Args[1:], " ")
-			if err := ctx.Bot.SetConfig(key, value); err != nil {
-				return ctx.Respond(embed.Error("❌ Error", err.Error()))
-			}
-			return ctx.Respond(embed.Success("✅ Set", fmt.Sprintf("`%s` = `%s`\nRestart may be needed for some changes.", key, value)))
-		},
-	})
-
-	RegisterCoreCommand(Command{
 		Name:        "permissions",
 		Description: "Grant or revoke elevated (owner-like) permissions for a user.",
 		Usage:       "permissions add/remove/list <user_id>",
@@ -474,246 +458,6 @@ func init() {
 				return ctx.Respond(embed.Success("✅ Removed", fmt.Sprintf("User <@%s> no longer has elevated permissions.", userID)))
 			default:
 				return ctx.Respond(embed.Warning("⚠️ Usage", "permissions add/remove/list <user_id>"))
-			}
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "debug",
-		Description: "Show live stats: memory, goroutines, loaded modules, and Go version.",
-		Usage:       "debug",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-
-			e := embed.New().
-				WithTitle("🔧 Debug Info").
-				WithColor(embed.ColorPurple).
-				WithFields(
-					discord.EmbedField{Name: "Goroutines", Value: fmt.Sprintf("%d", runtime.NumGoroutine()), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Memory Alloc", Value: fmt.Sprintf("%.2f MB", float64(m.Alloc)/1024/1024), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Memory Total", Value: fmt.Sprintf("%.2f MB", float64(m.TotalAlloc)/1024/1024), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Go Version", Value: runtime.Version(), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "OS/Arch", Value: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH), Inline: util.PtrBool(true)},
-				).
-				WithTimestamp(time.Now())
-			return ctx.Respond(e)
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:         "status",
-		Description:  "Set the bot's activity so it shows 'Playing…', 'Watching…' etc. in its profile.",
-		Usage:        "status <type> <message>",
-		Category:     "core",
-		RequiredPerm: discord.PermissionAdministrator,
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) < 2 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "status <playing|watching|listening|streaming|competing|custom> <text>"))
-			}
-			activityType := ctx.Args[0]
-			text := strings.Join(ctx.Args[1:], " ")
-			if err := ctx.Bot.SetPresence(activityType, text); err != nil {
-				return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to set status: %v", err)))
-			}
-			return ctx.Respond(embed.Success("✅ Status", fmt.Sprintf("Set to **%s** %s", activityType, text)))
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "logs",
-		Description: "Turn file logging on or off. A restart is required for it to take effect.",
-		Usage:       "logs enable/disable",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
-			}
-			switch strings.ToLower(ctx.Args[0]) {
-			case "enable":
-				if err := ctx.Bot.SetConfig("log_enabled", "true"); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Logging", "Logging enabled. Restart required to take effect."))
-			case "disable":
-				if err := ctx.Bot.SetConfig("log_enabled", "false"); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Logging", "Logging disabled. Restart required to take effect."))
-			default:
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
-			}
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "backup",
-		Description: "Create, check, restore, or list backups of the bot's config file.",
-		Usage:       "backup [create|verify|restore|list] [filename]",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			configDir := ctx.Bot.GetConfigDir()
-
-			if len(ctx.Args) == 0 {
-				// Default: create a new backup
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				dst := filepath.Join(configDir, fmt.Sprintf("config_backup_%s.yml", timestamp))
-
-				input, err := os.ReadFile(src)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config: %v", err)))
-				}
-				if err := os.WriteFile(dst, input, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to write backup: %v", err)))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `config_backup_%s.yml`", timestamp)))
-			}
-
-			subcmd := strings.ToLower(ctx.Args[0])
-
-			switch subcmd {
-			case "create":
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				dst := filepath.Join(configDir, fmt.Sprintf("config_backup_%s.yml", timestamp))
-
-				input, err := os.ReadFile(src)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config: %v", err)))
-				}
-				if err := os.WriteFile(dst, input, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to write backup: %v", err)))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `config_backup_%s.yml`", timestamp)))
-
-			case "verify":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
-				}
-				backupFile := ctx.Args[1]
-				if !strings.HasSuffix(backupFile, ".yml") && !strings.HasSuffix(backupFile, ".yaml") {
-					backupFile += ".yml"
-				}
-				backupPath := filepath.Join(configDir, backupFile)
-
-				// Check if file exists
-				if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Backup file `%s` not found.", backupFile)))
-				}
-
-				// Try to parse as YAML
-				data, err := os.ReadFile(backupPath)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read backup file: %v", err)))
-				}
-
-				// Use yaml.Unmarshal to validate syntax
-				var testMap map[string]interface{}
-				if err := yaml.Unmarshal(data, &testMap); err != nil {
-					return ctx.Respond(embed.Error("❌ Invalid YAML", fmt.Sprintf("Backup file is invalid:\n`%s`", err.Error())))
-				}
-
-				// Check if it has required bot config
-				if testMap["bot"] == nil {
-					return ctx.Respond(embed.Warning("⚠️ Warning", "Backup file parsed successfully, but missing `bot` section. Restore may fail."))
-				}
-
-				return ctx.Respond(embed.Success("✅ Backup Valid", fmt.Sprintf("Backup file `%s` is valid YAML and contains bot configuration.", backupFile)))
-
-			case "restore":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
-				}
-				backupFile := ctx.Args[1]
-				if !strings.HasSuffix(backupFile, ".yml") && !strings.HasSuffix(backupFile, ".yaml") {
-					backupFile += ".yml"
-				}
-
-				// Check for --confirm flag (also accepts a trailing true/yes —
-				// the /backup restore confirm:true slash option and the
-				// dashboard's confirm switch both arrive as a positional arg).
-				// Scan from Args[2:] so the filename itself (Args[1]) can never
-				// be mistaken for confirmation (backup restore true would
-				// otherwise restore "true.yml" without --confirm).
-				hasConfirm := false
-				for _, arg := range ctx.Args[2:] {
-					switch strings.ToLower(arg) {
-					case "--confirm", "true", "yes":
-						hasConfirm = true
-					}
-				}
-
-				if !hasConfirm {
-					return ctx.Respond(embed.Warning("⚠️ Confirmation Required", fmt.Sprintf("To restore from `%s`, use: `"+ctx.Bot.GetPrefix()+"backup restore %s --confirm`", backupFile, backupFile)))
-				}
-
-				backupPath := filepath.Join(configDir, backupFile)
-
-				// Check if file exists
-				if _, err := os.Stat(backupPath); os.IsNotExist(err) {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Backup file `%s` not found.", backupFile)))
-				}
-
-				// Verify the backup first
-				data, err := os.ReadFile(backupPath)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read backup file: %v", err)))
-				}
-
-				var testMap map[string]interface{}
-				if err := yaml.Unmarshal(data, &testMap); err != nil {
-					return ctx.Respond(embed.Error("❌ Invalid Backup", fmt.Sprintf("Backup file is invalid YAML:\n`%s`", err.Error())))
-				}
-
-				// Backup current config before restoring
-				src := filepath.Join(configDir, "config.yml")
-				timestamp := time.Now().Format("20060102_150405")
-				safeBackup := filepath.Join(configDir, fmt.Sprintf("config_pre_restore_%s.yml", timestamp))
-				if curConfig, readErr := os.ReadFile(src); readErr == nil {
-					os.WriteFile(safeBackup, curConfig, 0644)
-				}
-
-				// Restore the backup
-				restoredPath := filepath.Join(configDir, "config.yml")
-				if err := os.WriteFile(restoredPath, data, 0644); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to restore config: %v", err)))
-				}
-
-				return ctx.Respond(embed.Success("✅ Config Restored", fmt.Sprintf("Config restored from `%s`.\nPre-restore backup saved to `config_pre_restore_%s.yml`.\n**Restart required to apply changes.**", backupFile, timestamp)))
-
-			case "list":
-				// List all backup files
-				entries, err := os.ReadDir(configDir)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to read config directory: %v", err)))
-				}
-
-				var backups []string
-				for _, entry := range entries {
-					name := entry.Name()
-					if strings.HasPrefix(name, "config_backup_") && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")) {
-						backups = append(backups, name)
-					}
-				}
-
-				if len(backups) == 0 {
-					return ctx.Respond(embed.Info("📦 Backups", "No backup files found."))
-				}
-
-				sort.Strings(backups)
-				var desc string
-				for i, b := range backups {
-					desc += fmt.Sprintf("%d. `%s`\n", i+1, b)
-				}
-				return ctx.Respond(embed.Info("📦 Backups", fmt.Sprintf("Found %d backup(s):\n\n%s", len(backups), desc)))
-
-			default:
-				return ctx.Respond(embed.Error("❌ Error", "Unknown subcommand. Use `create`, `verify`, `restore`, or `list`."))
 			}
 		},
 	})
@@ -901,32 +645,11 @@ func registerCoreSlashCommands() {
 			opts = []discord.ApplicationCommandOption{
 				strOpt("module", "Module name or 'all'", true),
 			}
-		case "set":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("key", "Setting key (full config.Set list)", true, "prefix", "token", "owner_id", "name", "tos_url", "privacy_url", "log_level", "log_enabled", "log_file_path", "modules_auto_load", "dashboard_listen", "dashboard_public_url", "oauth_client_secret", "updater_enabled", "updater_repo", "updater_branch", "updater_token", "updater_interval", "updater_auto_pull", "updater_notify_channel"),
-				strOpt("value", "Setting value", true),
-			}
 		case "permissions":
 			opts = []discord.ApplicationCommandOption{
 				subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
 				subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
 				subOpt("list", "List elevated users"),
-			}
-		case "status":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("type", "playing/watching/listening/streaming/competing/custom", true, "playing", "watching", "listening", "streaming", "competing", "custom"),
-				strOpt("text", "Status text", true),
-			}
-		case "logs":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("action", "enable/disable", true, "enable", "disable"),
-			}
-		case "backup":
-			opts = []discord.ApplicationCommandOption{
-				subOpt("create", "Create a new config backup"),
-				subOpt("verify", "Validate a backup file", strOpt("filename", "Backup filename (optional .yml extension)", true)),
-				subOpt("restore", "Restore config from a backup (destructive — confirm required)", strOpt("filename", "Backup filename (optional .yml extension)", true), boolOpt("confirm", "I understand this overwrites config.yml", false)),
-				subOpt("list", "List existing backups"),
 			}
 		case "ratelimit":
 			opts = []discord.ApplicationCommandOption{

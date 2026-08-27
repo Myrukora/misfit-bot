@@ -59,6 +59,9 @@ coverage.html
 # Module persistence
 loaded_modules.json
 
+# Per-command command overrides (global + per-guild enable/disable/restrict)
+command_overrides.json
+
 # Python module venvs and caches
 modules/Python/*/.venv/
 modules/Python/*/__pycache__/
@@ -89,3 +92,6 @@ modules/Go/*/*.so
 scratch/
 *.local.yml
 *.local.yaml
+
+# Leftover git worktrees from dev sessions
+.worktrees/

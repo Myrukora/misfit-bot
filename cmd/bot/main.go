@@ -33,20 +33,21 @@ import (
 )
 
 var (
-	Version    = "1.0.0"
-	Dir        string
-	Log        *logger.Logger
-	Cfg        *config.Config
-	ModMgr     *modules.Manager
-	PermMgr    *permissions.Manager
-	Client     *bot.Client
-	ba         *botAdapter
-	restartCh  chan struct{}
-	shutdownCh chan struct{}
-	noModules  bool
-	rtLimiter  *ratelimit.Limiter
-	sigCh      chan os.Signal
-	updaterMgr *updater.Manager
+	Version      = "1.0.0"
+	Dir          string
+	Log          *logger.Logger
+	Cfg          *config.Config
+	ModMgr       *modules.Manager
+	PermMgr      *permissions.Manager
+	Client       *bot.Client
+	ba           *botAdapter
+	cmdOverrides *commands.CommandOverrides
+	restartCh    chan struct{}
+	shutdownCh   chan struct{}
+	noModules    bool
+	rtLimiter    *ratelimit.Limiter
+	sigCh        chan os.Signal
+	updaterMgr   *updater.Manager
 )
 
 // Auto-delete rule: the bot auto-deletes ONLY error-colored embeds (red,
@@ -118,9 +119,20 @@ func main() {
 		}
 	}
 
-	Log, err = logger.New(Dir, Cfg.Logging.Level, Cfg.Logging.Enabled)
+	// Logger first: everything below (overrides load, PermMgr save callback,
+	// updater) logs through it.
+	var logErr error
+	Log, logErr = logger.New(Dir, Cfg.Logging.Level, Cfg.Logging.Enabled)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", logErr)
+		os.Exit(1)
+	}
+
+	// Per-command override store (global + per-guild enable/disable/restrict).
+	// Loaded once; nil is safe — dispatchers treat a nil store as "allowed".
+	cmdOverrides, err = commands.LoadCommandOverrides(filepath.Join(Dir, "command_overrides.json"))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Failed to load command overrides: %v\n", err)
 		os.Exit(1)
 	}
 	defer Log.Close()
@@ -187,6 +199,7 @@ func main() {
 func run() bool {
 	var err error
 	ba = &botAdapter{}
+	ba.cmdOverrides = cmdOverrides
 	ModMgr = modules.NewManager()
 
 	Client, err = disgo.New(Cfg.Bot.Token,
@@ -262,6 +275,17 @@ func run() bool {
 
 	loadCoreModules(ba)
 	registerSlashCommands()
+
+	// Apply the persisted presence status (online/idle/dnd/invisible) once the
+	// gateway is up. bot.status lives in config.yml and is applied on every
+	// (re)start so the bot comes up with the owner's chosen status.
+	if Cfg.Bot.Status != "" {
+		if err := ba.SetPresence("", Cfg.Bot.Status, ""); err != nil {
+			Log.Warn("Failed to apply persisted presence status %q: %v", Cfg.Bot.Status, err)
+		} else {
+			Log.Info("Applied persisted presence status: %s", Cfg.Bot.Status)
+		}
+	}
 
 	sc := sigCh // package-level, registered once in main() to avoid per-restart leaks
 
@@ -537,6 +561,17 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		return
 	}
 
+	// Per-command override enforcement: a disabled/restricted command is
+	// refused here. Owner/elevated bypass (they already passed CanUse above),
+	// matching the dispatcher's tiering. The dispatcher treats a nil store as
+	// "allowed".
+	if ov := ba.CommandOverrides(); ov != nil {
+		if !ov.Allowed(scmd.Name, guildID, channelID, ba.GetUserPermissions(user.ID.String(), guildID), roleIDs(ba, guildID, user.ID.String()), isMod(ba, guildID, user.ID.String())) {
+			_ = ctx.Respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
+			return
+		}
+	}
+
 	// Rate limit slash commands the same way as prefix commands (owner bypasses).
 	if Cfg.Bot.OwnerID != user.ID.String() {
 		allowed, wait := rtLimiter.Allow(user.ID.String())
@@ -629,6 +664,13 @@ func handleMessage(author *discord.User, msgID string, channelID string, guildID
 				return
 			}
 
+			// Per-command override enforcement (global + per-guild
+			// disable/restrict). Owner/elevated already bypassed CanUse above.
+			if !prefixAllowed(ba, cmd.Name, guildID, channelID, author.ID.String()) {
+				respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
+				return
+			}
+
 			// Check rate limit (owner bypasses)
 			if Cfg.Bot.OwnerID != author.ID.String() {
 				allowed, wait := rtLimiter.Allow(author.ID.String())
@@ -668,6 +710,13 @@ func handleMessage(author *discord.User, msgID string, channelID string, guildID
 			}
 			if !PermMgr.CanUse(author.ID.String(), userPerms, mod.RequiredPerm, mod.OwnerOnly, guildOwnerID) {
 				respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
+				return
+			}
+
+			// Per-command override enforcement (global + per-guild
+			// disable/restrict). Owner/elevated already bypassed CanUse above.
+			if !prefixAllowed(ba, mod.Name, guildID, channelID, author.ID.String()) {
+				respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
 				return
 			}
 
@@ -717,6 +766,9 @@ func registerSlashCommands() {
 
 	var cmds []discord.ApplicationCommandCreate
 	for _, scmd := range commands.CoreSlashCommands {
+		if ov := cmdOverrides; ov != nil && ov.IsDisabled(scmd.Name, "") {
+			continue // globally disabled — keep it off Discord's command list
+		}
 		cmds = append(cmds, discord.SlashCommandCreate{
 			Name:        scmd.Name,
 			Description: scmd.Description,
@@ -724,6 +776,9 @@ func registerSlashCommands() {
 		})
 	}
 	for _, scmd := range ModMgr.AllSlashCommands() {
+		if ov := cmdOverrides; ov != nil && ov.IsDisabled(scmd.Name, "") {
+			continue
+		}
 		cmds = append(cmds, discord.SlashCommandCreate{
 			Name:        scmd.Name,
 			Description: scmd.Description,
@@ -744,8 +799,9 @@ func reRegisterSlashCommands() {
 }
 
 type botAdapter struct {
-	voiceMgr *modules.VoiceManager
-	updater  *updater.Manager
+	voiceMgr     *modules.VoiceManager
+	updater      *updater.Manager
+	cmdOverrides *commands.CommandOverrides
 }
 
 func (b *botAdapter) IsOwner(userID string) bool {
@@ -1084,6 +1140,10 @@ func (b *botAdapter) GetUpdater() interface{} {
 	return b.updater
 }
 
+func (b *botAdapter) CommandOverrides() *commands.CommandOverrides {
+	return b.cmdOverrides
+}
+
 // GetClient returns the raw disgo bot.Client as an opaque interface. This
 // gives in-process modules (e.g. the dashboard) cache/gateway/rest access
 // without exposing bot internals through the typed command path.
@@ -1096,22 +1156,67 @@ func (b *botAdapter) GetStartTime() time.Time {
 	return commands.StartTime()
 }
 
-func (b *botAdapter) SetPresence(activityType string, text string) error {
+func (b *botAdapter) SetPresence(activityType string, status, text string) error {
 	ctx := context.Background()
+	// The presence status (online/idle/dnd/invisible) is applied independently
+	// of the activity; an empty status leaves the current one untouched.
+	var statusOpt gateway.PresenceOpt
+	if s := strings.ToLower(strings.TrimSpace(status)); s != "" {
+		switch s {
+		case "online":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusOnline)
+		case "idle":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusIdle)
+		case "dnd":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusDND)
+		case "invisible":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusInvisible)
+		}
+	}
+	// Empty activity type means "set only the status, keep the current
+	// activity" — do not clear the configured activity by sending an empty
+	// Playing one.
+	if strings.TrimSpace(activityType) == "" {
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, statusOpt)
+		}
+		return nil
+	}
 	switch strings.ToLower(activityType) {
 	case "playing":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithPlayingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithPlayingActivity(text))
 	case "watching":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithWatchingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithWatchingActivity(text))
 	case "listening":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithListeningActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithListeningActivity(text))
 	case "streaming":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name))
 	case "competing":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithCompetingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithCompetingActivity(text))
 	case "custom":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithCustomActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithCustomActivity(text))
 	default:
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithPlayingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithPlayingActivity(text))
 	}
 }
@@ -1410,6 +1515,44 @@ func safeParseID(s string) (snowflake.ID, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+// roleIDs returns the string IDs of a member's roles in a guild (empty when no
+// guild context). Used by the override store's role allowlist.
+func roleIDs(b *botAdapter, guildID, userID string) []string {
+	if guildID == "" {
+		return nil
+	}
+	roles := b.GetMemberRoles(guildID, userID)
+	ids := make([]string, 0, len(roles))
+	for _, r := range roles {
+		ids = append(ids, r.ID.String())
+	}
+	return ids
+}
+
+// isMod reports whether a member can moderate messages in a guild (has
+// ManageMessages or Administrator). The override store's mod_only rule uses it.
+func isMod(b *botAdapter, guildID, userID string) bool {
+	if guildID == "" {
+		return false
+	}
+	perms := b.GetUserPermissions(userID, guildID)
+	return perms.Has(discord.PermissionManageMessages) || perms.Has(discord.PermissionAdministrator)
+}
+
+// prefixAllowed enforces the per-command override store for the prefix
+// dispatcher. It returns true when the command may run. Owner/elevated already
+// bypassed CanUse above, matching the slash path. A nil store means "allowed".
+func prefixAllowed(b *botAdapter, name, guildID, channelID, userID string) bool {
+	ov := b.CommandOverrides()
+	if ov == nil {
+		return true
+	}
+	return ov.Allowed(name, guildID, channelID,
+		b.GetUserPermissions(userID, guildID),
+		roleIDs(b, guildID, userID),
+		isMod(b, guildID, userID))
 }
 
 func setupDirs() {

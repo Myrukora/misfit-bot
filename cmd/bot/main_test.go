@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/misfit/bot/embed"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/misfit/bot/embed"
 )
 
 // TestAutoDeleteTiming locks in the simplified message-disappearance rule:
