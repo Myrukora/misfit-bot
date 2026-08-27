@@ -343,9 +343,11 @@ func (m *DashboardModule) fillOverrideState(c *cmdView, guildID, level string) {
 		c.GlobalDisabled = ov.GlobalDisabled(c.Name)
 		c.GuildDisabled = ov.GuildDisabled(guildID, c.Name)
 		c.HasGuildOverride = ov.HasGuildOverride(guildID, c.Name)
-		// Effective (global + guild-merged) config drives the modal's
-		// channel/role preselection and mod-only state.
-		if merged := ov.All()[c.Name]; merged != nil {
+		// Effective config for THIS guild (global overlaid by the selected
+		// guild only) drives the modal's channel/role preselection and
+		// mod-only state. All() must not be used here: it merges every
+		// guild's override nondeterministically.
+		if merged := ov.EffectiveFor(guildID, c.Name); merged != nil {
 			c.ModOnly = merged.ModOnly != nil && *merged.ModOnly
 			c.AllowedChannels = merged.AllowedChannels
 			c.AllowedRoles = merged.AllowedRoles

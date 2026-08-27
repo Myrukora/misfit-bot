@@ -157,3 +157,35 @@ func TestBackupServiceTimestampOrdering(t *testing.T) {
 		}
 	}
 }
+
+// TestBackupServiceRejectsPathTraversal pins the pathFor hardening: absolute
+// paths, separators, traversal segments and weird characters must be rejected
+// before filepath.Join, so Verify/Restore can never touch files outside
+// configDir.
+func TestBackupServiceRejectsPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	svc := NewBackupService(dir)
+
+	for _, bad := range []string{
+		"../config.yml",
+		"../../etc/passwd",
+		"sub/dir/backup.yml",
+		"/etc/passwd",
+		"a\\b.yml",
+		"..",
+		"",
+	} {
+		if _, err := svc.pathFor(bad); err == nil {
+			t.Errorf("pathFor(%q) accepted; want error", bad)
+		}
+	}
+	// Benign names still resolve inside configDir.
+	got, err := svc.pathFor("config_backup_20260101_000000")
+	if err != nil {
+		t.Fatalf("pathFor benign: %v", err)
+	}
+	want := filepath.Join(dir, "config_backup_20260101_000000.yml")
+	if got != want {
+		t.Errorf("pathFor = %q, want %q", got, want)
+	}
+}

@@ -12,5 +12,5 @@
     <button type="button" class="btn btn-blurple" id="elevated-add-btn">Add</button>
   </form>
 </div>
-<p class="muted">Bot owner: {{if index .Content.names .Content.owner_id}}<strong>{{index .Content.names .Content.owner_id}}</strong>{{else}}<code>{{.Content.owner_id}}</code>{{end}} <code class="pid">{{.Content.owner_id}}</code> (cannot be removed via the dashboard).</p>
+<p class="muted">Bot owner: <strong>{{if index .Content.names .Content.owner_id}}{{index .Content.names .Content.owner_id}}{{else}}unknown user{{end}}</strong> <code class="pid">{{.Content.owner_id}}</code> (cannot be removed via the dashboard).</p>
 {{template "footer" .}}{{end}}

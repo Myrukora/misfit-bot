@@ -625,14 +625,14 @@ func (m *DashboardModule) toggleCmdCfg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "you may not manage this guild")
 		return
 	}
-	// Local can only narrow: a staff toggle can never re-enable a globally
-	// disabled command, and its channel/role allowlists can only shrink.
-	if body.Disabled && ov.GlobalDisabled(body.Name) {
-		writeError(w, http.StatusForbidden, "this command is disabled globally and cannot be re-enabled here")
-		return
-	}
-	if !body.Disabled && ov.GlobalDisabled(body.Name) {
-		writeError(w, http.StatusForbidden, "this command is disabled globally")
+	// Local can only narrow. A globally disabled command stays disabled at
+	// dispatch time (Allowed() checks the global flag first), so a
+	// disabled:false local save is harmless — the modal needs it to persist
+	// channel/role/mod-only narrowing for reference once the global disable
+	// is lifted. It is still rejected for a command that is NOT globally
+	// disabled, where disabled:false would be a meaningless widening.
+	if ov.GlobalDisabled(body.Name) && !body.Disabled {
+		writeError(w, http.StatusForbidden, "this command is disabled globally — local restrictions can be saved only alongside a local disable")
 		return
 	}
 	cfg := commands.GuildCmdCfg{

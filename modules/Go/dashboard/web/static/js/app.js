@@ -636,11 +636,18 @@
     // by the template from .Content.level, but re-assert here too so the modal
     // is correct regardless of which command row opened it.
     function applyScopeVisibility() {
-      const isOwner = globalScope && !globalScope.hidden;
+      // Level comes from the template-rendered data attribute, never from the
+      // scope block's current hidden state (that would misclassify staff,
+      // whose global block starts hidden, as non-staff).
+      const level = document.querySelector('body')?.dataset.level
+        || document.querySelector('meta[name="x-level"]')?.content
+        || 'regular';
+      const isOwner = level === 'owner' || level === 'elevated';
+      const isStaff = isOwner || level === 'staff';
       globalScope.hidden = !isOwner;
-      localScope.hidden = !isOwner;
+      localScope.hidden = !isStaff;
       // Channel/role pickers only make sense at the local (staff) scope.
-      const showFields = isOwner && guildSel.value !== '';
+      const showFields = isStaff && guildSel.value !== '';
       document.getElementById('gear-fields').hidden = !showFields;
     }
 
@@ -744,7 +751,9 @@
         closeModal();
         location.reload();
       } catch (e) {
-        toast(name + ': ' + e.message, 'err');
+        // `name` is block-scoped to the try block — in the catch it would
+        // resolve to window.name. Use current.name.
+        toast(current.name + ': ' + e.message, 'err');
       } finally {
         restore();
       }

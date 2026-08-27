@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -40,7 +41,7 @@ func (b *BackupService) Create() (string, error) {
 	}
 	name := fmt.Sprintf("config_backup_%s.yml", b.now().Format(timestampFormat))
 	dst := filepath.Join(b.configDir, name)
-	if err := os.WriteFile(dst, input, 0644); err != nil {
+	if err := os.WriteFile(dst, input, 0600); err != nil {
 		return "", fmt.Errorf("failed to write backup: %w", err)
 	}
 	return name, nil
@@ -77,18 +78,37 @@ func verifyBackup(data []byte) (string, error) {
 	return "", nil
 }
 
-// pathFor resolves a backup filename (adding .yml if needed) to an absolute path.
-func (b *BackupService) pathFor(name string) string {
+// backupNameRe pins the accepted backup filename shape: a safe filename
+// (letters/digits/dot/underscore/dash). Blocks absolute paths, separators,
+// traversal and anything else that could escape configDir.
+var backupNameRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// pathFor resolves a backup filename (adding .yml if needed) to an absolute
+// path INSIDE configDir. Names that are absolute, contain separators, or fail
+// the allowlist regexp are rejected — Verify/Restore must never touch files
+// outside the config directory.
+func (b *BackupService) pathFor(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || filepath.IsAbs(name) ||
+		strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return "", fmt.Errorf("invalid backup filename %q", name)
+	}
 	if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
 		name += ".yml"
 	}
-	return filepath.Join(b.configDir, name)
+	if !backupNameRe.MatchString(name) {
+		return "", fmt.Errorf("invalid backup filename %q", name)
+	}
+	return filepath.Join(b.configDir, name), nil
 }
 
 // Verify checks that a backup file exists, parses as YAML, and contains a bot
 // section. It returns a warning string for the missing-bot-section case.
 func (b *BackupService) Verify(name string) (string, error) {
-	path := b.pathFor(name)
+	path, err := b.pathFor(name)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", fmt.Errorf("backup file `%s` not found", name)
 	}
@@ -106,7 +126,10 @@ func (b *BackupService) Restore(name string, confirm bool) (string, error) {
 	if !confirm {
 		return "", fmt.Errorf("confirmation required: restore `%s` with confirm=true", name)
 	}
-	path := b.pathFor(name)
+	path, err := b.pathFor(name)
+	if err != nil {
+		return "", err
+	}
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return "", fmt.Errorf("backup file `%s` not found", name)
 	}
@@ -121,10 +144,10 @@ func (b *BackupService) Restore(name string, confirm bool) (string, error) {
 	timestamp := b.now().Format(timestampFormat)
 	safeBackup := filepath.Join(b.configDir, fmt.Sprintf("config_pre_restore_%s.yml", timestamp))
 	if curConfig, readErr := os.ReadFile(filepath.Join(b.configDir, "config.yml")); readErr == nil {
-		os.WriteFile(safeBackup, curConfig, 0644)
+		os.WriteFile(safeBackup, curConfig, 0600)
 	}
 	restoredPath := filepath.Join(b.configDir, "config.yml")
-	if err := os.WriteFile(restoredPath, data, 0644); err != nil {
+	if err := os.WriteFile(restoredPath, data, 0600); err != nil {
 		return "", fmt.Errorf("failed to restore config: %w", err)
 	}
 	return safeBackup, nil

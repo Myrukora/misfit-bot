@@ -296,6 +296,50 @@ func (o *CommandOverrides) SetGuild(guildID, name string, cfg GuildCmdCfg) error
 // values win (they are more specific), so the returned entry is the effective
 // config. Each entry is a pointer so a command with no override can be
 // represented as nil.
+// EffectiveFor overlays ONLY the given guild's override onto the global
+// config for one command — the per-guild effective view the dashboard modal
+// needs (All() merges every guild nondeterministically and must not be used
+// for per-guild state). A nil pointer means "no override at all".
+func (o *CommandOverrides) EffectiveFor(guildID, name string) *GlobalCmdCfg {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if err := o.load(); err != nil {
+		return nil
+	}
+	var eff GlobalCmdCfg
+	if g, ok := o.data.Global[name]; ok {
+		eff = g
+	}
+	if guildID == "" {
+		return zeroCfg(&eff)
+	}
+	if gc, ok := o.data.Guilds[guildID][name]; ok {
+		if gc.Disabled != nil {
+			eff.Disabled = gc.Disabled
+		}
+		if gc.ModOnly != nil {
+			eff.ModOnly = gc.ModOnly
+		}
+		if len(gc.AllowedChannels) > 0 {
+			eff.AllowedChannels = gc.AllowedChannels
+		}
+		if len(gc.AllowedRoles) > 0 {
+			eff.AllowedRoles = gc.AllowedRoles
+		}
+	}
+	return zeroCfg(&eff)
+}
+
+// zeroCfg reports a nil pointer for an all-empty config (no override), so
+// callers can distinguish "no override" from a zero-valued one.
+func zeroCfg(c *GlobalCmdCfg) *GlobalCmdCfg {
+	if c.Disabled == nil && c.ModOnly == nil && c.RequiredPerm == nil &&
+		len(c.AllowedChannels) == 0 && len(c.AllowedRoles) == 0 {
+		return nil
+	}
+	return c
+}
+
 func (o *CommandOverrides) All() map[string]*GlobalCmdCfg {
 	o.mu.RLock()
 	defer o.mu.RUnlock()

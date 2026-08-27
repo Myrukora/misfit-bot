@@ -12,12 +12,12 @@
 
 {{if .Content.canManage}}
 <div class="cmd-tabs" role="tablist" aria-label="Command groups">
-  {{range .Content.groups}}<button type="button" class="cmd-tab{{if eq $.Content.guild ""}}{{if .Module}} cmd-tab-active{{end}}{{else}}{{if eq $.Content.guild $.Content.selectedTab}}{{end}}{{end}}" data-tab="{{.Module}}" role="tab" aria-selected="{{if .Module}}{{if eq $.Content.guild $.Content.selectedTab}}true{{else}}false{{end}}{{else}}true{{end}}">{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</button>{{end}}
+  {{range .Content.groups}}<button type="button" class="cmd-tab{{if eq .Module $.Content.selectedTab}} cmd-tab-active{{end}}" data-tab="{{.Module}}" role="tab" aria-selected="{{if eq .Module $.Content.selectedTab}}true{{else}}false{{end}}">{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</button>{{end}}
 </div>
 {{end}}
 
 {{range .Content.groups}}
-<section class="cmd-grid" data-tab="{{.Module}}" {{if .Module}}{{if $.Content.canManage}}{{if ne $.Content.guild $.Content.selectedTab}} hidden{{end}}{{end}}{{end}}>
+<section class="cmd-grid" data-tab="{{.Module}}" {{if .Module}}{{if $.Content.canManage}}{{if ne .Module $.Content.selectedTab}} hidden{{end}}{{end}}{{end}}>
   <div class="grid-head">
     <h3>{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</h3>
   </div>
@@ -62,7 +62,7 @@
     </div>
     <div class="gear-body">
       <!-- Owner/elevated scope: disable everywhere + mod-only -->
-      <div class="gear-scope" id="gear-global-scope" {{if ne .Content.level "owner"}}{{if eq .Content.level "elevated"}}hidden{{end}}{{end}}>
+      <div class="gear-scope" id="gear-global-scope" {{if and (ne .Content.level "owner") (ne .Content.level "elevated")}}hidden{{end}}>
         <label class="switch"><input type="checkbox" id="gear-global-toggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Disable everywhere</span></label>
         <label class="switch"><input type="checkbox" id="gear-modonly-toggle"><span class="track"><span class="knob"></span></span><span class="switch-label">Staff (manage-messages) only</span></label>
       </div>

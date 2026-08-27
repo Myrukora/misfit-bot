@@ -104,9 +104,12 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	content := map[string]any{
 		"groups": groupCommands(views),
 		"guild":  guildID,
-		"count":  len(views),
-		"mode":   m.execMode(),
-		"canRaw": d.IsOwner || d.IsElevated,
+		// Active category tab (module name); JS switches it client-side,
+		// the server just picks the default so SSR renders the Core grid.
+		"selectedTab": "core",
+		"count":       len(views),
+		"mode":        m.execMode(),
+		"canRaw":      d.IsOwner || d.IsElevated,
 		// canManage gates the staff-facing per-command gear modal: a staff member
 		// can edit overrides only for guilds they manage.
 		"canManage": levelGEQ(level, lvlStaff),

@@ -28,10 +28,12 @@ type DashboardConfig struct {
 	// to be usable in Discord; slash works without it and mirrors what users
 	// type natively.
 	ExecMode string `yaml:"exec_mode"`
-	// ExecAllowlist is an allowlist of command names the dashboard's Run button
-	// may execute (empty = allow all). This is the security boundary: when set,
-	// /api/exec refuses any command not in the list, so an owner can lock the
-	// dashboard down to a safe subset even if it's reachable on the network.
+	// ExecAllowlist is the allowlist of command names the dashboard's Run
+	// button may execute. EMPTY BLOCKS ALL commands — the allowlist is opt-in
+	// only, so nothing is runnable from the web until names are added. This is
+	// the security boundary: /api/exec refuses any command not in the list, so
+	// an owner can lock the dashboard down to a safe subset even if it's
+	// reachable on the network.
 	ExecAllowlist []string `yaml:"exec_allowlist"`
 }
 

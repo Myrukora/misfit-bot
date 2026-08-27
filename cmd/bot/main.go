@@ -119,15 +119,20 @@ func main() {
 		}
 	}
 
+	// Logger first: everything below (overrides load, PermMgr save callback,
+	// updater) logs through it.
+	var logErr error
+	Log, logErr = logger.New(Dir, Cfg.Logging.Level, Cfg.Logging.Enabled)
+	if logErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", logErr)
+		os.Exit(1)
+	}
+
 	// Per-command override store (global + per-guild enable/disable/restrict).
 	// Loaded once; nil is safe — dispatchers treat a nil store as "allowed".
 	cmdOverrides, err = commands.LoadCommandOverrides(filepath.Join(Dir, "command_overrides.json"))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to load command overrides: %v\n", err)
-		os.Exit(1)
-	}
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
 		os.Exit(1)
 	}
 	defer Log.Close()
@@ -1167,6 +1172,15 @@ func (b *botAdapter) SetPresence(activityType string, status, text string) error
 		case "invisible":
 			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusInvisible)
 		}
+	}
+	// Empty activity type means "set only the status, keep the current
+	// activity" — do not clear the configured activity by sending an empty
+	// Playing one.
+	if strings.TrimSpace(activityType) == "" {
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, statusOpt)
+		}
+		return nil
 	}
 	switch strings.ToLower(activityType) {
 	case "playing":

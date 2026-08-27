@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -134,7 +135,13 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		// /settings redirects (module settings moved to per-module sections).
 		if r.Method == "GET" {
 			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
-				http.Redirect(w, r, "/configuration", http.StatusSeeOther)
+				// Preserve the selected guild so old /settings?guild=<id>
+				// links keep targeting the same server.
+				target := "/configuration"
+				if g := r.URL.Query().Get("guild"); g != "" {
+					target += "?guild=" + url.QueryEscape(g)
+				}
+				http.Redirect(w, r, target, http.StatusSeeOther)
 			})(w, r)
 			return
 		}
