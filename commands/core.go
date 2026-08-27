@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
-	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/updater"
@@ -422,25 +421,6 @@ func init() {
 	})
 
 	RegisterCoreCommand(Command{
-		Name:        "set",
-		Description: "Change a bot setting live, like the prefix, status text, or owner ID.",
-		Usage:       "set <key> <value>",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) < 2 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "set <key> <value>\nAvailable: prefix, token, owner_id, name, tos_url, privacy_url, log_level, log_enabled, dashboard_listen, dashboard_public_url, oauth_client_secret"))
-			}
-			key := ctx.Args[0]
-			value := strings.Join(ctx.Args[1:], " ")
-			if err := ctx.Bot.SetConfig(key, value); err != nil {
-				return ctx.Respond(embed.Error("❌ Error", err.Error()))
-			}
-			return ctx.Respond(embed.Success("✅ Set", fmt.Sprintf("`%s` = `%s`\nRestart may be needed for some changes.", key, value)))
-		},
-	})
-
-	RegisterCoreCommand(Command{
 		Name:        "permissions",
 		Description: "Grant or revoke elevated (owner-like) permissions for a user.",
 		Usage:       "permissions add/remove/list <user_id>",
@@ -478,164 +458,6 @@ func init() {
 				return ctx.Respond(embed.Success("✅ Removed", fmt.Sprintf("User <@%s> no longer has elevated permissions.", userID)))
 			default:
 				return ctx.Respond(embed.Warning("⚠️ Usage", "permissions add/remove/list <user_id>"))
-			}
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "debug",
-		Description: "Show live stats: memory, goroutines, loaded modules, and Go version.",
-		Usage:       "debug",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			var m runtime.MemStats
-			runtime.ReadMemStats(&m)
-
-			e := embed.New().
-				WithTitle("🔧 Debug Info").
-				WithColor(embed.ColorPurple).
-				WithFields(
-					discord.EmbedField{Name: "Goroutines", Value: fmt.Sprintf("%d", runtime.NumGoroutine()), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Memory Alloc", Value: fmt.Sprintf("%.2f MB", float64(m.Alloc)/1024/1024), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Memory Total", Value: fmt.Sprintf("%.2f MB", float64(m.TotalAlloc)/1024/1024), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "Go Version", Value: runtime.Version(), Inline: util.PtrBool(true)},
-					discord.EmbedField{Name: "OS/Arch", Value: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH), Inline: util.PtrBool(true)},
-				).
-				WithTimestamp(time.Now())
-			return ctx.Respond(e)
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:         "status",
-		Description:  "Set the bot's activity so it shows 'Playing…', 'Watching…' etc. in its profile.",
-		Usage:        "status <type> <message>",
-		Category:     "core",
-		RequiredPerm: discord.PermissionAdministrator,
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) < 2 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "status <playing|watching|listening|streaming|competing|custom> <text>"))
-			}
-			activityType := ctx.Args[0]
-			text := strings.Join(ctx.Args[1:], " ")
-			if err := ctx.Bot.SetPresence(activityType, "", text); err != nil {
-				return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to set status: %v", err)))
-			}
-			return ctx.Respond(embed.Success("✅ Status", fmt.Sprintf("Set to **%s** %s", activityType, text)))
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "logs",
-		Description: "Turn file logging on or off. A restart is required for it to take effect.",
-		Usage:       "logs enable/disable",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
-			}
-			switch strings.ToLower(ctx.Args[0]) {
-			case "enable":
-				if err := ctx.Bot.SetConfig("log_enabled", "true"); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Logging", "Logging enabled. Restart required to take effect."))
-			case "disable":
-				if err := ctx.Bot.SetConfig("log_enabled", "false"); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Logging", "Logging disabled. Restart required to take effect."))
-			default:
-				return ctx.Respond(embed.Warning("⚠️ Usage", "logs enable/disable"))
-			}
-		},
-	})
-
-	RegisterCoreCommand(Command{
-		Name:        "backup",
-		Description: "Create, check, restore, or list backups of the bot's config file.",
-		Usage:       "backup [create|verify|restore|list] [filename]",
-		OwnerOnly:   true,
-		Category:    "core",
-		Execute: func(ctx *Context) error {
-			cfgDir := ctx.Bot.GetConfigDir()
-			svc := config.NewBackupService(cfgDir)
-
-			if len(ctx.Args) == 0 {
-				name, err := svc.Create()
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `%s`", name)))
-			}
-
-			subcmd := strings.ToLower(ctx.Args[0])
-
-			switch subcmd {
-			case "create":
-				name, err := svc.Create()
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Created", fmt.Sprintf("Config saved to `%s`", name)))
-
-			case "verify":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
-				}
-				backupFile := ctx.Args[1]
-				if warn, err := svc.Verify(backupFile); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				} else if warn != "" {
-					return ctx.Respond(embed.Warning("⚠️ Warning", fmt.Sprintf("Backup file `%s` parsed successfully, but %s. Restore may fail.", backupFile, warn)))
-				}
-				return ctx.Respond(embed.Success("✅ Backup Valid", fmt.Sprintf("Backup file `%s` is valid YAML and contains bot configuration.", backupFile)))
-
-			case "restore":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a backup filename."))
-				}
-				backupFile := ctx.Args[1]
-				// Check for --confirm flag (also accepts a trailing true/yes —
-				// the /backup restore confirm:true slash option and the
-				// dashboard's confirm switch both arrive as a positional arg).
-				// Scan from Args[2:] so the filename itself (Args[1]) can never
-				// be mistaken for confirmation (backup restore true would
-				// otherwise restore "true.yml" without --confirm).
-				hasConfirm := false
-				for _, arg := range ctx.Args[2:] {
-					switch strings.ToLower(arg) {
-					case "--confirm", "true", "yes":
-						hasConfirm = true
-					}
-				}
-				if !hasConfirm {
-					return ctx.Respond(embed.Warning("⚠️ Confirmation Required", fmt.Sprintf("To restore from `%s`, use: `"+ctx.Bot.GetPrefix()+"backup restore %s --confirm`", backupFile, backupFile)))
-				}
-				safe, err := svc.Restore(backupFile, true)
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Config Restored", fmt.Sprintf("Config restored from `%s`.\nPre-restore backup saved to `%s`.\n**Restart required to apply changes.**", backupFile, safe)))
-
-			case "list":
-				backups, err := svc.List()
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				if len(backups) == 0 {
-					return ctx.Respond(embed.Info("📦 Backups", "No backup files found."))
-				}
-				var desc string
-				for i, b := range backups {
-					desc += fmt.Sprintf("%d. `%s`\n", i+1, b)
-				}
-				return ctx.Respond(embed.Info("📦 Backups", fmt.Sprintf("Found %d backup(s):\n\n%s", len(backups), desc)))
-
-			default:
-				return ctx.Respond(embed.Error("❌ Error", "Unknown subcommand. Use `create`, `verify`, `restore`, or `list`."))
 			}
 		},
 	})
@@ -823,32 +645,11 @@ func registerCoreSlashCommands() {
 			opts = []discord.ApplicationCommandOption{
 				strOpt("module", "Module name or 'all'", true),
 			}
-		case "set":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("key", "Setting key (full config.Set list)", true, "prefix", "token", "owner_id", "name", "tos_url", "privacy_url", "log_level", "log_enabled", "log_file_path", "modules_auto_load", "dashboard_listen", "dashboard_public_url", "oauth_client_secret", "updater_enabled", "updater_repo", "updater_branch", "updater_token", "updater_interval", "updater_auto_pull", "updater_notify_channel"),
-				strOpt("value", "Setting value", true),
-			}
 		case "permissions":
 			opts = []discord.ApplicationCommandOption{
 				subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
 				subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
 				subOpt("list", "List elevated users"),
-			}
-		case "status":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("type", "playing/watching/listening/streaming/competing/custom", true, "playing", "watching", "listening", "streaming", "competing", "custom"),
-				strOpt("text", "Status text", true),
-			}
-		case "logs":
-			opts = []discord.ApplicationCommandOption{
-				strOptChoices("action", "enable/disable", true, "enable", "disable"),
-			}
-		case "backup":
-			opts = []discord.ApplicationCommandOption{
-				subOpt("create", "Create a new config backup"),
-				subOpt("verify", "Validate a backup file", strOpt("filename", "Backup filename (optional .yml extension)", true)),
-				subOpt("restore", "Restore config from a backup (destructive — confirm required)", strOpt("filename", "Backup filename (optional .yml extension)", true), boolOpt("confirm", "I understand this overwrites config.yml", false)),
-				subOpt("list", "List existing backups"),
 			}
 		case "ratelimit":
 			opts = []discord.ApplicationCommandOption{

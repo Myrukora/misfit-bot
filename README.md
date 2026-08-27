@@ -67,7 +67,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `oauth` | `client_secret` (Discord app OAuth2 secret, shared with the dashboard) |
 | `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channel` |
 
-Config values can be changed at runtime with `[p]set <key> <value>` (validated, persisted) and `[p]update set <key> <value>` for updater keys.
+Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
 
 ## Commands
 

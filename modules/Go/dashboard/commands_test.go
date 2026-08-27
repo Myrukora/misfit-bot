@@ -11,8 +11,8 @@ func TestDedupeForModePrefixPrefersPrefix(t *testing.T) {
 	views := []cmdView{
 		view("ping", "prefix"),
 		view("ping", "slash"),
-		view("backup", "prefix"),
-		view("backup", "slash"),
+		view("btest", "prefix"),
+		view("btest", "slash"),
 	}
 	out := dedupeForMode(views, "prefix")
 	if len(out) != 2 {
@@ -29,8 +29,8 @@ func TestDedupeForModeSlashPrefersSlash(t *testing.T) {
 	views := []cmdView{
 		view("ping", "prefix"),
 		view("ping", "slash"),
-		view("backup", "slash"),
-		view("backup", "prefix"),
+		view("btest", "slash"),
+		view("btest", "prefix"),
 	}
 	out := dedupeForMode(views, "slash")
 	if len(out) != 2 {
