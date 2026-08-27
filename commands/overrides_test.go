@@ -171,6 +171,30 @@ func TestAllowedAllowedChannels(t *testing.T) {
 	}
 }
 
+// TestAllowedLocalChannelsNoGlobalRestriction pins the global-empty semantics:
+// with NO global channel allowlist, a guild-local list is the effective set —
+// the command must work in listed channels and be denied outside them.
+// (Regression: intersecting against an empty global set denied the command in
+// EVERY channel, contradicting "empty = no restriction".)
+func TestAllowedLocalChannelsNoGlobalRestriction(t *testing.T) {
+	ov := newTestOverrides(t)
+
+	// Global: nothing set. Guild sets a local channel allowlist.
+	if err := ov.SetGuild("g1", "cleanup", GuildCmdCfg{AllowedChannels: strSlice("c1")}); err != nil {
+		t.Fatal(err)
+	}
+	if !ov.Allowed("cleanup", "g1", "c1", 0, nil, false) {
+		t.Fatal("with no global list, a channel in the local allowlist must be allowed")
+	}
+	if ov.Allowed("cleanup", "g1", "c9", 0, nil, false) {
+		t.Fatal("with no global list, a channel outside the local allowlist must be denied")
+	}
+	// Other guilds without a local list are unaffected.
+	if !ov.Allowed("cleanup", "g2", "c9", 0, nil, false) {
+		t.Fatal("a guild without a local allowlist must not be restricted by another guild's list")
+	}
+}
+
 // TestAllowedAllowedRoles pins the role allowlist: empty = everyone, and a
 // member passes if ANY of their roles is in the list.
 func TestAllowedAllowedRoles(t *testing.T) {

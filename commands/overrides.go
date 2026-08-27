@@ -145,6 +145,9 @@ func (o *CommandOverrides) Allowed(cmd, guildID, channelID string, memberPerms d
 	o.mu.RLock()
 	defer o.mu.RUnlock()
 
+	// g is the zero value (nil slices) when hasGlobal is false, so the
+	// guild-scope fallback reads below are safely empty lists in Go — no
+	// global restriction exists to enforce.
 	g, hasGlobal := o.data.Global[cmd]
 	// Global rules: disabled / mod-only / channel / perm override.
 	if hasGlobal {
@@ -177,13 +180,21 @@ func (o *CommandOverrides) Allowed(cmd, guildID, channelID string, memberPerms d
 	}
 	// Channel narrowing: the effective set is (global list ∩ guild list), where
 	// an empty list at a scope means "no restriction there". Local can only
-	// narrow — it can never widen beyond the global list.
+	// narrow — it can never widen beyond the global list. An EMPTY GLOBAL list
+	// therefore means "no restriction" and the local list applies on its own
+	// (intersecting against an empty set would deny every channel everywhere).
 	if len(gc.AllowedChannels) > 0 {
-		effective := intersectStrings(g.AllowedChannels, gc.AllowedChannels)
-		if !containsString(effective, channelID) {
+		if len(g.AllowedChannels) > 0 {
+			// Both scopes restrict: the member passes only in the intersection.
+			if !containsString(intersectStrings(g.AllowedChannels, gc.AllowedChannels), channelID) {
+				return false
+			}
+		} else if !containsString(gc.AllowedChannels, channelID) {
+			// No global restriction: the local list IS the effective set.
 			return false
 		}
 	} else if len(g.AllowedChannels) > 0 && !containsString(g.AllowedChannels, channelID) {
+		// Local list empty (no local restriction): the global list governs.
 		return false
 	}
 	// Role allowlist: empty = everyone; a member passes if ANY of their roles is
