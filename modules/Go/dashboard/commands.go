@@ -23,6 +23,25 @@ type cmdView struct {
 	Aliases        []string `json:"aliases"`
 	Usable         bool     `json:"usable"`
 	UsableIn       []string `json:"usable_in"`
+	// GlobalDisabled is true when a bot-owner override disables this command
+	// everywhere. Owner/elevated toggle it globally.
+	GlobalDisabled bool `json:"global_disabled"`
+	// GuildDisabled is true when a per-guild (staff) override disables this
+	// command in the current guild. Staff toggle it locally.
+	GuildDisabled bool `json:"guild_disabled"`
+	// HasGuildOverride is true when any per-guild override entry exists for this
+	// command in the current guild.
+	HasGuildOverride bool `json:"has_guild_override"`
+	// ModOnly is true when a bot-owner override restricts this command to
+	// manage-messages users everywhere.
+	ModOnly bool `json:"mod_only"`
+	// AllowedChannels / AllowedRoles carry the effective (global + guild-merged)
+	// allowlists for the gear modal's channel/role pickers. Empty = no restriction.
+	AllowedChannels []string `json:"allowed_channels"`
+	AllowedRoles    []string `json:"allowed_roles"`
+	// CanExec is true when the command is in the dashboard exec allowlist (and
+	// thus may render a Run affordance). Empty allowlist = nothing runnable.
+	CanExec bool `json:"can_exec"`
 	// Options is the click-driven argument form schema, derived from the
 	// command's slash options (the same schema Discord's UI uses). Empty =
 	// free-form text arguments.
@@ -307,9 +326,39 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 			continue
 		}
 		c.Usable = usable
+		// Populate override state + exec allowlist for the dashboard UI.
+		m.fillOverrideState(&c, guildID, level)
 		out = append(out, c)
 	}
 	return out
+}
+
+// fillOverrideState stamps the command's override state (global/guild disable,
+// whether a guild override exists, mod-only, effective channel/role allowlists)
+// and whether it is executable via the dashboard's Run affordance onto the view.
+// The dashboard reads these to render the enable/disable toggles and Run buttons.
+func (m *DashboardModule) fillOverrideState(c *cmdView, guildID, level string) {
+	ov := m.commandOverrides()
+	if ov != nil {
+		c.GlobalDisabled = ov.GlobalDisabled(c.Name)
+		c.GuildDisabled = ov.GuildDisabled(guildID, c.Name)
+		c.HasGuildOverride = ov.HasGuildOverride(guildID, c.Name)
+		// Effective (global + guild-merged) config drives the modal's
+		// channel/role preselection and mod-only state.
+		if merged := ov.All()[c.Name]; merged != nil {
+			c.ModOnly = merged.ModOnly != nil && *merged.ModOnly
+			c.AllowedChannels = merged.AllowedChannels
+			c.AllowedRoles = merged.AllowedRoles
+			// RequiredPerm label: show the override's perm when it replaces
+			// the base command's permission.
+			if merged.RequiredPerm != nil && *merged.RequiredPerm != 0 {
+				c.RequiredPerm = discord.Permissions(*merged.RequiredPerm).String()
+			}
+		}
+	}
+	// Exec allowlist is the sole gate for Run buttons. An empty allowlist means
+	// nothing is runnable (opt-in only).
+	c.CanExec = m.execAllowed(c.Name)
 }
 
 // dedupeForMode collapses a catalog to one entry per command name, preferring
@@ -373,7 +422,8 @@ func permLabel(p discord.Permissions) string {
 	return s
 }
 
-// groupingForTemplate groups commands by ModuleOwner then Category for the page.
+// groupCommands groups commands by ModuleOwner then Category for the page.
+// Core always renders first; other modules follow in name order.
 func groupCommands(views []cmdView) []moduleGroup {
 	index := map[string]int{}
 	var groups []moduleGroup
@@ -397,7 +447,20 @@ func groupCommands(views []cmdView) []moduleGroup {
 		}
 		groups[mi].Categories[ci].Commands = append(groups[mi].Categories[ci].Commands, v)
 	}
+	// Core first, then modules by name — the tab order is presentation-only and
+	// Core is the anchor every user expects.
+	sort.SliceStable(groups, func(i, j int) bool {
+		return modulePriority(groups[i].Module) < modulePriority(groups[j].Module)
+	})
 	return groups
+}
+
+// modulePriority orders module groups: "core" first, everything else by name.
+func modulePriority(module string) string {
+	if module == "core" {
+		return "0core"
+	}
+	return "1" + module
 }
 
 type moduleGroup struct {

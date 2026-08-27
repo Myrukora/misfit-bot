@@ -19,8 +19,8 @@ func newTestOverrides(t *testing.T) *CommandOverrides {
 	return ov
 }
 
-func boolPtr(b bool) *bool      { return &b }
-func permPtr(p int64) *int64   { return &p }
+func boolPtr(b bool) *bool          { return &b }
+func permPtr(p int64) *int64        { return &p }
 func strSlice(s ...string) []string { return s }
 
 // TestOverridesBlankFileDefault pins the no-config default: with no file on

@@ -397,12 +397,13 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 }
 
 // execAllowed reports whether a command name may be run via the dashboard's
-// Run button. An empty allowlist means "allow all"; a non-empty one allows
-// only its entries. This is the sole security boundary for /api/exec.
+// Run button. The allowlist is the sole security boundary for /api/exec: an
+// EMPTY allowlist means NOTHING is runnable (opt-in only, per the plan), and a
+// non-empty allowlist permits only its entries.
 func (m *DashboardModule) execAllowed(name string) bool {
 	allowlist := m.execAllowlist()
 	if len(allowlist) == 0 {
-		return true
+		return false
 	}
 	for _, allowed := range allowlist {
 		if allowed == name {
@@ -423,6 +424,143 @@ func (m *DashboardModule) execAllowlist() []string {
 	out := make([]string, len(m.cfg.ExecAllowlist))
 	copy(out, m.cfg.ExecAllowlist)
 	return out
+}
+
+// ── /api/cmdcfg/toggle ──────────────────────────────────────────────────────
+// Global (owner/elevated, guildID empty) toggles a bot-owner override; local
+// (staff, guildID set) narrows a command for one guild. A staff toggle can only
+// DISABLE a command that is not globally disabled — it can never re-enable a
+// globally-disabled command (Carl semantics). Owner/elevated toggling is
+// unrestricted.
+
+type cmdCfgToggle struct {
+	Name     string   `json:"name"`
+	Disabled bool     `json:"disabled"`
+	GuildID  string   `json:"guildID"`
+	ModOnly  *bool    `json:"modOnly"`
+	Channels []string `json:"channels"`
+	Roles    []string `json:"roles"`
+}
+
+// toggleCmdCfg enforces the per-command enable/disable override.
+func (m *DashboardModule) toggleCmdCfg(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	us := sessionOf(r)
+	if us == nil {
+		writeError(w, http.StatusUnauthorized, "not logged in")
+		return
+	}
+	var body cmdCfgToggle
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Name == "" {
+		writeError(w, http.StatusBadRequest, "command name required")
+		return
+	}
+	level := m.resolveLevel(us)
+	ov := m.commandOverrides()
+	if ov == nil {
+		writeError(w, http.StatusServiceUnavailable, "command overrides unavailable")
+		return
+	}
+
+	// Global scope: owner/elevated, no guild.
+	if body.GuildID == "" {
+		if level != lvlOwner && level != lvlElevated {
+			writeError(w, http.StatusForbidden, "owner or elevated only")
+			return
+		}
+		cfg := commands.GlobalCmdCfg{
+			AllowedChannels: dedupeStrings(body.Channels),
+			AllowedRoles:    dedupeStrings(body.Roles),
+		}
+		dis := body.Disabled
+		cfg.Disabled = &dis
+		if body.ModOnly != nil {
+			cfg.ModOnly = body.ModOnly
+		}
+		if err := ov.SetGlobal(body.Name, cfg); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if err := ov.Save(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"name": body.Name, "disabled": body.Disabled, "scope": "global"})
+		return
+	}
+
+	// Local scope: staff managing the guild.
+	if level != lvlStaff && level != lvlOwner && level != lvlElevated {
+		writeError(w, http.StatusForbidden, "you may not manage this guild")
+		return
+	}
+	if !m.canManageGuild(us, body.GuildID) {
+		writeError(w, http.StatusForbidden, "you may not manage this guild")
+		return
+	}
+	// Local can only narrow: a staff toggle can never re-enable a globally
+	// disabled command, and its channel/role allowlists can only shrink.
+	if body.Disabled && ov.GlobalDisabled(body.Name) {
+		writeError(w, http.StatusForbidden, "this command is disabled globally and cannot be re-enabled here")
+		return
+	}
+	if !body.Disabled && ov.GlobalDisabled(body.Name) {
+		writeError(w, http.StatusForbidden, "this command is disabled globally")
+		return
+	}
+	cfg := commands.GuildCmdCfg{
+		AllowedChannels: dedupeStrings(body.Channels),
+		AllowedRoles:    dedupeStrings(body.Roles),
+	}
+	dis := body.Disabled
+	cfg.Disabled = &dis
+	if body.ModOnly != nil {
+		cfg.ModOnly = body.ModOnly
+	}
+	if err := ov.SetGuild(body.GuildID, body.Name, cfg); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if err := ov.Save(); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": body.Name, "disabled": body.Disabled, "guildID": body.GuildID, "scope": "guild"})
+}
+
+// dedupeStrings returns a de-duplicated copy of s preserving first-seen order,
+// dropping empties.
+func dedupeStrings(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(s))
+	out := make([]string, 0, len(s))
+	for _, x := range s {
+		if x == "" || seen[x] {
+			continue
+		}
+		seen[x] = true
+		out = append(out, x)
+	}
+	return out
+}
+
+// commandOverrides returns the per-command override store via the bot adapter
+// Interface, or nil when the feature is disabled. The dashboard reads it to
+// render enable/disable toggles and to persist new overrides.
+func (m *DashboardModule) commandOverrides() *commands.CommandOverrides {
+	if m.ctx == nil || m.ctx.Bot == nil {
+		return nil
+	}
+	return m.ctx.Bot.CommandOverrides()
 }
 
 // ── /api/updater/* (owner only) ──────────────────────────────────────────
@@ -682,6 +820,11 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 				return
 			}
 			m.apiExec(w, r, us)
+			return
+		}
+	case "cmdcfg":
+		if meth == "POST" && len(parts) >= 2 && parts[1] == "toggle" {
+			m.toggleCmdCfg(w, r)
 			return
 		}
 	case "updater":

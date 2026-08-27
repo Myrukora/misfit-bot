@@ -214,8 +214,8 @@ func TestCommandsRunAffordance(t *testing.T) {
 	groups := []moduleGroup{{
 		Module: "core",
 		Categories: []catGroup{{Name: "general", Commands: []cmdView{
-			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true},
-			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
+			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, CanExec: true},
+			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
 			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
 		}}},
 	}}
@@ -227,13 +227,14 @@ func TestCommandsRunAffordance(t *testing.T) {
 		t.Fatalf("render commands: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `data-command="ping"`) {
+	// Run affordance is the .run-cmd button, which carries data-name + data-guild.
+	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
 		t.Error("usable command missing Run affordance")
 	}
-	if strings.Contains(out, `data-command="secret"`) {
+	if strings.Contains(out, `run-cmd" data-name="secret"`) {
 		t.Error("SuperOwnerOnly command must never render a Run affordance")
 	}
-	if strings.Contains(out, `data-command="locked"`) {
+	if strings.Contains(out, `run-cmd" data-name="locked"`) {
 		t.Error("non-usable command must not render a Run affordance")
 	}
 	if !strings.Contains(out, `data-guild="1"`) {

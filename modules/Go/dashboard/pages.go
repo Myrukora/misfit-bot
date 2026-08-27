@@ -92,6 +92,7 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	us := sessionOf(r)
 	raw := r.URL.Query().Get("raw") == "true"
 	guildID := r.URL.Query().Get("guild")
+	level := m.resolveLevel(us)
 	var views []cmdView
 	if guildID != "" {
 		views = m.filterCatalog(us, raw, true, guildID)
@@ -106,10 +107,18 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		"count":  len(views),
 		"mode":   m.execMode(),
 		"canRaw": d.IsOwner || d.IsElevated,
+		// canManage gates the staff-facing per-command gear modal: a staff member
+		// can edit overrides only for guilds they manage.
+		"canManage": levelGEQ(level, lvlStaff),
+		// level feeds the gear modal so it can show the right scope controls
+		// (owner sees global disable + mod-only; staff sees local-only).
+		"level": level,
+		// guilds feeds the per-command guild selector in the gear modal.
+		"guilds": m.manageableGuildList(us),
 	}
-	// Picker entity lists for the click-driven Run forms (channels, roles,
-	// members) — populated only when a guild is selected AND the user shares
-	// it with the bot, so cached entity names don't leak to non-members.
+	// Picker entity lists for the modal's allowed-channel / allowed-role
+	// multi-selects — populated only when a guild is selected AND the user
+	// shares it with the bot, so cached entity names don't leak to members.
 	if guildID != "" && m.canViewGuildEntities(us, guildID) {
 		if detail, err := m.buildGuildDetail(guildID); err == nil {
 			content["channels"] = detail.Channels
@@ -118,13 +127,22 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 				roles = append(roles, entityOpt{ID: r.ID, Name: r.Name})
 			}
 			content["roles"] = roles
-			if detail.MemberCount <= maxMemberPicker {
-				content["members"] = m.memberOpts(guildID)
-			}
 		}
 	}
 	d.Content = content
 	m.tmpl.render(w, "commands", d)
+}
+
+// manageableGuildList returns the guilds the user can manage as guildOpt rows,
+// for rendering in the per-command gear modal's guild selector.
+func (m *DashboardModule) manageableGuildList(us *userSession) []guildOpt {
+	var guilds []guildOpt
+	for _, id := range m.manageableGuildIDs(us) {
+		if g := m.guildSummary(id, us); g != nil {
+			guilds = append(guilds, *g)
+		}
+	}
+	return guilds
 }
 
 // canViewGuildEntities reports whether the session may see a guild's cached

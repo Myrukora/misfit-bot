@@ -32,9 +32,9 @@ type CommandOverrides struct {
 }
 
 type overridesData struct {
-	Version     int                             `json:"version"`
-	Global      map[string]GlobalCmdCfg         `json:"global"`
-	Guilds      map[string]map[string]GuildCmdCfg `json:"guilds"`
+	Version int                               `json:"version"`
+	Global  map[string]GlobalCmdCfg           `json:"global"`
+	Guilds  map[string]map[string]GuildCmdCfg `json:"guilds"`
 }
 
 // GlobalCmdCfg is a bot-owner-only override for a single command name. It
@@ -192,6 +192,37 @@ func (o *CommandOverrides) Allowed(cmd, guildID, channelID string, memberPerms d
 		return false
 	}
 	return true
+}
+
+// GlobalDisabled reports whether a command is disabled globally (owner scope).
+func (o *CommandOverrides) GlobalDisabled(name string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	g, ok := o.data.Global[name]
+	return ok && g.Disabled != nil && *g.Disabled
+}
+
+// GuildDisabled reports whether a command is disabled by a per-guild override
+// (staff scope), independent of any global disable.
+func (o *CommandOverrides) GuildDisabled(guildID, name string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if guildID == "" {
+		return false
+	}
+	gc, ok := o.data.Guilds[guildID][name]
+	return ok && gc.Disabled != nil && *gc.Disabled
+}
+
+// HasGuildOverride reports whether a command has any per-guild override entry.
+func (o *CommandOverrides) HasGuildOverride(guildID, name string) bool {
+	o.mu.RLock()
+	defer o.mu.RUnlock()
+	if guildID == "" {
+		return false
+	}
+	_, ok := o.data.Guilds[guildID][name]
+	return ok
 }
 
 // IsDisabled reports whether the command is disabled globally or in the given

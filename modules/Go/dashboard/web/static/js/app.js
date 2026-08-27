@@ -493,4 +493,193 @@
     if (refreshBtn) refreshBtn.addEventListener('click', () => load(200, refreshBtn));
     if (moreBtn) moreBtn.addEventListener('click', () => load(500, moreBtn));
   }
+
+  // ── Commands: Carl-style grid + category tabs ────────────────────────────
+  const tabs = document.querySelectorAll('.cmd-tab');
+  const grids = document.querySelectorAll('.cmd-grid');
+  if (tabs.length && grids.length) {
+    function showTab(tab) {
+      tabs.forEach(t => t.classList.toggle('cmd-tab-active', t === tab));
+      grids.forEach(g => { g.hidden = g.dataset.tab !== tab; });
+    }
+    tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab)));
+  }
+
+  // ── Commands: Run button ───────────────────────────────────────────────────
+  document.querySelectorAll('.run-cmd').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const name = btn.dataset.name;
+      const guild = btn.dataset.guild || '';
+      const label = btn.textContent;
+      const restore = spin(btn);
+      btn.textContent = 'Running…';
+      try {
+        const r = await req('POST', '/api/exec', { command: name, args: [], guild });
+        toast((r.title ? '[' + r.title + '] ' : '') + (r.text || r.description || 'ok'), 'ok');
+      } catch (e) {
+        toast(name + ': ' + e.message, 'err');
+      } finally {
+        btn.textContent = label;
+        restore();
+      }
+    });
+  });
+
+  // ── Commands: per-command config gear modal ────────────────────────────────
+  const modal = document.getElementById('cmd-gear-modal');
+  if (modal) {
+    const nameEl = document.getElementById('gear-cmd-name');
+    const globalScope = document.getElementById('gear-global-scope');
+    const globalToggle = document.getElementById('gear-global-toggle');
+    const modOnlyToggle = document.getElementById('gear-modonly-toggle');
+    const localScope = document.getElementById('gear-local-scope');
+    const guildSel = document.getElementById('gear-guild');
+    const localToggle = document.getElementById('gear-local-toggle');
+    const channelsBox = document.getElementById('gear-channels');
+    const rolesBox = document.getElementById('gear-roles');
+    const hintEl = document.getElementById('gear-hint');
+    let current = { name: '', guild: '', globalDisabled: false, guildDisabled: false, modOnly: false };
+
+    // Owner sees global disable + mod-only; elevated sees global disable only;
+    // staff sees local-only. The scope blocks are pre-rendered hidden/visible
+    // by the template from .Content.level, but re-assert here too so the modal
+    // is correct regardless of which command row opened it.
+    function applyScopeVisibility() {
+      const isOwner = globalScope && !globalScope.hidden;
+      globalScope.hidden = !isOwner;
+      localScope.hidden = !isOwner;
+      // Channel/role pickers only make sense at the local (staff) scope.
+      const showFields = isOwner && guildSel.value !== '';
+      document.getElementById('gear-fields').hidden = !showFields;
+    }
+
+    function openModal(btn) {
+      current = {
+        name: btn.dataset.name,
+        guild: btn.dataset.guild || '',
+        globalDisabled: btn.dataset.globalDisabled === 'true',
+        guildDisabled: btn.dataset.guildDisabled === 'true',
+        modOnly: btn.dataset.modonly === 'true',
+        channelIDs: splitList(btn.dataset.channels),
+        roleIDs: splitList(btn.dataset.roles),
+      };
+      nameEl.textContent = current.name;
+      globalToggle.checked = current.globalDisabled;
+      modOnlyToggle.checked = current.modOnly;
+      guildSel.value = current.guild;
+      localToggle.checked = current.guildDisabled;
+      // Preselect the channels/roles the modal should show (staff scope).
+      syncPicker(channelsBox, current.channelIDs);
+      syncPicker(rolesBox, current.roleIDs);
+      applyScopeVisibility();
+      refreshHint();
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+    }
+
+    // splitList turns a comma-joined data attribute into a string array.
+    function splitList(s) {
+      return (s || '').split(',').filter(x => x.length > 0);
+    }
+
+    // syncPicker checks the boxes matching ids against the multi-select.
+    function syncPicker(box, ids) {
+      const map = new Set(ids || []);
+      box.querySelectorAll('input').forEach(inp => { inp.checked = map.has(inp.value); });
+    }
+
+    function closeModal() { modal.hidden = true; document.body.style.overflow = ''; }
+
+    function refreshHint() {
+      if (globalToggle.checked) {
+        hintEl.textContent = 'This command is disabled everywhere. Uncheck to re-enable it across all servers.';
+      } else if (localToggle.checked) {
+        hintEl.textContent = 'Disabled in this server only. Other servers keep it enabled.';
+      } else {
+        hintEl.textContent = 'This command is enabled. Toggle a switch above to restrict it.';
+      }
+    }
+
+    document.querySelectorAll('.gear-btn').forEach(btn => {
+      btn.addEventListener('click', () => openModal(btn));
+    });
+    modal.querySelector('.gear-backdrop').addEventListener('click', closeModal);
+    document.getElementById('gear-close').addEventListener('click', closeModal);
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !modal.hidden) closeModal();
+    });
+
+    guildSel.addEventListener('change', () => {
+      document.getElementById('gear-fields').hidden = guildSel.value === '';
+      refreshHint();
+    });
+    globalToggle.addEventListener('change', refreshHint);
+    modOnlyToggle.addEventListener('change', refreshHint);
+    localToggle.addEventListener('change', refreshHint);
+
+    // Collect the currently-checked channel / role IDs.
+    function selectedIDs(box) {
+      return Array.from(box.querySelectorAll('input:checked')).map(c => c.value);
+    }
+
+    async function saveModal() {
+      const restore = spin(document.getElementById('gear-save'));
+      try {
+        const name = current.name;
+        const channels = selectedIDs(channelsBox);
+        const roles = selectedIDs(rolesBox);
+        const modOnly = modOnlyToggle.checked;
+
+        if (globalToggle.checked) {
+          // Owner: disable everywhere + mod-only. Clear any local override so
+          // the global state is the single source of truth.
+          await req('POST', '/api/cmdcfg/toggle', { name, disabled: true, guildID: '', modOnly, channels: [], roles: [] });
+          if (current.guild) {
+            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+          }
+          toast(name + ' disabled everywhere', 'ok');
+        } else if (guildSel.value && localToggle.checked) {
+          // Staff: disable in this guild, narrowing channels/roles.
+          await req('POST', '/api/cmdcfg/toggle', { name, disabled: true, guildID: guildSel.value, channels, roles, modOnly });
+          toast(name + ' disabled in ' + guildSel.options[guildSel.selectedIndex].text, 'ok');
+        } else if (!globalToggle.checked && !localToggle.checked) {
+          // No disable toggled: persist channel/role/mod-only narrowing only
+          // at the staff scope (channels/roles are local-scoped overrides).
+          if (guildSel.value) {
+            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: guildSel.value, channels, roles, modOnly });
+            toast(name + ' restrictions updated', 'ok');
+          }
+        }
+        closeModal();
+        location.reload();
+      } catch (e) {
+        toast(name + ': ' + e.message, 'err');
+      } finally {
+        restore();
+      }
+    }
+
+    document.getElementById('gear-save').addEventListener('click', saveModal);
+
+    document.getElementById('gear-clear').addEventListener('click', async () => {
+      const restore = spin(document.getElementById('gear-clear'));
+      try {
+        // Clear global override.
+        if (globalToggle.checked || current.globalDisabled) {
+          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: '', channels: [], roles: [], modOnly: false });
+        }
+        // Clear local override.
+        if (current.guild) {
+          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+        }
+        toast('Overrides cleared for ' + current.name, 'ok');
+        closeModal();
+        location.reload();
+      } catch (e) {
+        toast(current.name + ': ' + e.message, 'err');
+      } finally {
+        restore();
+      }
+    });
+  }
 })();
