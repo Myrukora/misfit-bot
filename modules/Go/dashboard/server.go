@@ -83,7 +83,7 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	if path == "/" || path == "" {
 		if r.Method == "GET" {
-			m.requireAuthed(m.handleIndex)(w, r)
+			m.requireAuthed(m.handleServersPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)
@@ -104,12 +104,43 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	case "callback":
 		m.handleCallback(w, r)
 		return
+	case "overview":
+		if r.Method == "GET" {
+			m.requireOwner(m.handleIndex)(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
+	case "admin":
+		// Super-owner only: bot-wide administration (identity, logging,
+		// dashboard infra, updater, secrets, backups). resolveLevel returns
+		// lvlOwner only for config owner_id — exactly the "super owner".
+		if r.Method == "GET" {
+			m.requireOwner(m.handleAdminPage)(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
 	case "commands":
 		if r.Method == "GET" {
 			m.requireAuthed(m.handleCommandsPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)
+		return
+	case "g":
+		// Server-scoped dashboard: /g/<id>/commands, /g/<id>/tickets, …
+		// Everything under this prefix is scoped to ONE guild; core config
+		// and bot-wide pages are NOT reachable here.
+		if len(parts) < 3 || r.Method != "GET" {
+			methodNotAllowed(w)
+			return
+		}
+		gid, sub := parts[1], parts[2]
+		guarded := m.requireGuild(gid, func(w http.ResponseWriter, r *http.Request) {
+			m.handleGuildScopedPage(w, r, gid, sub)
+		})
+		guarded(w, r)
 		return
 	case "guild":
 		if len(parts) < 2 {
@@ -148,8 +179,21 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "configuration":
+		// Superseded by /admin (super owner) and per-server module pages;
+		// kept as a redirect so old links still land somewhere sensible.
 		if r.Method == "GET" {
-			m.requireAuthed(m.handleConfigurationPage)(w, r)
+			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
+				us := sessionOf(r)
+				level := m.resolveLevel(us)
+				switch {
+				case level == lvlOwner:
+					http.Redirect(w, r, "/admin", http.StatusSeeOther)
+				case len(r.URL.Query().Get("guild")) > 0 && m.canManageGuild(us, r.URL.Query().Get("guild")):
+					http.Redirect(w, r, "/g/"+r.URL.Query().Get("guild")+"/modules", http.StatusSeeOther)
+				default:
+					http.Redirect(w, r, "/", http.StatusSeeOther)
+				}
+			})(w, r)
 			return
 		}
 		methodNotAllowed(w)

@@ -188,6 +188,155 @@ func (m *DashboardModule) memberOpts(guildID string) []entityOpt {
 	return out
 }
 
+// ── / (server picker) ─────────────────────────────────────────────────────
+
+// guildPickerRow is one server card on the picker page.
+type guildPickerRow struct {
+	ID       string
+	Name     string
+	Icon     string
+	Owner    bool
+	IsOwner  bool // bot-level owner/elevated badge
+	Commands bool // guild has any scoped pages worth showing
+}
+
+// handleServersPage renders the post-login landing: pick a server to manage.
+// The bot-level admin panel link renders only for the bot owner (super owner).
+func (m *DashboardModule) handleServersPage(w http.ResponseWriter, r *http.Request) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	level := m.resolveLevel(us)
+	var rows []guildPickerRow
+	for _, id := range m.mutualGuildIDs(us) {
+		g := m.guildSummary(id, us)
+		if g == nil {
+			continue
+		}
+		rows = append(rows, guildPickerRow{
+			ID:      g.ID,
+			Name:    g.Name,
+			Icon:    g.Icon,
+			Owner:   g.Owner,
+			IsOwner: level == lvlOwner || level == lvlElevated,
+		})
+	}
+	d := m.baseData(us)
+	d.Page = "servers"
+	d.Content = map[string]any{
+		"guilds":  rows,
+		"level":   level,
+		"isSuper": level == lvlOwner,
+		"isElev":  level == lvlOwner || level == lvlElevated,
+	}
+	m.tmpl.render(w, "servers", d)
+}
+
+// ── /admin (super owner only) ─────────────────────────────────────────────
+
+// handleAdminPage renders the bot-wide admin panel: every core-config surface
+// that is NOT per-server — identity, logging, dashboard infra, updater,
+// secrets and backups. Gated to lvlOwner (the configured owner_id) upstream.
+func (m *DashboardModule) handleAdminPage(w http.ResponseWriter, r *http.Request) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	data := adminPageData{}
+	// Owner-only: full core sections (secrets unlocked), updater panel,
+	// backups panel.
+	data.Sections = m.coreSettingsFields(true, "", us)
+	d := m.baseData(us)
+	d.Page = "admin"
+	d.Content = data
+	m.tmpl.render(w, "admin", d)
+}
+
+// ── /g/<id>/{commands,tickets,guild,settings} (server-scoped) ─────────────
+
+// handleGuildScopedPage dispatches one guild's dashboard page. Guild is fixed
+// by the URL — no cross-guild selector on these pages.
+func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.Request, guildID, sub string) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	switch sub {
+	case "commands":
+		m.renderGuildCommands(w, r, us, guildID)
+	case "tickets":
+		m.renderGuildTickets(w, r, us, guildID)
+	case "modules":
+		m.renderGuildModules(w, r, us, guildID)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// renderGuildCommands renders the commands grid pinned to one guild.
+func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
+	level := m.resolveLevel(us)
+	views := m.filterCatalog(us, false, true, guildID)
+	d := m.baseData(us)
+	d.Page = "commands"
+	content := map[string]any{
+		"groups":      groupCommands(views),
+		"guild":       guildID,
+		"selectedTab": "core",
+		"count":       len(views),
+		"mode":        m.execMode(),
+		"canRaw":      false,
+		"canManage":   levelGEQ(level, lvlStaff),
+		"level":       level,
+		"guilds":      m.manageableGuildList(us),
+	}
+	if m.canViewGuildEntities(us, guildID) {
+		if detail, err := m.buildGuildDetail(guildID); err == nil {
+			content["channels"] = detail.Channels
+			roles := make([]entityOpt, 0, len(detail.Roles))
+			for _, ro := range detail.Roles {
+				roles = append(roles, entityOpt{ID: ro.ID, Name: ro.Name})
+			}
+			content["roles"] = roles
+		}
+	}
+	d.Content = content
+	m.tmpl.render(w, "commands", d)
+}
+
+// renderGuildTickets renders the tickets list pinned to one guild (reuses the
+// tickets page renderer with the guild preselected).
+func (m *DashboardModule) renderGuildTickets(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
+	m.handleTicketsInGuild(w, r, us, guildID)
+}
+
+// renderGuildModules renders this guild's module settings panels.
+func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
+	level := m.resolveLevel(us)
+	data := settingsPageData{GuildID: guildID}
+	if detail, err := m.buildGuildDetail(guildID); err == nil {
+		data.GuildName = detail.Name
+	}
+	for _, name := range m.ctx.Bot.GetLoadedModuleNames() {
+		wc, ok := m.webCfg(name)
+		if !ok {
+			continue
+		}
+		mv := m.buildModuleView(wc, name, us, level, guildID)
+		if len(mv.Fields) > 0 {
+			data.Modules = append(data.Modules, mv)
+		}
+	}
+	d := m.baseData(us)
+	d.Page = "guildmodules"
+	d.Content = data
+	m.tmpl.render(w, "settings", d)
+}
+
 // ── /guild/{id} ───────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request, id string) {
@@ -332,86 +481,11 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 
 // ── /configuration ────────────────────────────────────────────────────────
 
-// configurationPageData is the payload for the Configuration tab: core bot
-// config sections (same schema-driven field rendering as Settings), plus the
-// Backups panel and per-guild identity controls.
-type configurationPageData struct {
-	GuildID   string
-	GuildName string
-	Sections  []settingsSection // core/global config, grouped
-	// DashboardSelf + module configs render below the core sections, exactly
-	// as they did on /settings (module panels keep living here for now).
-	DashboardSelf moduleConfigView
-	Modules       []moduleConfigView
-}
-
-// handleConfigurationPage renders the Configuration tab: status/presence,
-// backups, identity (nickname), updater, logging, dashboard infra and the
-// owner-only secrets — every key the removed [p]set/[p]status/[p]logs/[p]backup
-// commands owned, editable through the same Config.Set validation.
-func (m *DashboardModule) handleConfigurationPage(w http.ResponseWriter, r *http.Request) {
-	us := sessionOf(r)
-	if us == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	level := m.resolveLevel(us)
-	guildID := r.URL.Query().Get("guild")
-
-	// Same auto-select / opt-out semantics as /settings: ?guild=all means "no
-	// server selected"; no param auto-selects the first manageable server so
-	// the nickname picker has a context out of the box.
-	if guildID == "all" {
-		guildID = ""
-	} else if guildID == "" {
-		if mg := m.manageableGuildIDs(us); len(mg) > 0 {
-			guildID = mg[0]
-		}
-	}
-
-	if guildID != "" {
-		if !m.canManageGuild(us, guildID) {
-			http.Error(w, "403 Forbidden — you may not manage this guild", http.StatusForbidden)
-			return
-		}
-	} else if level != lvlOwner && level != lvlElevated {
-		http.Error(w, "403 Forbidden", http.StatusForbidden)
-		return
-	}
-
-	data := configurationPageData{GuildID: guildID}
-	if guildID != "" {
-		if detail, err := m.buildGuildDetail(guildID); err == nil {
-			data.GuildName = detail.Name
-		}
-	}
-	// Core sections render for owner/elevated; the selected server only powers
-	// the pickers (notify channel, user picker).
-	if level == lvlOwner || level == lvlElevated {
-		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID, us)
-	}
-	// Dashboard self-config + other WebConfigurable modules keep rendering on
-	// this page (Task 10 will move them under per-module sidebar sections).
-	if wc, ok := m.webCfg("dashboard"); ok {
-		data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, guildID)
-	}
-	for _, name := range m.ctx.Bot.GetLoadedModuleNames() {
-		if name == "dashboard" {
-			continue
-		}
-		wc, ok := m.webCfg(name)
-		if !ok {
-			continue
-		}
-		mv := m.buildModuleView(wc, name, us, level, guildID)
-		if len(mv.Fields) > 0 {
-			data.Modules = append(data.Modules, mv)
-		}
-	}
-
-	d := m.baseData(us)
-	d.Content = data
-	m.tmpl.render(w, "configuration", d)
+// adminPageData is the payload for the super-owner admin panel: core bot
+// config sections only (identity/logging/dashboard/updater/secrets) — no
+// per-server pickers, no module panels.
+type adminPageData struct {
+	Sections []settingsSection
 }
 
 // ── core settings (schema-driven, grouped into sections) ────────────────

@@ -71,19 +71,19 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
 		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
 		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
-		// Configuration tab: core sections + backups + identity + module panels.
-		{"configuration", configurationPageData{
-			GuildID:   "1",
-			GuildName: "G",
-			Sections: []settingsSection{
-				{Title: "Bot", Help: "h", Fields: []fieldRender{{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"", "online", "idle", "dnd", "invisible"}}}},
-			},
-			DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "d1", Label: "D", Type: "toggle", Value: "true"}}},
-			Modules:       []moduleConfigView{{Name: "cleanup", Fields: []fieldRender{{Key: "m1", Label: "M", Type: "text", Value: "v"}}}},
-		}},
-		// Owner-only panels (Backups/Updater) render when IsOwner is set by
-		// mkData; a staff view must not include them.
-		{"configuration", configurationPageData{GuildID: "", Sections: nil}},
+		// Server picker: guild cards + super-owner admin links.
+		{"servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Owner: true}}, "level": lvlOwner, "isSuper": true, "isElev": true}},
+		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
+		// Admin panel: core sections incl. presence status + secrets.
+		{"admin", adminPageData{Sections: []settingsSection{
+			{Title: "Bot", Help: "h", Fields: []fieldRender{
+				{Key: "prefix", Label: "Prefix", Type: "text", Value: "[p]"},
+				{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"", "online", "idle", "dnd", "invisible"}},
+			}},
+			{Title: "Secrets", Fields: []fieldRender{{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true}}},
+		}}},
+		// Guild-scoped module settings reuse the settings template.
+		{"settings", settingsPageData{GuildID: "1", GuildName: "G", Modules: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
 	}
 
 	for i, c := range cases {
