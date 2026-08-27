@@ -42,7 +42,7 @@
 {{if .DashboardSelf.Fields}}
 <section class="card reveal">
   <h3>Dashboard (self-config)</h3>
-  <form class="module-cfg cfg-form" data-module="{{.DashboardSelf.Name}}" data-guild="{{.GuildID}}">
+  <form class="module-cfg cfg-form" data-module="{{.DashboardSelf.Name}}" data-guild="{{$.Content.GuildID}}">
     {{range .DashboardSelf.Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple save-module">Save changes</button>
@@ -54,7 +54,7 @@
 {{range .Modules}}
 <section class="card reveal">
   <h3>{{.Name}}</h3>
-  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{.GuildID}}">
+  <form class="module-cfg cfg-form" data-module="{{.Name}}" data-guild="{{$.Content.GuildID}}">
     {{range .Fields}}{{template "field" .}}{{end}}
     <div class="inline-form">
       <button type="button" class="btn btn-blurple save-module">Save changes</button>

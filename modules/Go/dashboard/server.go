@@ -179,8 +179,12 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "configuration":
+		// Superseded by /admin (super owner) and per-server module pages;
+		// kept as a redirect so old links still land somewhere sensible.
 		if r.Method == "GET" {
-			m.requireAuthed(m.handleConfigurationPage)(w, r)
+			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/admin", http.StatusSeeOther)
+			})(w, r)
 			return
 		}
 		methodNotAllowed(w)
