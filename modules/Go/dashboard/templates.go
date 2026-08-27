@@ -164,6 +164,10 @@ func pageTitle(page string) string {
 		return "Settings"
 	case "configuration":
 		return "Configuration"
+	case "servers":
+		return "Servers"
+	case "admin":
+		return "Administration"
 	case "permissions":
 		return "Permissions"
 	case "logs":

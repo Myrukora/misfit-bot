@@ -189,22 +189,14 @@
           setMetric('m-mods', s.modules_loaded + '/' + s.modules_available);
         }
         setMetric('m-cmds', s.commands);
-        if (s.runtime) { setMetric('m-mem', s.runtime.alloc_mb); setMetric('m-goros', s.runtime.goroutines); }
-        // Live system info card (staff+).
         if (s.runtime) {
+          setMetric('m-mem', s.runtime.alloc_mb);
+          setMetric('m-goros', s.runtime.goroutines);
+          const gcEl = document.getElementById('m-gc');
+          if (gcEl && s.runtime.gc_cycles !== undefined) setMetric('m-gc', s.runtime.gc_cycles);
           const goEl = document.getElementById('sys-go');
           if (goEl && s.runtime.go_version) goEl.textContent = s.runtime.go_version;
-          const heapEl = document.getElementById('sys-heap');
-          if (heapEl) heapEl.textContent = s.runtime.alloc_mb + ' MB';
-          const gEl = document.getElementById('sys-goros');
-          if (gEl) gEl.textContent = s.runtime.goroutines;
         }
-        const sysUptime = document.getElementById('sys-uptime');
-        if (sysUptime) sysUptime.textContent = s.uptime;
-        const sysMods = document.getElementById('sys-mods');
-        if (sysMods) sysMods.textContent = s.modules_loaded + '/' + s.modules_available;
-        const sysCmds = document.getElementById('sys-cmds');
-        if (sysCmds) sysCmds.textContent = s.commands;
       } catch (_) {}
     }
     refresh();
@@ -589,11 +581,18 @@
   const tabs = document.querySelectorAll('.cmd-tab');
   const grids = document.querySelectorAll('.cmd-grid');
   if (tabs.length && grids.length) {
-    function showTab(tab) {
-      tabs.forEach(t => t.classList.toggle('cmd-tab-active', t === tab));
-      grids.forEach(g => { g.hidden = g.dataset.tab !== tab; });
+    function showTab(name) {
+      tabs.forEach(t => {
+        const on = t.dataset.tab === name;
+        t.classList.toggle('cmd-tab-active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      grids.forEach(g => { g.hidden = g.dataset.tab !== name; });
     }
-    tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab)));
+    // The click handler passes the tab's NAME (a string) — the grid hidden
+    // check compares dataset.tab (string) to it. Passing the element here
+    // made every comparison false and hid all grids on the first click.
+    tabs.forEach(tab => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
   }
 
   // ── Commands: Run button ───────────────────────────────────────────────────
@@ -702,6 +701,42 @@
       btn.addEventListener('click', () => openModal(btn));
     });
     modal.querySelector('.gear-backdrop').addEventListener('click', closeModal);
+
+    // Load the selected guild's channels/roles into the pickers. Rendered
+    // lists exist only when the page URL had ?guild= — for the "All servers"
+    // view (or a different guild picked in the modal) fetch them on demand
+    // from /api/guild/<id> (channels + roles, cache-served).
+    async function loadGuildEntities(guildID, checkedCh, checkedRo) {
+      channelsBox.replaceChildren();
+      rolesBox.replaceChildren();
+      if (!guildID) return;
+      try {
+        const d = await req('GET', '/api/guild/' + encodeURIComponent(guildID));
+        const mkItem = (id, name) => {
+          const label = document.createElement('label');
+          label.className = 'multi-item';
+          const inp = document.createElement('input');
+          inp.type = 'checkbox';
+          inp.value = id;
+          label.appendChild(inp);
+          const span = document.createElement('span');
+          span.textContent = name;
+          label.appendChild(span);
+          return label;
+        };
+        channelsBox.replaceChildren(...(d.channels || []).map(it => mkItem(it.ID, it.Name)));
+        rolesBox.replaceChildren(...(d.roles || []).map(it => mkItem(it.ID, it.Name)));
+        syncPicker(channelsBox, checkedCh);
+        syncPicker(rolesBox, checkedRo);
+      } catch (e) {
+        toast('Failed to load channels/roles: ' + e.message, 'err');
+      }
+    }
+    guildSel.addEventListener('change', () => {
+      document.getElementById('gear-fields').hidden = guildSel.value === '';
+      loadGuildEntities(guildSel.value, selectedIDs(channelsBox), selectedIDs(rolesBox));
+      refreshHint();
+    });
     document.getElementById('gear-close').addEventListener('click', closeModal);
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape' && !modal.hidden) closeModal();
