@@ -10,7 +10,7 @@
 </div>
 <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} visible to you{{if .Content.guild}} in this server{{end}} · shown as {{if eq .Content.mode "slash"}}<code>/slash</code>{{else}}<code>prefix</code>{{end}} commands{{if .Content.canRaw}} (change in Settings){{end}}.</p>
 
-{{if .Content.canManage}}
+{{if and .Content.canManage (gt (len .Content.groups) 1)}}
 <div class="cmd-tabs" role="tablist" aria-label="Command groups">
   {{range .Content.groups}}<button type="button" class="cmd-tab{{if eq .Module $.Content.selectedTab}} cmd-tab-active{{end}}" data-tab="{{.Module}}" role="tab" aria-selected="{{if eq .Module $.Content.selectedTab}}true{{else}}false{{end}}">{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</button>{{end}}
 </div>
