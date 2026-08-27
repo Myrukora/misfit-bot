@@ -130,10 +130,12 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "settings":
-		// Kept as a live route until Task 11c retires it with a redirect; the
-		// Configuration tab is the new home for core config.
+		// Task 11c: the Configuration tab is the new home for core config;
+		// /settings redirects (module settings moved to per-module sections).
 		if r.Method == "GET" {
-			m.handleSettingsPage(w, r)
+			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/configuration", http.StatusSeeOther)
+			})(w, r)
 			return
 		}
 		methodNotAllowed(w)
@@ -238,7 +240,7 @@ func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 		// settings page (staff+; regular users have no settings).
 		if _, isWC := m.webCfg(name); isWC {
 			if levelGEQ(level, lvlStaff) || level == lvlOwner || level == lvlElevated {
-				item.Settings = "/settings#" + name
+				item.Settings = "/configuration#" + name
 			}
 		}
 		if wt, isWT := modules.IsWebTabser(mod); isWT {

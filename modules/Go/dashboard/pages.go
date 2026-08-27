@@ -591,11 +591,37 @@ func (m *DashboardModule) populateEntities(fr *fieldRender, guildID string, us *
 
 // ── /permissions ──────────────────────────────────────────────────────────
 
+// resolveUsernames maps user IDs to display names, cache-first. The member
+// cache is enumerated once and reused for the whole request (per-request memo,
+// no per-ID scans). IDs absent from the cache stay raw — the REST fallback the
+// plan mentions is skipped: a private bot's elevated list is always in cache.
+func (m *DashboardModule) resolveUsernames(ids []string) map[string]string {
+	out := make(map[string]string, len(ids))
+	if m.client == nil || len(ids) == 0 {
+		return out
+	}
+	byID := make(map[string]string, 64)
+	for g := range m.client.Caches.Guilds() {
+		for member := range m.client.Caches.Members(g.ID) {
+			byID[member.User.ID.String()] = member.User.Username
+		}
+	}
+	for _, id := range ids {
+		if name, ok := byID[id]; ok {
+			out[id] = name
+		}
+	}
+	return out
+}
+
 func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.Request) {
+	elevated := m.permMgr().GetElevated()
+	names := m.resolveUsernames(append([]string{m.ctx.Bot.GetOwnerID()}, elevated...))
 	d := m.baseData(sessionOf(r))
 	d.Content = map[string]any{
-		"elevated": m.permMgr().GetElevated(),
+		"elevated": elevated,
 		"owner_id": m.ctx.Bot.GetOwnerID(),
+		"names":    names,
 	}
 	m.tmpl.render(w, "permissions", d)
 }

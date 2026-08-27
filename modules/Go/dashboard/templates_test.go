@@ -69,7 +69,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"commands", commandsContent},
 		{"guild", guildContent},
 		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
-		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9"}},
+		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
 		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
 		// Configuration tab: core sections + backups + identity + module panels.
 		{"configuration", configurationPageData{

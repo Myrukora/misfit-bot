@@ -4,7 +4,7 @@
 <div class="card">
   <h3>Elevated users</h3>
   <ul class="list" id="elevated-list">
-    {{range .Content.elevated}}<li><code>{{.}}</code> <button class="btn btn-danger btn-sm elrm" data-id="{{.}}" style="margin-left:auto">remove</button></li>{{end}}
+    {{range .Content.elevated}}<li><span class="pname">{{if index $.Content.names .}}{{index $.Content.names .}}{{else}}unknown user{{end}}</span> <code class="pid">{{.}}</code> <button class="btn btn-danger btn-sm elrm" data-id="{{.}}" style="margin-left:auto">remove</button></li>{{end}}
   </ul>
   <form id="elevated-add" class="inline-form" style="margin-top:14px">
     <label for="elevated-id" class="sr-only">User ID</label>
@@ -12,5 +12,5 @@
     <button type="button" class="btn btn-blurple" id="elevated-add-btn">Add</button>
   </form>
 </div>
-<p class="muted">Bot owner: <code>{{.Content.owner_id}}</code> (cannot be removed via the dashboard).</p>
+<p class="muted">Bot owner: {{if index .Content.names .Content.owner_id}}<strong>{{index .Content.names .Content.owner_id}}</strong>{{else}}<code>{{.Content.owner_id}}</code>{{end}} <code class="pid">{{.Content.owner_id}}</code> (cannot be removed via the dashboard).</p>
 {{template "footer" .}}{{end}}
