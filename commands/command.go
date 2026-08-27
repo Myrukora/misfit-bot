@@ -3,8 +3,8 @@ package commands
 import (
 	"time"
 
-	"github.com/misfit/bot/permissions"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/misfit/bot/permissions"
 )
 
 type Command struct {
@@ -109,7 +109,7 @@ type Interface interface {
 	GetAllModuleCommandsByModule() []ModuleCommands // module name → its prefix commands, in load order
 	GetAvailableModuleNames() []string
 	GetPermissionManager() *permissions.Manager
-	SetPresence(activityType string, text string) error
+	SetPresence(activityType string, status, text string) error
 	GetLatency() string
 	Shutdown()
 	Restart()

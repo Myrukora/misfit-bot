@@ -33,21 +33,21 @@ import (
 )
 
 var (
-	Version    = "1.0.0"
-	Dir        string
-	Log        *logger.Logger
-	Cfg        *config.Config
-	ModMgr     *modules.Manager
-	PermMgr    *permissions.Manager
-	Client     *bot.Client
-	ba         *botAdapter
+	Version      = "1.0.0"
+	Dir          string
+	Log          *logger.Logger
+	Cfg          *config.Config
+	ModMgr       *modules.Manager
+	PermMgr      *permissions.Manager
+	Client       *bot.Client
+	ba           *botAdapter
 	cmdOverrides *commands.CommandOverrides
-	restartCh  chan struct{}
-	shutdownCh chan struct{}
-	noModules  bool
-	rtLimiter  *ratelimit.Limiter
-	sigCh      chan os.Signal
-	updaterMgr *updater.Manager
+	restartCh    chan struct{}
+	shutdownCh   chan struct{}
+	noModules    bool
+	rtLimiter    *ratelimit.Limiter
+	sigCh        chan os.Signal
+	updaterMgr   *updater.Manager
 )
 
 // Auto-delete rule: the bot auto-deletes ONLY error-colored embeds (red,
@@ -270,6 +270,17 @@ func run() bool {
 
 	loadCoreModules(ba)
 	registerSlashCommands()
+
+	// Apply the persisted presence status (online/idle/dnd/invisible) once the
+	// gateway is up. bot.status lives in config.yml and is applied on every
+	// (re)start so the bot comes up with the owner's chosen status.
+	if Cfg.Bot.Status != "" {
+		if err := ba.SetPresence("", Cfg.Bot.Status, ""); err != nil {
+			Log.Warn("Failed to apply persisted presence status %q: %v", Cfg.Bot.Status, err)
+		} else {
+			Log.Info("Applied persisted presence status: %s", Cfg.Bot.Status)
+		}
+	}
 
 	sc := sigCh // package-level, registered once in main() to avoid per-restart leaks
 
@@ -783,8 +794,8 @@ func reRegisterSlashCommands() {
 }
 
 type botAdapter struct {
-	voiceMgr   *modules.VoiceManager
-	updater    *updater.Manager
+	voiceMgr     *modules.VoiceManager
+	updater      *updater.Manager
 	cmdOverrides *commands.CommandOverrides
 }
 
@@ -1140,22 +1151,58 @@ func (b *botAdapter) GetStartTime() time.Time {
 	return commands.StartTime()
 }
 
-func (b *botAdapter) SetPresence(activityType string, text string) error {
+func (b *botAdapter) SetPresence(activityType string, status, text string) error {
 	ctx := context.Background()
+	// The presence status (online/idle/dnd/invisible) is applied independently
+	// of the activity; an empty status leaves the current one untouched.
+	var statusOpt gateway.PresenceOpt
+	if s := strings.ToLower(strings.TrimSpace(status)); s != "" {
+		switch s {
+		case "online":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusOnline)
+		case "idle":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusIdle)
+		case "dnd":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusDND)
+		case "invisible":
+			statusOpt = gateway.WithOnlineStatus(discord.OnlineStatusInvisible)
+		}
+	}
 	switch strings.ToLower(activityType) {
 	case "playing":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithPlayingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithPlayingActivity(text))
 	case "watching":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithWatchingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithWatchingActivity(text))
 	case "listening":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithListeningActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithListeningActivity(text))
 	case "streaming":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name))
 	case "competing":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithCompetingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithCompetingActivity(text))
 	case "custom":
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithCustomActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithCustomActivity(text))
 	default:
+		if statusOpt != nil {
+			return Client.SetPresence(ctx, gateway.WithPlayingActivity(text), statusOpt)
+		}
 		return Client.SetPresence(ctx, gateway.WithPlayingActivity(text))
 	}
 }

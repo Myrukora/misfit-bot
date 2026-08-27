@@ -368,6 +368,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Pick from the selected server's members or type the ID. Owner only — elevated users cannot transfer ownership.", Type: "user", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
 			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
 			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+			fieldRender{Key: "status", Label: "Presence status", Help: "Status shown alongside the activity (online, idle, dnd, invisible). Persisted and applied on every restart. The live activity type/text is set from the Configuration tab.", Type: "select", Value: vals["status"], Options: []string{"", "online", "idle", "dnd", "invisible"}},
 		),
 		sec("Logging", "File logging (JSON, daily rotation).",
 			fieldRender{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Restart required.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},

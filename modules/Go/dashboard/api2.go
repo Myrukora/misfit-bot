@@ -196,14 +196,15 @@ func (m *DashboardModule) apiPresence(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type   string `json:"type"`
+		Status string `json:"status"`
+		Text   string `json:"text"`
 	}
 	if err := readJSON(r.Body, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
-	if err := m.ctx.Bot.SetPresence(body.Type, body.Text); err != nil {
+	if err := m.ctx.Bot.SetPresence(body.Type, body.Status, body.Text); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

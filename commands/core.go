@@ -9,11 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/updater"
-	"github.com/disgoorg/disgo/discord"
 )
 
 var mentionRegex = regexp.MustCompile(`^<@!?(\d+)>$`)
@@ -519,7 +519,7 @@ func init() {
 			}
 			activityType := ctx.Args[0]
 			text := strings.Join(ctx.Args[1:], " ")
-			if err := ctx.Bot.SetPresence(activityType, text); err != nil {
+			if err := ctx.Bot.SetPresence(activityType, "", text); err != nil {
 				return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to set status: %v", err)))
 			}
 			return ctx.Respond(embed.Success("✅ Status", fmt.Sprintf("Set to **%s** %s", activityType, text)))
