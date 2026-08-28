@@ -1,0 +1,338 @@
+package dashboard
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"html"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/disgo/oauth2"
+	"github.com/disgoorg/snowflake/v2"
+)
+
+const (
+	sessionCookie = "dsh_session"
+	csrfHeader    = "X-CSRF-Token"
+	csrfMeta      = "csrf-token"
+)
+
+// userSession is an in-memory OAuth session for a logged-in dashboard user.
+// Sessions are lost on restart; users simply log in again.
+type userSession struct {
+	mu       sync.Mutex
+	oauth    oauth2.Session
+	userID   snowflake.ID
+	username string
+	avatar   string // Discord CDN avatar URL
+
+	oauthGuilds []discord.OAuth2Guild // cached list of the user's guilds
+	guildsAt    time.Time
+
+	// expiresAt is the server-side session lifetime; it must match the cookie
+	// MaxAge (7 days) so a copied cookie cannot outlive its session server-side.
+	expiresAt time.Time
+
+	csrfToken string
+}
+
+type sessionStore struct {
+	mu       sync.RWMutex
+	sessions map[string]*userSession
+}
+
+// newSessionStore creates an empty in-memory session store.
+func newSessionStore() *sessionStore {
+	return &sessionStore{sessions: make(map[string]*userSession)}
+}
+
+// put stores a session under key.
+func (s *sessionStore) put(key string, us *userSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[key] = us
+}
+
+// get returns the session stored under key.
+func (s *sessionStore) get(key string) (*userSession, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	us, ok := s.sessions[key]
+	return us, ok
+}
+
+// del removes the session stored under key.
+func (s *sessionStore) del(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, key)
+}
+
+// clear drops every session (used when OAuth secrets change).
+func (s *sessionStore) clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = make(map[string]*userSession)
+}
+
+// ── Locked config accessors ──────────────────────────────────────────────
+// m.cfg and m.oauth are swapped from gateway goroutines (cmdDashboardSet,
+// WebSetConfig) while HTTP handlers read them. All unlocked readers must go
+// through these accessors to avoid a data race on every authenticated request.
+
+// sessionSecret returns the current cookie-signing secret under m.mu.
+func (m *DashboardModule) sessionSecret() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cfg == nil {
+		return ""
+	}
+	return m.cfg.SessionSecret
+}
+
+// oauthClient returns the current OAuth client under m.mu.
+func (m *DashboardModule) oauthClient() *oauth2.Client {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.oauth
+}
+
+// ── Signed session cookie ─────────────────────────────────────────────────
+// Cookie value = "<key>.<hex HMAC-SHA256(key, sessionSecret)>" so a tampered
+// key can't be substituted for a different valid session.
+
+func (m *DashboardModule) signCookie(key string) string {
+	mac := hmac.New(sha256.New, []byte(m.sessionSecret()))
+	mac.Write([]byte(key))
+	return key + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+// verifyCookie validates a signed session cookie and returns its key.
+func (m *DashboardModule) verifyCookie(raw string) (string, bool) {
+	idx := strings.IndexByte(raw, '.')
+	if idx <= 0 {
+		return "", false
+	}
+	key := raw[:idx]
+	sig := raw[idx+1:]
+	mac := hmac.New(sha256.New, []byte(m.sessionSecret()))
+	mac.Write([]byte(key))
+	want := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sig), []byte(want)) {
+		return "", false
+	}
+	return key, true
+}
+
+// requestIsHTTPS reports whether the browser connection is secure (direct TLS
+// or via a TLS-terminating proxy/tunnel that sets X-Forwarded-Proto). The
+// session cookie's Secure flag must match the scheme the browser ACTUALLY
+// sees, not the configured public_url: on a plain-http LAN origin a Secure
+// cookie would silently never be stored and login would loop forever.
+func (m *DashboardModule) requestIsHTTPS(r *http.Request) bool {
+	return m.requestScheme(r) == "https"
+}
+
+// setSessionCookie writes the signed session cookie, matching Secure to the request scheme.
+func (m *DashboardModule) setSessionCookie(w http.ResponseWriter, r *http.Request, raw string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: raw, Path: "/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.requestIsHTTPS(r),
+		MaxAge: 86400 * 7,
+	})
+}
+
+// clearSessionCookie expires the session cookie.
+func (m *DashboardModule) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookie, Value: "", Path: "/",
+		HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: m.requestIsHTTPS(r),
+		MaxAge: -1,
+	})
+}
+
+// sessionFromCookie reads and verifies the session cookie. Expired sessions
+// are rejected and evicted so a copied cookie cannot outlive its lifetime.
+func (m *DashboardModule) sessionFromCookie(r *http.Request) (*userSession, string, bool) {
+	c, err := r.Cookie(sessionCookie)
+	if err != nil {
+		return nil, "", false
+	}
+	key, ok := m.verifyCookie(c.Value)
+	if !ok {
+		return nil, "", false
+	}
+	us, ok := m.sessions.get(key)
+	if !ok {
+		return nil, "", false
+	}
+	if !us.expiresAt.IsZero() && time.Now().After(us.expiresAt) {
+		m.sessions.del(key)
+		return nil, "", false
+	}
+	return us, key, true
+}
+
+// authMiddleware attaches any valid session to the request context and refreshes
+// an expired OAuth token. It never blocks — handlers decide whether auth is
+// required (and redirect to /login if not).
+func (m *DashboardModule) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		us, _, ok := m.sessionFromCookie(r)
+		oa := m.oauthClient()
+		if ok && oa != nil {
+			func() {
+				us.mu.Lock()
+				defer us.mu.Unlock()
+				if us.oauth.Expired() {
+					if refreshed, err := oa.VerifySession(us.oauth); err == nil {
+						us.oauth = refreshed
+					}
+				}
+			}()
+			r = r.WithContext(setSession(r.Context(), us))
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ── OAuth routes ───────────────────────────────────────────────────────────
+
+func (m *DashboardModule) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if m.oauthClient() == nil || !m.configured() {
+		m.renderSetup(w, r)
+		return
+	}
+	if sessionOf(r) != nil {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	m.renderLogin(w, r)
+}
+
+// handleLoginStart begins the Discord OAuth flow.
+func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Request) {
+	oa := m.oauthClient()
+	if oa == nil || !m.configured() {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	url := oa.GenerateAuthorizationURL(oauth2.AuthorizationURLParams{
+		RedirectURI: m.redirectBaseURL(r) + "/callback",
+		Scopes:      []discord.OAuth2Scope{discord.OAuth2ScopeIdentify, discord.OAuth2ScopeGuilds},
+	})
+	http.Redirect(w, r, url, http.StatusSeeOther)
+}
+
+// handleCallback completes OAuth, enforces the mutual-guild rule and issues a session.
+func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request) {
+	oa := m.oauthClient()
+	if oa == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	q := r.URL.Query()
+	code := q.Get("code")
+	state := q.Get("state")
+	if code == "" || state == "" {
+		writeError(w, http.StatusBadRequest, "missing code or state parameter")
+		return
+	}
+	sess, _, err := oa.StartSession(code, state)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Discord login failed: "+err.Error())
+		return
+	}
+	user, err := oa.GetUser(sess)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not fetch Discord user: "+err.Error())
+		return
+	}
+	guilds, err := oa.GetGuilds(sess)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "could not fetch your guilds: "+err.Error())
+		return
+	}
+	if !m.sharesMutualGuild(guilds) {
+		// Friendly denial — this person shares no server with the bot.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(denialPage(m.botIdentity().Name)))
+		return
+	}
+	key, err := randHex(32)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+	csrf, err := randHex(16)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not create session")
+		return
+	}
+	us := &userSession{
+		oauth:       sess,
+		userID:      user.ID,
+		username:    user.Username,
+		avatar:      user.EffectiveAvatarURL(),
+		oauthGuilds: guilds,
+		guildsAt:    time.Now(),
+		expiresAt:   time.Now().Add(7 * 24 * time.Hour),
+		csrfToken:   csrf,
+	}
+	m.sessions.put(key, us)
+	m.setSessionCookie(w, r, m.signCookie(key))
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleLogout destroys the session and redirects to /login.
+func (m *DashboardModule) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if _, key, ok := m.sessionFromCookie(r); ok {
+		m.sessions.del(key)
+	}
+	m.clearSessionCookie(w, r)
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// sharesMutualGuild reports whether the OAuth user and the bot share at least
+// one guild (applied to the optional allowed_guilds allowlist).
+func (m *DashboardModule) sharesMutualGuild(guilds []discord.OAuth2Guild) bool {
+	botSet := m.botGuildIDs()
+	if len(botSet) == 0 {
+		return false // bot not in any guild: refuse everyone
+	}
+	for _, g := range guilds {
+		if botSet[g.ID.String()] && m.allowed(g.ID.String()) {
+			return true
+		}
+	}
+	return false
+}
+
+// checkCSRF validates the X-CSRF-Token header against the session's token.
+func (m *DashboardModule) checkCSRF(r *http.Request) bool {
+	us := sessionOf(r)
+	if us == nil {
+		return false
+	}
+	return hmac.Equal([]byte(r.Header.Get(csrfHeader)), []byte(us.csrfToken))
+}
+
+// denialPage is the friendly "no shared server" message shown at /callback.
+// The bot name is HTML-escaped: it can come from Discord identity data, and
+// this response is served to unauthenticated users.
+func denialPage(botName string) string {
+	botName = html.EscapeString(botName)
+	return fmt.Sprintf(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Login denied</title></head><body style="font-family:system-ui;background:#1e1f22;color:#f2f3f5;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+<div style="max-width:460px;text-align:center">
+<h1 style="color:#ed4245">Access denied</h1>
+<p>You must share at least one server with <strong>%s</strong> to use its dashboard.</p>
+<p style="opacity:.7">This is a security restriction. Ask a server admin to invite the bot if you believe this is wrong.</p>
+</div></body></html>`, botName)
+}
