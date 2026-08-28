@@ -108,6 +108,12 @@ type Interface interface {
 	GetAllModuleCommands() []Command
 	GetAllModuleCommandsByModule() []ModuleCommands // module name → its prefix commands, in load order
 	GetAvailableModuleNames() []string
+	// IsBuiltinModule reports whether a module is a compiled-in feature
+	// (cleanup/tickets) rather than a dynamic Lua/Python module.
+	IsBuiltinModule(name string) bool
+	// SetEnabledModule persists the enabled_modules config for a builtin.
+	// Applying takes effect on the next restart.
+	SetEnabledModule(name string, enabled bool) error
 	GetPermissionManager() *permissions.Manager
 	SetPresence(activityType string, status, text string) error
 	GetLatency() string

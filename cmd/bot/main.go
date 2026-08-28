@@ -1037,17 +1037,6 @@ func (b *botAdapter) GetAllModuleCommandsByModule() []commands.ModuleCommands {
 func (b *botAdapter) GetAvailableModuleNames() []string {
 	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
 	var names []string
-	// Go plugins: modules/Go/<name>/<name>.so (only built plugins are loadable)
-	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(modulesDir, "Go", e.Name(), e.Name()+".so")); err == nil {
-				names = append(names, e.Name())
-			}
-		}
-	}
 	// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
 	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
 		for _, e := range entries {
@@ -1072,6 +1061,22 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 		}
 	}
 	return names
+}
+
+// IsBuiltinModule reports whether a module name is a compiled-in feature.
+func (b *botAdapter) IsBuiltinModule(name string) bool {
+	return name == "cleanup" || name == "tickets"
+}
+
+// SetEnabledModule persists the enabled_modules config for a builtin (applies
+// on the next restart, matching the plan's "writes config, replies applies
+// after restart").
+func (b *botAdapter) SetEnabledModule(name string, enabled bool) error {
+	key := "enabled_modules"
+	if enabled {
+		return b.SetConfig(key, name+"=true")
+	}
+	return b.SetConfig(key, name+"=false")
 }
 
 // resolveModulePath finds the actual file/directory path for a module by name.
