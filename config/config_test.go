@@ -390,3 +390,30 @@ func TestStatusKeyValidation(t *testing.T) {
 		t.Errorf("round-trip status = %q, want idle", got.Bot.Status)
 	}
 }
+
+// TestEnabledModulesRoundTrip guards the enabled_modules key: Set accepts
+// name=true/false entries, persists them, and Load reads them back. A missing
+// key means "everything enabled" (nil map).
+func TestEnabledModulesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	if err := cfg.Set("enabled_modules", "tickets=false"); err != nil {
+		t.Fatalf("set disable tickets: %v", err)
+	}
+	if err := cfg.Set("enabled_modules", "cleanup=true"); err != nil {
+		t.Fatalf("set enable cleanup: %v", err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.Modules.EnabledModules["tickets"] {
+		t.Error("tickets should be disabled (false)")
+	}
+	// cleanup=true deletes the key (missing = enabled) — so it must NOT be
+	// present as false.
+	if got.Modules.EnabledModules["cleanup"] {
+		t.Error("cleanup should be enabled-by-default (key removed)")
+	}
+}

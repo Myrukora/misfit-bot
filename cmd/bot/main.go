@@ -67,9 +67,40 @@ func isErrorResponse(embeds []discord.Embed) bool {
 	return len(embeds) > 0 && embeds[0].Color == embed.ColorError
 }
 
+// migrateFromPluginEra performs the one-time cleanup after the Go-plugin →
+// compiled-in-core migration: removes any stale modules/Go/<name>/<name>.so
+// files (the code now lives in internal/) and logs the promotion. It leaves
+// the data folders (config.yml, tickets/, etc.) in place — those are the
+// builtins' data home.
+func migrateFromPluginEra() {
+	modulesDir := filepath.Join(Dir, Cfg.Modules.Path, "Go")
+	entries, err := os.ReadDir(modulesDir)
+	if err != nil {
+		return // no Go dir = nothing to migrate
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		so := filepath.Join(modulesDir, e.Name(), e.Name()+".so")
+		if _, err := os.Stat(so); err == nil {
+			os.Remove(so)
+			Log.Info("migrated builtin %s from plugin to compiled-in (removed %s)", e.Name(), so)
+		}
+	}
+	Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
+}
+
 func saveLoadedModules() {
 	names := ModMgr.GetNames()
-	data, err := json.Marshal(names)
+	filtered := names[:0]
+	for _, n := range names {
+		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+			continue
+		}
+		filtered = append(filtered, n)
+	}
+	data, err := json.Marshal(filtered)
 	if err != nil {
 		Log.Error("Failed to marshal loaded modules: %v", err)
 		return
@@ -90,7 +121,17 @@ func loadSavedModules() []string {
 	if err := json.Unmarshal(data, &names); err != nil {
 		return nil
 	}
-	return names
+	// Drop builtin names (dashboard/cleanup/tickets) — they were Go plugins
+	// in the old layout and are now compiled-in, so a stale plugin-era state
+	// file must not try to load them as modules.
+	var out []string
+	for _, n := range names {
+		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func main() {
@@ -279,6 +320,10 @@ func run() bool {
 
 	loadCoreModules(ba)
 	registerSlashCommands()
+
+	// One-time migration: remove stale plugin-era .so files now that the
+	// dashboard + feature modules are compiled into the binary.
+	migrateFromPluginEra()
 
 	// Register the compiled-in feature modules (cleanup, tickets), gated by
 	// enabled_modules in config (missing key = enabled). They are constructed
@@ -1083,11 +1128,6 @@ func (b *botAdapter) SetEnabledModule(name string, enabled bool) error {
 // Modules live in language folders: modules/Go/<name>/<name>.so,
 // modules/Lua/<name>/<name>.lua (or main.lua), modules/Python/<name>/main.py.
 func resolveModulePath(modulesDir, name string) (string, error) {
-	// Try Go plugin (modules/Go/<name>/<name>.so)
-	goPath := filepath.Join(modulesDir, "Go", name, name+".so")
-	if _, err := os.Stat(goPath); err == nil {
-		return goPath, nil
-	}
 	// Try Lua (modules/Lua/<name>/<name>.lua, then main.lua)
 	luaPath := filepath.Join(modulesDir, "Lua", name, name+".lua")
 	if _, err := os.Stat(luaPath); err == nil {
@@ -1102,7 +1142,7 @@ func resolveModulePath(modulesDir, name string) (string, error) {
 	if modules.IsPythonModule(pyPath) {
 		return pyPath, nil
 	}
-	return "", fmt.Errorf("module '%s' not found (tried Go/<name>/<name>.so, Lua/<name>/<name>.lua, Python/<name>/main.py)", name)
+	return "", fmt.Errorf("module '%s' not found (tried Lua/<name>/<name>.lua, Python/<name>/main.py)", name)
 }
 
 // moduleDataDir returns the module's own folder as its data directory — the
