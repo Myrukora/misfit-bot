@@ -439,6 +439,39 @@ func NewManager() *Manager {
 	}
 }
 
+// RegisterBuiltins registers compiled-in feature modules (cleanup, tickets)
+// with all of them enabled. It is the zero-config default: a missing
+// enabled_modules key keeps every builtin on.
+func (m *Manager) RegisterBuiltins(constructors ...func() Module) {
+	m.RegisterBuiltinsWithFilter(nil, constructors...)
+}
+
+// RegisterBuiltinsWithFilter registers compiled-in feature modules, skipping
+// any whose name is disabled in the enabled_modules map (missing key =
+// enabled). A builtin whose name collides with an already-loaded dynamic
+// module (Lua/Python) is skipped with a warning — the dynamic module wins as
+// an escape hatch.
+func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, constructors ...func() Module) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ctor := range constructors {
+		mod := ctor()
+		name := mod.Name()
+		if enabled != nil && !enabled[name] {
+			continue // disabled in config
+		}
+		if _, exists := m.modules[name]; exists {
+			// Dynamic module already owns this name — skip the builtin.
+			continue
+		}
+		m.modules[name] = &LoadedModule{
+			Module:     mod,
+			ModuleType: "builtin",
+		}
+		m.order = append(m.order, name)
+	}
+}
+
 // SetLuaLoader sets the Lua loader for the manager.
 func (m *Manager) SetLuaLoader(loader *LuaLoader) {
 	m.mu.Lock()
