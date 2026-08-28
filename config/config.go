@@ -80,6 +80,9 @@ type ModulesConfig struct {
 	AutoLoad bool     `yaml:"auto_load"`
 	Path     string   `yaml:"path"`
 	Disabled []string `yaml:"disabled"`
+	// EnabledModules gates the compiled-in feature modules (cleanup, tickets).
+	// Missing key = enabled (zero-config default preserves current behavior).
+	EnabledModules map[string]bool `yaml:"enabled_modules,omitempty"`
 }
 
 type LoggingConfig struct {
@@ -227,6 +230,36 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid modules_auto_load: %v", err)
 		}
 		c.Modules.AutoLoad = v
+	case "enabled_modules":
+		// value is a comma/space-separated list of `name` or `name=bool`
+		// entries, e.g. "tickets=false" (disable tickets) or
+		// "tickets=true" / "tickets" (enable). The [p]modules enable|disable
+		// command uses this key. A bare name means enable.
+		fields := strings.FieldsFunc(value, func(r rune) bool {
+			return r == ',' || r == ' ' || r == '\n'
+		})
+		if c.Modules.EnabledModules == nil {
+			c.Modules.EnabledModules = map[string]bool{}
+		}
+		for _, f := range fields {
+			f = strings.TrimSpace(f)
+			if f == "" {
+				continue
+			}
+			name, want := f, true
+			if i := strings.IndexByte(f, '='); i >= 0 {
+				name, want = strings.TrimSpace(f[:i]), strings.TrimSpace(f[i+1:]) == "true"
+			}
+			if name == "" {
+				continue
+			}
+			if want {
+				// Enable = remove from the disabled map (missing key = enabled).
+				delete(c.Modules.EnabledModules, name)
+			} else {
+				c.Modules.EnabledModules[name] = false
+			}
+		}
 	case "dashboard_listen":
 		c.Dashboard.Listen = NormalizeListen(value)
 	case "dashboard_public_url":

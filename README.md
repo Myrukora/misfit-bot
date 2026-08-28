@@ -94,15 +94,14 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 
 ## Modules
 
-Modules are hot-loadable at runtime; modules live in language folders under `modules/`:
+The web dashboard and the cleanup/tickets feature modules are **compiled into the single binary** (core infrastructure — always on, never unloaded). Lua and Python modules stay hot-loadable at runtime and live in language folders under `modules/`:
 
-- **Go** — `modules/Go/<name>/<name>.so` (built with `go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/`)
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
-Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked.
+Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The former Go-plugin folders (`modules/Go/<name>/`) remain on disk as **data homes** (config.yml, tickets/, etc.) even though no `.so` is built there.
 
-In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `modules/Go/cleanup/` (9-subcommand message cleanup), `modules/voice.go` (the `VoiceManager` API), and `modules/Go/dashboard/` (the web dashboard — a full module dogfooding the `WebConfigurable` contract).
+In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/`, `internal/dashboard/` (the web dashboard — core subsystem), and `modules/voice.go` (the `VoiceManager` API).
 
 A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes.
 
@@ -119,12 +118,12 @@ The GitHub token lives **only** in the gitignored `config.yml` and never appears
 
 ## Dashboard
 
-The web dashboard runs in-process as a module. Setup:
+The web dashboard runs in-process (compiled into the single binary). Setup:
 
 1. Create a Discord application and note the OAuth2 **client secret** (Dev Portal → OAuth2 → General).
-2. `[p]dashboard set client_secret <secret>` (owner-only; also sets `oauth.client_secret` in `config.yml`).
-3. `[p]dashboard url` prints the redirect URI — register it in the Dev Portal.
-4. Open `http://127.0.0.1:8080` (the default bind; expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
+2. Set `oauth.client_secret` in `config.yml` (or from the dashboard's Admin page).
+3. Open the dashboard and complete the **Login with Discord** flow; register the redirect URI it shows in the Dev Portal.
+4. The default bind is `http://127.0.0.1:8080` (expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
 
 Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `[p]help`).
 
@@ -162,8 +161,7 @@ misfit-bot/
 ## Development
 
 ```bash
-go build -o bot ./cmd/bot/                                     # build the bot
-go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/  # build a Go module
+go build -o bot ./cmd/bot/                                     # build the single binary (dashboard + feature modules included)
 go test ./...                                                  # run all tests
 go vet ./...                                                   # static analysis
 ```

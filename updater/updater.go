@@ -13,7 +13,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io/fs"
+
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -22,10 +22,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/misfit/bot/config"
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/config"
 )
 
 // Logger is the minimal logging surface the updater needs. The bot's
@@ -370,11 +370,9 @@ func (m *Manager) Apply(ctx context.Context) error {
 		return fmt.Errorf("go build: %v (%s)", err, strings.TrimSpace(string(out)))
 	}
 
-	// 3. Rebuild Go plugin sources. Per-plugin failures are warnings only —
-	// they must not abort the core update.
-	m.rebuildPlugins(ctx)
-
-	// 4. Swap binaries: bot → bot.old, bot.new → bot.
+	// 3. Swap binaries: bot → bot.old, bot.new → bot. (No plugin rebuild —
+	//    the dashboard and feature modules are compiled into the single
+	//    binary now.)
 	botPath := filepath.Join(m.Dir, "bot")
 	oldPath := filepath.Join(m.Dir, "bot.old")
 	newPath := filepath.Join(m.Dir, "bot.new")
@@ -391,74 +389,6 @@ func (m *Manager) Apply(ctx context.Context) error {
 		m.onApplied()
 	}
 	return nil
-}
-
-// rebuildPlugins rebuilds every Go plugin source directory into
-// <dir>/<name>.so next to its main.go, matching the bot's Go version by
-// construction.
-//
-// Discovery is RECURSIVE so the module layout can evolve without orphaning
-// plugins: when a layout-changing update (like the modules/Go|Lua|Python
-// restructure) is applied, this code runs from the PREVIOUS binary — a
-// hardcoded path would scan the old layout, build nothing, and the new
-// binary would find no .so files and silently skip every module. Walking
-// modules/ for main.go at any depth finds the packages wherever the new
-// layout puts them. Hidden directories (Python venvs, .git) are skipped.
-func (m *Manager) rebuildPlugins(ctx context.Context) {
-	plugins, err := discoverGoPluginDirs(filepath.Join(m.Dir, "modules"))
-	if err != nil {
-		m.Logger.Warn("Updater: cannot scan module dir for plugin rebuild: %v", err)
-		return
-	}
-	for _, p := range plugins {
-		rel, err := filepath.Rel(m.Dir, p.dir)
-		if err != nil {
-			continue
-		}
-		cmd := exec.CommandContext(ctx, "go", "build", "-buildmode=plugin",
-			"-o", filepath.Join(p.dir, p.name+".so"), "./"+filepath.ToSlash(rel))
-		cmd.Dir = m.Dir
-		if out, err := cmd.CombinedOutput(); err != nil {
-			m.Logger.Warn("Updater: plugin rebuild failed for %s: %v (%s)", p.name, err, strings.TrimSpace(string(out)))
-		} else {
-			m.Logger.Info("Updater: rebuilt plugin %s", p.name)
-		}
-	}
-}
-
-// goPluginDir is a discovered Go plugin package: the directory containing
-// main.go and the module name (the directory's base name).
-type goPluginDir struct {
-	dir  string // absolute path of the package directory
-	name string // module name = base name of the directory
-}
-
-// discoverGoPluginDirs finds every directory under modulesDir containing a
-// main.go, walking recursively so the plugin layout can evolve (see
-// rebuildPlugins). Hidden directories (Python venvs, .git) are skipped.
-func discoverGoPluginDirs(modulesDir string) ([]goPluginDir, error) {
-	var out []goPluginDir
-	err := filepath.WalkDir(modulesDir, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // keep walking siblings; the caller logs nothing found
-		}
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && path != modulesDir {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.Name() != "main.go" {
-			return nil
-		}
-		dir := filepath.Dir(path)
-		out = append(out, goPluginDir{dir: dir, name: filepath.Base(dir)})
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // Status returns a snapshot of the updater's state for [p]update status.

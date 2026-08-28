@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# install.sh — Misfit Bot: system dependencies + build (core + all Go plugin modules)
+# install.sh — Misfit Bot: system dependencies + build (single binary; Lua/Python modules dynamic)
 #
 # Usage:
-#   ./install.sh                 # detect distro, install deps, build everything
+#   ./install.sh                 # detect distro, install deps, build single binary
 #   ./install.sh --check         # print detected toolchain/deps, change nothing
 #   ./install.sh --no-deps       # skip system packages, only build
-#   ./install.sh --no-modules    # build only the core binary
 #   ./install.sh --skip-go       # don't auto-install the Go toolchain
 #   DISTRO=ubuntu ./install.sh   # override distro detection
 #
@@ -36,7 +35,6 @@ GO_TARBALL_SHA256_arm64="fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c30893
 GO_BASE_URL="https://go.dev/dl"
 
 DO_DEPS=1
-DO_MODULES=1
 DO_GO=1
 DO_CHECK=0
 
@@ -53,7 +51,6 @@ usage() {
 for arg in "$@"; do
   case "$arg" in
     --no-deps)            DO_DEPS=0 ;;
-    --no-modules)         DO_MODULES=0 ;;
     --skip-go)            DO_GO=0 ;;
     --check)              DO_CHECK=1 ;;
     -h|--help)            usage ;;
@@ -291,24 +288,6 @@ build_core() {
   ok "core binary: ./bot"
 }
 
-build_modules() {
-  local root go_dir d name count=0
-  root="$(cd "$(dirname "$0")" && pwd)"
-  go_dir="${root}/modules/Go"
-  info "building Go plugin modules (modules/Go/<name>/main.go → modules/Go/<name>/<name>.so)"
-  for d in "${go_dir}"/*/; do
-    [ -f "${d}main.go" ] || continue
-    name="$(basename "$d")"
-    if ( cd "$root" && CGO_ENABLED=1 go build -buildmode=plugin -o "modules/Go/${name}/${name}.so" "./modules/Go/${name}/" ); then
-      ok "plugin: ${name}.so"
-      count=$((count + 1))
-    else
-      warn "plugin ${name} failed to build — skipped (bot still works without it)"
-    fi
-  done
-  [ "$count" -gt 0 ] || warn "no Go plugin modules found (only .lua / python modules present — nothing to build)"
-}
-
 # ── main ──────────────────────────────────────────────────────────────────
 
 if [ "$DO_CHECK" = 1 ]; then
@@ -330,14 +309,13 @@ fi
 ensure_go
 check_runtime
 build_core
-[ "$DO_MODULES" = 1 ] && build_modules
 
 cat <<EOF
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  ✅ Build complete.
-    core:   ./bot
-    plugins: modules/*.so (rebuilt automatically by the self-updater on update)
+    core:   ./bot (single binary — dashboard + feature modules compiled in)
+    modules: Lua/Python loaded dynamically at runtime
 
  Next steps:
    1. Run the bot:  ./bot          (first run starts the onboarding wizard)

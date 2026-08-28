@@ -8,8 +8,8 @@ import (
 
 // TestNormalizeListen confirms the listen-address coercion that lets owners paste
 // a URL-shaped value ("http://127.0.0.1:9090/") wherever a bare host:port is
-// expected. Without this, `[p]dashboard set listen http://127.0.0.1:9090/` would
-// fail at bind with "too many colons in address".
+// expected. Without this, a dashboard listen setting of
+// "http://127.0.0.1:9090/" would fail at bind with "too many colons in address".
 func TestNormalizeListen(t *testing.T) {
 	cases := map[string]string{
 		"127.0.0.1:9090":                 "127.0.0.1:9090", // already bare
@@ -63,7 +63,7 @@ func TestDashboardKeysRoundTrip(t *testing.T) {
 	}
 
 	// A URL-shaped listen value must be normalized to host:port on Set, so a
-	// later [p]dashboard set listen http://127.0.0.1:9090/ doesn't break the bind.
+	// later dashboard listen setting of http://127.0.0.1:9090/ doesn't break the bind.
 	if err := cfg.Set("dashboard_listen", "http://127.0.0.1:9090/"); err != nil {
 		t.Fatalf("set url-shaped dashboard_listen: %v", err)
 	}
@@ -388,5 +388,36 @@ func TestStatusKeyValidation(t *testing.T) {
 	}
 	if got.Bot.Status != "idle" {
 		t.Errorf("round-trip status = %q, want idle", got.Bot.Status)
+	}
+}
+
+// TestEnabledModulesRoundTrip guards the enabled_modules key: Set accepts
+// name=true/false entries, persists them, and Load reads them back. A missing
+// key means "everything enabled" (nil map).
+func TestEnabledModulesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	if err := cfg.Set("enabled_modules", "tickets=false"); err != nil {
+		t.Fatalf("set disable tickets: %v", err)
+	}
+	if err := cfg.Set("enabled_modules", "cleanup=true"); err != nil {
+		t.Fatalf("set enable cleanup: %v", err)
+	}
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	// tickets=false must be persisted as an explicit false entry; cleanup=true
+	// deletes the key (missing = enabled). Assert map MEMBERSHIP separately
+	// from the boolean value so we prove tickets is present-as-false and
+	// cleanup is absent, rather than merely evaluating to false.
+	if v, ok := got.Modules.EnabledModules["tickets"]; !ok {
+		t.Error("tickets should have an explicit entry (persisted as false)")
+	} else if v {
+		t.Error("tickets should be disabled (false)")
+	}
+	if _, ok := got.Modules.EnabledModules["cleanup"]; ok {
+		t.Error("cleanup should be enabled-by-default (key removed — absent = enabled)")
 	}
 }

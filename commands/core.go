@@ -240,11 +240,34 @@ func init() {
 
 	RegisterCoreCommand(Command{
 		Name:        "modules",
-		Description: "See which modules are loaded right now and which ones you can still load.",
-		Usage:       "modules",
+		Description: "List modules, or enable/disable a compiled-in feature module (applies after restart).",
+		Usage:       "modules | modules enable <name> | modules disable <name>",
 		Category:    "modules",
 		OwnerOnly:   true,
 		Execute: func(ctx *Context) error {
+			// enable/disable subcommands for compiled-in feature modules.
+			if len(ctx.Args) > 0 {
+				switch strings.ToLower(ctx.Args[0]) {
+				case "enable", "disable":
+					if len(ctx.Args) < 2 {
+						return ctx.Respond(embed.Warning("⚠️ Usage", "modules enable <name> | modules disable <name>"))
+					}
+					name := ctx.Args[1]
+					if !ctx.Bot.IsBuiltinModule(name) {
+						return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("`%s` is not a compiled-in feature module (only cleanup and tickets are). Lua/Python modules are managed with `load`/`unload`.", name)))
+					}
+					enabled := strings.ToLower(ctx.Args[0]) == "enable"
+					if err := ctx.Bot.SetEnabledModule(name, enabled); err != nil {
+						return ctx.Respond(embed.Error("❌ Error", err.Error()))
+					}
+					verb := "enabled"
+					if !enabled {
+						verb = "disabled"
+					}
+					return ctx.Respond(embed.Success("✅ Module", fmt.Sprintf("`%s` %s. Applies after the next restart.", name, verb)))
+				}
+			}
+
 			loaded := ctx.Bot.GetLoadedModuleNames()
 			available := ctx.Bot.GetAvailableModuleNames()
 
@@ -258,7 +281,11 @@ func init() {
 			if len(loaded) > 0 {
 				var lines []string
 				for _, name := range loaded {
-					lines = append(lines, fmt.Sprintf("`%s` ✅", name))
+					marker := ""
+					if ctx.Bot.IsBuiltinModule(name) {
+						marker = " (builtin)"
+					}
+					lines = append(lines, fmt.Sprintf("`%s` ✅%s", name, marker))
 				}
 				fields = append(fields, discord.EmbedField{
 					Name:   fmt.Sprintf("Loaded (%d)", len(loaded)),

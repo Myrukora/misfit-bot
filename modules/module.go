@@ -2,7 +2,7 @@ package modules
 
 import (
 	"fmt"
-	"plugin"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -104,6 +104,21 @@ type WebTabser interface {
 func IsWebTabser(m Module) (WebTabser, bool) {
 	wt, ok := m.(WebTabser)
 	return wt, ok
+}
+
+// Disablable is the optional interface a builtin implements to run graceful
+// teardown when it is disabled via [p]modules disable (or unloaded). The
+// manager calls OnDisable() instead of OnUnload() for modules that implement
+// it — a builtin's OnUnload is reserved for full shutdown, while OnDisable
+// is the "turn this feature off" path (deregister hooks, flush state).
+type Disablable interface {
+	OnDisable() error
+}
+
+// IsDisablable type-asserts a module to Disablable.
+func IsDisablable(m Module) (Disablable, bool) {
+	d, ok := m.(Disablable)
+	return d, ok
 }
 
 // HasWebConfig is the opt-in marker for wrapper types whose Go struct ALWAYS
@@ -416,7 +431,6 @@ type LoadedModule struct {
 	Module       Module
 	FilePath     string
 	ModuleType   string // "go", "lua", "python"
-	Plugin       *plugin.Plugin
 	Hooks        *EventHooks
 	LuaLoader    *LuaLoader
 	PythonLoader *PythonLoader
@@ -437,6 +451,58 @@ func NewManager() *Manager {
 		modules: make(map[string]*LoadedModule),
 		order:   make([]string, 0),
 	}
+}
+
+// RegisterBuiltins registers compiled-in feature modules (cleanup, tickets)
+// with all of them enabled. It is the zero-config default: a missing
+// enabled_modules key keeps every builtin on. Each builtin's OnLoad is
+// invoked with a per-module context (fresh EventHooks, DataDir = base+name).
+func (m *Manager) RegisterBuiltins(ctx *Context, constructors ...func() Module) error {
+	return m.RegisterBuiltinsWithFilter(nil, ctx, constructors...)
+}
+
+// RegisterBuiltinsWithFilter registers compiled-in feature modules, skipping
+// any whose name is explicitly mapped to false in the enabled_modules map
+// (missing key = enabled). Each registered builtin's OnLoad is invoked with a
+// per-module context (fresh EventHooks, DataDir = ctx.DataDir+name); on
+// success its hooks are registered with the manager so the bot dispatches
+// them. If OnLoad fails, the builtin is rolled back (no modules/order entry,
+// no hooks) and the error is propagated. A builtin whose name collides with an
+// already-loaded dynamic module (Lua/Python) is skipped with a warning — the
+// dynamic module wins as an escape hatch.
+func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Context, constructors ...func() Module) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, ctor := range constructors {
+		mod := ctor()
+		name := mod.Name()
+		if enabled != nil {
+			if v, ok := enabled[name]; ok && !v {
+				continue // explicitly disabled in config
+			}
+		}
+		if _, exists := m.modules[name]; exists {
+			// Dynamic module already owns this name — skip the builtin.
+			continue
+		}
+		// Give the builtin its own EventHooks and data dir, then initialize
+		// it. OnLoad failure rolls the builtin back entirely.
+		hooks := NewEventHooks()
+		bctx := *ctx
+		bctx.Events = hooks
+		bctx.DataDir = filepath.Join(ctx.DataDir, name)
+		if err := mod.OnLoad(&bctx); err != nil {
+			return fmt.Errorf("failed to initialize builtin %s: %w", name, err)
+		}
+		m.modules[name] = &LoadedModule{
+			Module:     mod,
+			ModuleType: "builtin",
+			Hooks:      hooks,
+		}
+		m.order = append(m.order, name)
+		m.AddModuleHooks(hooks)
+	}
+	return nil
 }
 
 // SetLuaLoader sets the Lua loader for the manager.
@@ -461,8 +527,8 @@ func DetectModuleType(path string) string {
 	if IsPythonModule(path) {
 		return "python"
 	}
-	// Default to Go plugin for .so files
-	return "go"
+	// No Go plugin path anymore — only Lua and Python stay dynamic.
+	return ""
 }
 
 func (m *Manager) Load(path string, hooks *EventHooks) (Module, error) {
@@ -474,56 +540,8 @@ func (m *Manager) Load(path string, hooks *EventHooks) (Module, error) {
 	case "python":
 		return m.loadPythonModule(path, hooks)
 	default:
-		return m.loadGoPlugin(path, hooks)
+		return nil, fmt.Errorf("unsupported module type for %s — only Lua and Python modules are loadable; feature modules (cleanup/tickets) are compiled-in and managed with [p]modules enable|disable", path)
 	}
-}
-
-// loadGoPlugin loads a Go .so plugin module.
-func (m *Manager) loadGoPlugin(path string, hooks *EventHooks) (Module, error) {
-	p, err := plugin.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open plugin %s: %w", path, err)
-	}
-
-	sym, err := p.Lookup("New")
-	if err != nil {
-		return nil, fmt.Errorf("plugin %s does not export New(): %w", path, err)
-	}
-
-	newFunc, ok := sym.(func() Module)
-	if !ok {
-		return nil, fmt.Errorf("plugin %s New() has wrong signature", path)
-	}
-
-	mod := newFunc()
-	name := mod.Name()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.modules[name]; exists {
-		return nil, fmt.Errorf("module %s is already loaded", name)
-	}
-
-	// Check dependencies
-	if err := m.checkDependencies(mod); err != nil {
-		return nil, fmt.Errorf("failed to load module %s: %w", name, err)
-	}
-
-	m.modules[name] = &LoadedModule{
-		Module:     mod,
-		FilePath:   path,
-		ModuleType: "go",
-		Plugin:     p,
-		Hooks:      hooks,
-	}
-	m.order = append(m.order, name)
-
-	if hooks != nil {
-		m.AddModuleHooks(hooks)
-	}
-
-	return mod, nil
 }
 
 // loadLuaModule loads a Lua script module.
@@ -632,8 +650,15 @@ func (m *Manager) Unload(name string) error {
 		m.RemoveModuleHooks(hooks)
 	}
 
-	// Call OnUnload WITHOUT holding the lock to avoid deadlock
-	unloadErr := mod.OnUnload()
+	// Call OnUnload (or OnDisable for a Disablable builtin) WITHOUT holding the
+	// lock to avoid deadlock. A Disablable module gets its graceful teardown
+	// path; its OnUnload is reserved for full process shutdown.
+	var unloadErr error
+	if d, ok := IsDisablable(mod); ok {
+		unloadErr = d.OnDisable()
+	} else {
+		unloadErr = mod.OnUnload()
+	}
 
 	if unloadErr != nil {
 		return fmt.Errorf("failed to unload module %s: %w", name, unloadErr)

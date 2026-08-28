@@ -15,6 +15,9 @@ import (
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/builtin/cleanup"
+	"github.com/misfit/bot/internal/builtin/tickets"
+	"github.com/misfit/bot/internal/dashboard"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/logger"
 	"github.com/misfit/bot/modules"
@@ -48,6 +51,7 @@ var (
 	rtLimiter    *ratelimit.Limiter
 	sigCh        chan os.Signal
 	updaterMgr   *updater.Manager
+	dash         *dashboard.DashboardModule
 )
 
 // Auto-delete rule: the bot auto-deletes ONLY error-colored embeds (red,
@@ -63,9 +67,44 @@ func isErrorResponse(embeds []discord.Embed) bool {
 	return len(embeds) > 0 && embeds[0].Color == embed.ColorError
 }
 
+// migrateFromPluginEra performs the one-time cleanup after the Go-plugin →
+// compiled-in-core migration: removes any stale modules/Go/<name>/<name>.so
+// files (the code now lives in internal/) and logs the promotion. It leaves
+// the data folders (config.yml, tickets/, etc.) in place — those are the
+// builtins' data home.
+func migrateFromPluginEra() {
+	modulesDir := filepath.Join(Dir, Cfg.Modules.Path, "Go")
+	entries, err := os.ReadDir(modulesDir)
+	if err != nil {
+		return // no Go dir = nothing to migrate
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		so := filepath.Join(modulesDir, e.Name(), e.Name()+".so")
+		if _, err := os.Stat(so); err == nil {
+			os.Remove(so)
+			if Log != nil {
+				Log.Info("migrated builtin %s from plugin to compiled-in (removed %s)", e.Name(), so)
+			}
+		}
+	}
+	if Log != nil {
+		Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
+	}
+}
+
 func saveLoadedModules() {
 	names := ModMgr.GetNames()
-	data, err := json.Marshal(names)
+	filtered := names[:0]
+	for _, n := range names {
+		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+			continue
+		}
+		filtered = append(filtered, n)
+	}
+	data, err := json.Marshal(filtered)
 	if err != nil {
 		Log.Error("Failed to marshal loaded modules: %v", err)
 		return
@@ -86,7 +125,17 @@ func loadSavedModules() []string {
 	if err := json.Unmarshal(data, &names); err != nil {
 		return nil
 	}
-	return names
+	// Drop builtin names (dashboard/cleanup/tickets) — they were Go plugins
+	// in the old layout and are now compiled-in, so a stale plugin-era state
+	// file must not try to load them as modules.
+	var out []string
+	for _, n := range names {
+		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
 }
 
 func main() {
@@ -274,7 +323,42 @@ func run() bool {
 	ModMgr.SetPythonLoader(pythonLoader)
 
 	loadCoreModules(ba)
+
+	// Register the compiled-in feature modules (cleanup, tickets) gated by
+	// enabled_modules in config (missing key = enabled) BEFORE slash commands
+	// are registered, so builtin slash commands (/cleanup, /tickets) are
+	// included in the initial global command sync. They are constructed
+	// in-process — no .so, no plugin.Open — and OnLoad runs during
+	// registration (tickets loads its config/store + event hooks here).
+	if err := ModMgr.RegisterBuiltinsWithFilter(Cfg.Modules.EnabledModules, &modules.Context{
+		BotName:      Cfg.Bot.Name,
+		OwnerID:      Cfg.Bot.OwnerID,
+		DataDir:      filepath.Join(Dir, Cfg.Modules.Path),
+		Logger:       Log,
+		Rest:         Client.Rest,
+		Bot:          ba,
+		VoiceManager: vm,
+	}, cleanup.New, tickets.New); err != nil {
+		Log.Error("Failed to register builtin modules: %v", err)
+	}
 	registerSlashCommands()
+
+	// One-time migration: remove stale plugin-era .so files now that the
+	// dashboard + feature modules are compiled into the binary.
+	migrateFromPluginEra()
+
+	// Start the dashboard as core infrastructure, right after the gateway is
+	// up (OAuth guild checks need the client cache). It is always on — never
+	// a module, never unloadable. Its data dir is pinned to the historical
+	// modules/Go/dashboard/ folder so existing module-local state (session
+	// secret, allowed guilds) survives the migration.
+	dash = dashboard.New(dashboard.Deps{
+		Bot:     ba,
+		BotName: Cfg.Bot.Name,
+		DataDir: filepath.Join(Dir, Cfg.Modules.Path, "Go", "dashboard"),
+		Logger:  Log,
+	})
+	dash.Start()
 
 	// Apply the persisted presence status (online/idle/dnd/invisible) once the
 	// gateway is up. bot.status lives in config.yml and is applied on every
@@ -292,14 +376,23 @@ func run() bool {
 	select {
 	case <-sc:
 		Log.Info("Received shutdown signal, closing...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return false
 	case <-shutdownCh:
 		Log.Info("Shutdown requested, closing...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return false
 	case <-restartCh:
 		Log.Info("Received restart signal, restarting...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return true
 	}
@@ -1008,17 +1101,6 @@ func (b *botAdapter) GetAllModuleCommandsByModule() []commands.ModuleCommands {
 func (b *botAdapter) GetAvailableModuleNames() []string {
 	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
 	var names []string
-	// Go plugins: modules/Go/<name>/<name>.so (only built plugins are loadable)
-	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(modulesDir, "Go", e.Name(), e.Name()+".so")); err == nil {
-				names = append(names, e.Name())
-			}
-		}
-	}
 	// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
 	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
 		for _, e := range entries {
@@ -1045,15 +1127,27 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 	return names
 }
 
-// resolveModulePath finds the actual file/directory path for a module by name.
-// Modules live in language folders: modules/Go/<name>/<name>.so,
-// modules/Lua/<name>/<name>.lua (or main.lua), modules/Python/<name>/main.py.
-func resolveModulePath(modulesDir, name string) (string, error) {
-	// Try Go plugin (modules/Go/<name>/<name>.so)
-	goPath := filepath.Join(modulesDir, "Go", name, name+".so")
-	if _, err := os.Stat(goPath); err == nil {
-		return goPath, nil
+// IsBuiltinModule reports whether a module name is a compiled-in feature.
+func (b *botAdapter) IsBuiltinModule(name string) bool {
+	return name == "cleanup" || name == "tickets"
+}
+
+// SetEnabledModule persists the enabled_modules config for a builtin (applies
+// on the next restart, matching the plan's "writes config, replies applies
+// after restart").
+func (b *botAdapter) SetEnabledModule(name string, enabled bool) error {
+	key := "enabled_modules"
+	if enabled {
+		return b.SetConfig(key, name+"=true")
 	}
+	return b.SetConfig(key, name+"=false")
+}
+
+// resolveModulePath finds the actual file/directory path for a dynamic module
+// by name. Only Lua and Python modules load dynamically now (feature modules
+// are compiled-in): modules/Lua/<name>/<name>.lua (or main.lua),
+// modules/Python/<name>/main.py.
+func resolveModulePath(modulesDir, name string) (string, error) {
 	// Try Lua (modules/Lua/<name>/<name>.lua, then main.lua)
 	luaPath := filepath.Join(modulesDir, "Lua", name, name+".lua")
 	if _, err := os.Stat(luaPath); err == nil {
@@ -1068,7 +1162,7 @@ func resolveModulePath(modulesDir, name string) (string, error) {
 	if modules.IsPythonModule(pyPath) {
 		return pyPath, nil
 	}
-	return "", fmt.Errorf("module '%s' not found (tried Go/<name>/<name>.so, Lua/<name>/<name>.lua, Python/<name>/main.py)", name)
+	return "", fmt.Errorf("module '%s' not found (tried Lua/<name>/<name>.lua, Python/<name>/main.py)", name)
 }
 
 // moduleDataDir returns the module's own folder as its data directory — the
@@ -1126,7 +1220,7 @@ func (b *botAdapter) ReloadModule(name string) error {
 		return fmt.Errorf("unload failed: %w", err)
 	}
 	if err := b.LoadModule(name); err != nil {
-		Log.Warn("Reload of module '%s' failed after unload. Go's plugin system prevents rollback — module lost until bot restart or .so is fixed", name)
+		Log.Warn("Reload of module '%s' failed after unload — module lost until bot restart", name)
 		return err
 	}
 	return nil
@@ -1412,18 +1506,6 @@ func loadCoreModules(ba *botAdapter) {
 	if len(saved) == 0 {
 		if Cfg.Modules.AutoLoad {
 			Log.Info("AutoLoad enabled, scanning for modules...")
-			// Go plugins: modules/Go/<name>/<name>.so
-			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-					so := filepath.Join(modulesDir, "Go", entry.Name(), entry.Name()+".so")
-					if _, err := os.Stat(so); err == nil {
-						loadSingleModule(ba, modulesDir, entry.Name())
-					}
-				}
-			}
 			// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
 			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
 				for _, entry := range entries {

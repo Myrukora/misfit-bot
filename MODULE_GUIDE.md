@@ -109,7 +109,7 @@ func New() modules.Module { return &HelloModule{} }
 
 **Build:**
 ```bash
-go build -buildmode=plugin -o modules/Go/hello/hello.so ./modules/Go/hello/
+go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 ```
 
 **Load:**
@@ -422,7 +422,7 @@ return ctx.Respond(embed.Warning("⚠️ Usage", "mymodule <sub>")) // yellow �
 return ctx.Respond(embed.Error("❌ Error", "invalid argument"))  // red → deletes at 7s
 ```
 
-So `[p]dashboard status`, `[p]cleanup` (subcommand menu), `[p]help`, and any
+So `[p]cleanup` (subcommand menu), `[p]help`, and any
 one-shot success result all stay on screen because they aren't red. Only the
 red error embeds auto-delete.
 
@@ -721,7 +721,7 @@ func (m *WelcomeModule) OnLoad(ctx *modules.Context) error {
 
 ```bash
 # Build module (Go plugin; output lives next to the source, gitignored)
-go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/
+go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 
 # Load in Discord
 [p]load <name>
@@ -753,7 +753,7 @@ go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/
 11. **Module config directory** — `ctx.DataDir` is auto-created. Use it for per-module config.
 12. **Mention parsing** — User input may be `<@ID>` or `<@!ID>`. Use `extractID()` or handle both formats.
 13. **Set `RequiredPerm` for moderation** — Commands that ban, kick, delete messages should set `RequiredPerm`. Guild owner bypasses this. The bot also needs the corresponding permission.
-14. **Auto-delete** — the bot deletes **only** error-colored (red, `embed.Error`) embeds, after 7s so they're readable. Everything else — success / info / warning / usage-listings / status reports / plain text — **stays on screen permanently**. No preserved list, no opt-in hook: don't build a response with `embed.Error(…)` and it won't vanish. `[p]dashboard status`, `[p]cleanup` menus, and `[p]help` all stay because they aren't red.
+14. **Auto-delete** — the bot deletes **only** error-colored (red, `embed.Error`) embeds, after 7s so they're readable. Everything else — success / info / warning / usage-listings / status reports / plain text — **stays on screen permanently**. No preserved list, no opt-in hook: don't build a response with `embed.Error(…)` and it won't vanish. `[p]cleanup` menus and `[p]help` all stay because they aren't red.
 15. **Module persistence** — Only previously loaded modules (from `loaded_modules.json`) load on startup. `--no-modules` to skip. `AutoLoad` scans `.so` files when no saved modules exist.
 16. **Event hooks in `OnLoad`** only — Register listeners in `OnLoad`, not in commands or goroutines. The bot removes all hooks on unload.
 17. **Subcommand args** — For slash subcommands, `ctx.Args[0]` is the subcommand name. Branch your logic on it.
@@ -794,7 +794,7 @@ func (m *DashboardModule) OnUnload() error { m.stopServer(); return nil }
 Build a multi-file module with the **package path** (not a single `main.go`):
 
 ```bash
-go build -buildmode=plugin -o modules/Go/dashboard/dashboard.so ./modules/Go/dashboard/
+go build -o bot ./cmd/bot/   # the dashboard is compiled into the single binary
 ```
 
 ### Exposing settings on the dashboard (`modules.WebConfigurable`)
@@ -997,7 +997,7 @@ the starboard module — with the owner/elevated able to edit all of them and a
 guild's staff able to edit the `GuildScoped` ones for their guild.
 
 ```bash
-go build -buildmode=plugin -o modules/Go/starboard/starboard.so ./modules/Go/starboard/
+go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 [p]load starboard
 ```
 
@@ -1038,8 +1038,8 @@ go build -buildmode=plugin -o modules/Go/starboard/starboard.so ./modules/Go/sta
   module config → default/fallback) as the pattern when a setting should be
   pinnable from the main config.
 
-See `modules/Go/dashboard/README.md` for the dashboard-specific setup flow
-(OAuth, `[p]dashboard set …`, the `dashboard:` **and** `oauth:` sections of
+See `internal/dashboard/README.md` for the dashboard-specific setup flow
+(OAuth, the `dashboard:` **and** `oauth:` sections of
 the main `config.yml`) and the full RBAC table for who sees which config
 sections.
 
