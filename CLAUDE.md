@@ -2,7 +2,7 @@
 
 ## Overview
 
-A modular Discord bot in Go that hot-loads `.so` plugin files at runtime using Go's `plugin` package. Also supports Lua scripts (`.lua` files) and Python modules (directories with `main.py`) via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
+A modular Discord bot in Go. The web dashboard and the cleanup/tickets feature modules are compiled into the single binary (core infrastructure, always on); Lua scripts (`.lua` files) and Python modules (directories with `main.py`) load dynamically via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
 
 ## Tech Stack
 
@@ -442,7 +442,7 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
    - New commits on the tracked branch → one embed per commit: same author row, bold title `1 new commit #<sha7>`, full commit message as description, GitHub-blue `0x0969DA`. Merge commits (`Merge pull request` / `Merge branch`) are skipped.
    - **First poll seeds silently** (records HEAD + all open PRs, posts nothing); closed PRs are pruned from the seen set so a reopen re-notifies. Force-pushed history resyncs silently. Descriptions truncated to 4000 chars.
    - **At-least-once delivery**: a PR is only marked seen (and the last-seen commit SHA only advances) AFTER its embed was actually sent. Failed sends (e.g. the REST client not ready during the startup race) are retried on the next poll and survive restarts — the state file never records them as delivered. `Run()` also waits for the first `SetRest` (30s cap) so the first poll can't fire with a nil client.
-2. **Auto-update** (if `auto_pull`) — `Check()` does `git fetch origin <branch>` with a per-invocation `-c http.extraheader="AUTHORIZATION: basic <base64(x-access-token:<token>)>"` (the token never lands in `.git/config`); if behind, `Apply()` runs: `git merge --ff-only FETCH_HEAD` (aborts with a clear error on local changes — bot keeps running untouched) → `go build -o bot.new ./cmd/bot/` → rebuilds every `modules/<name>/main.go` Go plugin via `go build -buildmode=plugin` (per-plugin failures are warnings only) → swaps `bot`→`bot.old`, `bot.new`→`bot` → sets the apply flag and fires `OnApplied` (wired to `restartCh` with a 2s delay so the success embed is delivered).
+2. **Auto-update** (if `auto_pull`) — `Check()` does `git fetch origin <branch>` with a per-invocation `-c http.extraheader="AUTHORIZATION: basic <base64(x-access-token:<token>)>"` (the token never lands in `.git/config`); if behind, `Apply()` runs: `git merge --ff-only FETCH_HEAD` (aborts with a clear error on local changes — bot keeps running untouched) → `go build -o bot.new ./cmd/bot/` → builds the single binary (dashboard + feature modules included) → swaps `bot`→`bot.old`, `bot.new`→`bot` → sets the apply flag and fires `OnApplied` (wired to `restartCh` with a 2s delay so the success embed is delivered).
 3. **True self-update** — in the restart loop, before calling `run()` again, if `updaterMgr.ApplyRequested()` the bot `syscall.Exec`s the new binary (`Dir/bot`) — an in-process restart would keep running the OLD code. On exec failure it logs loudly and falls back to the in-process restart. The updater never runs the bot's repo commands with user-controlled input.
 
 **`[p]update` command** (owner-only):
@@ -473,7 +473,7 @@ Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS U
 go build -o bot ./cmd/bot/         # Build bot
 ./bot                              # Run (onboarding if no config)
 ./bot --no-modules                 # Skip all module loading
-go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/  # Build a Go plugin module (single- or multi-file)
+go build -o bot ./cmd/bot/  # Build the single binary (dashboard + feature modules included)
 go vet ./...                       # Vet
 ```
 

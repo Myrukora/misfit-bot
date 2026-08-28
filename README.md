@@ -94,15 +94,14 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 
 ## Modules
 
-Modules are hot-loadable at runtime; modules live in language folders under `modules/`:
+The web dashboard and the cleanup/tickets feature modules are **compiled into the single binary** (core infrastructure — always on, never unloaded). Lua and Python modules stay hot-loadable at runtime and live in language folders under `modules/`:
 
-- **Go** — `modules/Go/<name>/<name>.so` (built with `go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/`)
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
-Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked.
+Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The former Go-plugin folders (`modules/Go/<name>/`) remain on disk as **data homes** (config.yml, tickets/, etc.) even though no `.so` is built there.
 
-In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `modules/Go/cleanup/` (9-subcommand message cleanup), `modules/voice.go` (the `VoiceManager` API), and `modules/Go/dashboard/` (the web dashboard — a full module dogfooding the `WebConfigurable` contract).
+In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/`, `internal/dashboard/` (the web dashboard — core subsystem), and `modules/voice.go` (the `VoiceManager` API).
 
 A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes.
 
@@ -162,8 +161,7 @@ misfit-bot/
 ## Development
 
 ```bash
-go build -o bot ./cmd/bot/                                     # build the bot
-go build -buildmode=plugin -o modules/Go/<name>/<name>.so ./modules/Go/<name>/  # build a Go module
+go build -o bot ./cmd/bot/                                     # build the single binary (dashboard + feature modules included)
 go test ./...                                                  # run all tests
 go vet ./...                                                   # static analysis
 ```
