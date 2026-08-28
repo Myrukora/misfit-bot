@@ -85,10 +85,14 @@ func migrateFromPluginEra() {
 		so := filepath.Join(modulesDir, e.Name(), e.Name()+".so")
 		if _, err := os.Stat(so); err == nil {
 			os.Remove(so)
-			Log.Info("migrated builtin %s from plugin to compiled-in (removed %s)", e.Name(), so)
+			if Log != nil {
+				Log.Info("migrated builtin %s from plugin to compiled-in (removed %s)", e.Name(), so)
+			}
 		}
 	}
-	Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
+	if Log != nil {
+		Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
+	}
 }
 
 func saveLoadedModules() {

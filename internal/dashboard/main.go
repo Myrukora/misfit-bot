@@ -785,4 +785,3 @@ func boolEmoji(b bool) string {
 func (m *DashboardModule) permMgr() *permissions.Manager {
 	return m.bot.GetPermissionManager()
 }
-

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
+	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 )
 
@@ -45,5 +48,38 @@ func TestAutoDeleteTiming(t *testing.T) {
 	}
 	if isErrorResponse([]discord.Embed{}) {
 		t.Error("empty embed slice flagged as error")
+	}
+}
+
+// TestMigrateFromPluginEra verifies the one-time startup sweep removes stale
+// .so files but leaves the data folders (config.yml) intact.
+func TestMigrateFromPluginEra(t *testing.T) {
+	// Point Dir at a temp tree and set Cfg.Modules.Path.
+	dir := t.TempDir()
+	goDir := filepath.Join(dir, "modules", "Go")
+	cleanupDir := filepath.Join(goDir, "cleanup")
+	if err := os.MkdirAll(cleanupDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(cleanupDir, "cleanup.so")
+	if err := os.WriteFile(stale, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(cleanupDir, "config.yml")
+	if err := os.WriteFile(data, []byte("k: v\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	oldDir, oldCfg := Dir, Cfg
+	Dir, Cfg = dir, &config.Config{Modules: config.ModulesConfig{Path: "modules"}}
+	defer func() { Dir, Cfg = oldDir, oldCfg }()
+
+	migrateFromPluginEra()
+
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("stale .so should be removed")
+	}
+	if _, err := os.Stat(data); err != nil {
+		t.Errorf("data folder should be preserved: %v", err)
 	}
 }
