@@ -43,7 +43,7 @@ type DashboardModule struct {
 	restartMu sync.Mutex     // serializes the whole restartServer sequence (bind→stop→start)
 	dataDir   string
 	logger    modules.Logger
-	lastErr   string // last server bind error, surfaced in [p]dashboard status when not running
+	lastErr   string // last server bind error, surfaced in the dashboard status view when not running
 
 	// appName caches the Developer Portal application name fetched via REST
 	// (fallback identity source when the gateway self-user cache is empty).
@@ -284,7 +284,7 @@ func (m *DashboardModule) configured() bool {
 
 // effectiveBaseURL returns the base URL the dashboard is reachable at: the
 // configured public_url when set, else the auto-detected LAN URL. Used for
-// reporting ([p]dashboard url/status, the /setup page).
+// reporting (the dashboard status view, the /setup page).
 func (m *DashboardModule) effectiveBaseURL() string {
 	if u := m.effectivePublicURL(); u != "" {
 		return u
@@ -753,7 +753,7 @@ func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 }
 
 // rebindSoon restarts the HTTP server in a background goroutine so the request
-// that triggered the config change (a web POST or a [p]dashboard set) can
+// that triggered the config change (a web POST or a dashboard settings change) can
 // finish before the listener is rebound on the new address. If the module is
 // unloaded before the goroutine runs, startServer refuses via the stopped
 // flag, so an unload can never leave a zombie server behind.

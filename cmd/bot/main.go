@@ -1143,9 +1143,10 @@ func (b *botAdapter) SetEnabledModule(name string, enabled bool) error {
 	return b.SetConfig(key, name+"=false")
 }
 
-// resolveModulePath finds the actual file/directory path for a module by name.
-// Modules live in language folders: modules/Go/<name>/<name>.so,
-// modules/Lua/<name>/<name>.lua (or main.lua), modules/Python/<name>/main.py.
+// resolveModulePath finds the actual file/directory path for a dynamic module
+// by name. Only Lua and Python modules load dynamically now (feature modules
+// are compiled-in): modules/Lua/<name>/<name>.lua (or main.lua),
+// modules/Python/<name>/main.py.
 func resolveModulePath(modulesDir, name string) (string, error) {
 	// Try Lua (modules/Lua/<name>/<name>.lua, then main.lua)
 	luaPath := filepath.Join(modulesDir, "Lua", name, name+".lua")
@@ -1219,7 +1220,7 @@ func (b *botAdapter) ReloadModule(name string) error {
 		return fmt.Errorf("unload failed: %w", err)
 	}
 	if err := b.LoadModule(name); err != nil {
-		Log.Warn("Reload of module '%s' failed after unload. Go's plugin system prevents rollback — module lost until bot restart or .so is fixed", name)
+		Log.Warn("Reload of module '%s' failed after unload — module lost until bot restart", name)
 		return err
 	}
 	return nil
