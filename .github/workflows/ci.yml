@@ -29,10 +29,5 @@ jobs:
       - name: Test
         run: go test ./...
 
-      - name: Build core binary
+      - name: Build single binary
         run: go build -o /tmp/bot ./cmd/bot/
-
-      - name: Build Go plugin modules
-        run: |
-          go build -buildmode=plugin -o /tmp/cleanup.so ./modules/Go/cleanup/
-          go build -buildmode=plugin -o /tmp/dashboard.so ./modules/Go/dashboard/

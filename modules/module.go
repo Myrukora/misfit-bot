@@ -2,7 +2,6 @@ package modules
 
 import (
 	"fmt"
-	"plugin"
 	"strings"
 	"sync"
 
@@ -431,7 +430,6 @@ type LoadedModule struct {
 	Module       Module
 	FilePath     string
 	ModuleType   string // "go", "lua", "python"
-	Plugin       *plugin.Plugin
 	Hooks        *EventHooks
 	LuaLoader    *LuaLoader
 	PythonLoader *PythonLoader
@@ -509,8 +507,8 @@ func DetectModuleType(path string) string {
 	if IsPythonModule(path) {
 		return "python"
 	}
-	// Default to Go plugin for .so files
-	return "go"
+	// No Go plugin path anymore — only Lua and Python stay dynamic.
+	return ""
 }
 
 func (m *Manager) Load(path string, hooks *EventHooks) (Module, error) {
@@ -522,56 +520,8 @@ func (m *Manager) Load(path string, hooks *EventHooks) (Module, error) {
 	case "python":
 		return m.loadPythonModule(path, hooks)
 	default:
-		return m.loadGoPlugin(path, hooks)
+		return nil, fmt.Errorf("unsupported module type for %s — only Lua and Python modules are loadable; feature modules (cleanup/tickets) are compiled-in and managed with [p]modules enable|disable", path)
 	}
-}
-
-// loadGoPlugin loads a Go .so plugin module.
-func (m *Manager) loadGoPlugin(path string, hooks *EventHooks) (Module, error) {
-	p, err := plugin.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open plugin %s: %w", path, err)
-	}
-
-	sym, err := p.Lookup("New")
-	if err != nil {
-		return nil, fmt.Errorf("plugin %s does not export New(): %w", path, err)
-	}
-
-	newFunc, ok := sym.(func() Module)
-	if !ok {
-		return nil, fmt.Errorf("plugin %s New() has wrong signature", path)
-	}
-
-	mod := newFunc()
-	name := mod.Name()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.modules[name]; exists {
-		return nil, fmt.Errorf("module %s is already loaded", name)
-	}
-
-	// Check dependencies
-	if err := m.checkDependencies(mod); err != nil {
-		return nil, fmt.Errorf("failed to load module %s: %w", name, err)
-	}
-
-	m.modules[name] = &LoadedModule{
-		Module:     mod,
-		FilePath:   path,
-		ModuleType: "go",
-		Plugin:     p,
-		Hooks:      hooks,
-	}
-	m.order = append(m.order, name)
-
-	if hooks != nil {
-		m.AddModuleHooks(hooks)
-	}
-
-	return mod, nil
 }
 
 // loadLuaModule loads a Lua script module.
