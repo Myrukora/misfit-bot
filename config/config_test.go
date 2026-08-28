@@ -8,8 +8,8 @@ import (
 
 // TestNormalizeListen confirms the listen-address coercion that lets owners paste
 // a URL-shaped value ("http://127.0.0.1:9090/") wherever a bare host:port is
-// expected. Without this, `[p]dashboard set listen http://127.0.0.1:9090/` would
-// fail at bind with "too many colons in address".
+// expected. Without this, a dashboard listen setting of
+// "http://127.0.0.1:9090/" would fail at bind with "too many colons in address".
 func TestNormalizeListen(t *testing.T) {
 	cases := map[string]string{
 		"127.0.0.1:9090":                 "127.0.0.1:9090", // already bare
@@ -63,7 +63,7 @@ func TestDashboardKeysRoundTrip(t *testing.T) {
 	}
 
 	// A URL-shaped listen value must be normalized to host:port on Set, so a
-	// later [p]dashboard set listen http://127.0.0.1:9090/ doesn't break the bind.
+	// later dashboard listen setting of http://127.0.0.1:9090/ doesn't break the bind.
 	if err := cfg.Set("dashboard_listen", "http://127.0.0.1:9090/"); err != nil {
 		t.Fatalf("set url-shaped dashboard_listen: %v", err)
 	}
