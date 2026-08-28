@@ -2,6 +2,7 @@ package modules
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -454,35 +455,54 @@ func NewManager() *Manager {
 
 // RegisterBuiltins registers compiled-in feature modules (cleanup, tickets)
 // with all of them enabled. It is the zero-config default: a missing
-// enabled_modules key keeps every builtin on.
-func (m *Manager) RegisterBuiltins(constructors ...func() Module) {
-	m.RegisterBuiltinsWithFilter(nil, constructors...)
+// enabled_modules key keeps every builtin on. Each builtin's OnLoad is
+// invoked with a per-module context (fresh EventHooks, DataDir = base+name).
+func (m *Manager) RegisterBuiltins(ctx *Context, constructors ...func() Module) error {
+	return m.RegisterBuiltinsWithFilter(nil, ctx, constructors...)
 }
 
 // RegisterBuiltinsWithFilter registers compiled-in feature modules, skipping
-// any whose name is disabled in the enabled_modules map (missing key =
-// enabled). A builtin whose name collides with an already-loaded dynamic
-// module (Lua/Python) is skipped with a warning — the dynamic module wins as
-// an escape hatch.
-func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, constructors ...func() Module) {
+// any whose name is explicitly mapped to false in the enabled_modules map
+// (missing key = enabled). Each registered builtin's OnLoad is invoked with a
+// per-module context (fresh EventHooks, DataDir = ctx.DataDir+name); on
+// success its hooks are registered with the manager so the bot dispatches
+// them. If OnLoad fails, the builtin is rolled back (no modules/order entry,
+// no hooks) and the error is propagated. A builtin whose name collides with an
+// already-loaded dynamic module (Lua/Python) is skipped with a warning — the
+// dynamic module wins as an escape hatch.
+func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Context, constructors ...func() Module) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, ctor := range constructors {
 		mod := ctor()
 		name := mod.Name()
-		if enabled != nil && !enabled[name] {
-			continue // disabled in config
+		if enabled != nil {
+			if v, ok := enabled[name]; ok && !v {
+				continue // explicitly disabled in config
+			}
 		}
 		if _, exists := m.modules[name]; exists {
 			// Dynamic module already owns this name — skip the builtin.
 			continue
 		}
+		// Give the builtin its own EventHooks and data dir, then initialize
+		// it. OnLoad failure rolls the builtin back entirely.
+		hooks := NewEventHooks()
+		bctx := *ctx
+		bctx.Events = hooks
+		bctx.DataDir = filepath.Join(ctx.DataDir, name)
+		if err := mod.OnLoad(&bctx); err != nil {
+			return fmt.Errorf("failed to initialize builtin %s: %w", name, err)
+		}
 		m.modules[name] = &LoadedModule{
 			Module:     mod,
 			ModuleType: "builtin",
+			Hooks:      hooks,
 		}
 		m.order = append(m.order, name)
+		m.AddModuleHooks(hooks)
 	}
+	return nil
 }
 
 // SetLuaLoader sets the Lua loader for the manager.

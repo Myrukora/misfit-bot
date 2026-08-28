@@ -408,12 +408,16 @@ func TestEnabledModulesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if got.Modules.EnabledModules["tickets"] {
+	// tickets=false must be persisted as an explicit false entry; cleanup=true
+	// deletes the key (missing = enabled). Assert map MEMBERSHIP separately
+	// from the boolean value so we prove tickets is present-as-false and
+	// cleanup is absent, rather than merely evaluating to false.
+	if v, ok := got.Modules.EnabledModules["tickets"]; !ok {
+		t.Error("tickets should have an explicit entry (persisted as false)")
+	} else if v {
 		t.Error("tickets should be disabled (false)")
 	}
-	// cleanup=true deletes the key (missing = enabled) — so it must NOT be
-	// present as false.
-	if got.Modules.EnabledModules["cleanup"] {
-		t.Error("cleanup should be enabled-by-default (key removed)")
+	if _, ok := got.Modules.EnabledModules["cleanup"]; ok {
+		t.Error("cleanup should be enabled-by-default (key removed — absent = enabled)")
 	}
 }

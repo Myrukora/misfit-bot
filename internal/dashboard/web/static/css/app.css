@@ -480,7 +480,7 @@ td.actions { text-align: right; white-space: nowrap; }
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: break-word;
   max-height: 62vh;
   overflow-y: auto;
   color: var(--muted);
@@ -512,7 +512,7 @@ pre { margin: 0; }
 .btn-blurple { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
 .btn-blurple:hover:not(:disabled) { background: #fff; border-color: #fff; color: #000; }
 .aurora { display: none; } /* removed backdrop — kept so the div stays harmless */
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .in { animation: fade-up 0.28s var(--ease) both; }
 .core-form, .module-cfg { /* same form grid */ }
 .two-col { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }

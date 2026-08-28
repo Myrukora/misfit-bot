@@ -94,9 +94,12 @@
     // Restore the desktop preference on load (never applied on mobile).
     // Go through setCollapsed so the aria-expanded/aria-label state on the
     // toggle and collapse buttons stays in sync with the visual state.
+    // When no preference is saved and we're on desktop, setCollapsed(false)
+    // still runs so aria-expanded reflects the actual (expanded) state rather
+    // than the initial false markup.
     try {
-      if (!mqMobile.matches && localStorage.getItem('dash_sidebar_collapsed') === '1') {
-        setCollapsed(true);
+      if (!mqMobile.matches) {
+        setCollapsed(localStorage.getItem('dash_sidebar_collapsed') === '1');
       }
     } catch (_) {}
 
@@ -135,8 +138,8 @@
       } else {
         closeDrawer();
         try {
-          if (localStorage.getItem('dash_sidebar_collapsed') === '1') sidebar.classList.add('collapsed');
-        } catch (_) {}
+          setCollapsed(localStorage.getItem('dash_sidebar_collapsed') === '1');
+        } catch (_) { setCollapsed(false); }
       }
     });
   }
@@ -770,8 +773,8 @@
           // Owner: disable everywhere + mod-only. Clear any local override so
           // the global state is the single source of truth.
           await req('POST', '/api/cmdcfg/toggle', { name, disabled: true, guildID: '', modOnly, channels: [], roles: [] });
-          if (current.guild) {
-            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+          if (guildSel.value) {
+            await req('POST', '/api/cmdcfg/toggle', { name, disabled: false, guildID: guildSel.value, channels: [], roles: [], modOnly: false });
           }
           toast(name + ' disabled everywhere', 'ok');
         } else if (guildSel.value && localToggle.checked) {
@@ -807,8 +810,8 @@
           await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: '', channels: [], roles: [], modOnly: false });
         }
         // Clear local override.
-        if (current.guild) {
-          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: current.guild, channels: [], roles: [], modOnly: false });
+        if (guildSel.value) {
+          await req('POST', '/api/cmdcfg/toggle', { name: current.name, disabled: false, guildID: guildSel.value, channels: [], roles: [], modOnly: false });
         }
         toast('Overrides cleared for ' + current.name, 'ok');
         closeModal();

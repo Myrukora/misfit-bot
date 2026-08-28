@@ -1,6 +1,6 @@
 # Builtin data paths (pinned)
 
-After the Go-modules → compiled-in-core migration, the three former Go
+After the Go plugin modules → compiled-in core migration, the three former Go
 plugins keep their **data folders on disk** exactly where they are today.
 The code moves to `internal/`, but the folders remain the data home — no
 file migration is needed on upgrade.

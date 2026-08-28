@@ -2,10 +2,9 @@
 # install.sh — Misfit Bot: system dependencies + build (single binary; Lua/Python modules dynamic)
 #
 # Usage:
-#   ./install.sh                 # detect distro, install deps, build everything
+#   ./install.sh                 # detect distro, install deps, build single binary
 #   ./install.sh --check         # print detected toolchain/deps, change nothing
 #   ./install.sh --no-deps       # skip system packages, only build
-#   ./install.sh                    # detect distro, install deps, build single binary
 #   ./install.sh --skip-go       # don't auto-install the Go toolchain
 #   DISTRO=ubuntu ./install.sh   # override distro detection
 #

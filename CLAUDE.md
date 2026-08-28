@@ -12,7 +12,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets feature m
 | Discord Library | [disgo](https://github.com/disgoorg/disgo) | v0.19.6 |
 | Config | YAML (`gopkg.in/yaml.v3`) | v3.0.1 |
 | Snowflake IDs | `github.com/disgoorg/snowflake/v2` | v2.0.3 |
-| Module System | Go `plugin` package (Linux `.so` files) | stdlib |
+| Module System | Compiled-in core (dashboard, cleanup, tickets) + dynamic Lua/Python modules | stdlib |
 | Lua Modules | [gopher-lua](https://github.com/yuin/gopher-lua) | v1.1.2 |
 | Python Modules | Subprocess IPC (per-module venv) | Python 3 |
 | Logging | `log/slog` (stdlib) + file output | stdlib |

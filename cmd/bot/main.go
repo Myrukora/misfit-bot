@@ -323,24 +323,39 @@ func run() bool {
 	ModMgr.SetPythonLoader(pythonLoader)
 
 	loadCoreModules(ba)
+
+	// Register the compiled-in feature modules (cleanup, tickets) gated by
+	// enabled_modules in config (missing key = enabled) BEFORE slash commands
+	// are registered, so builtin slash commands (/cleanup, /tickets) are
+	// included in the initial global command sync. They are constructed
+	// in-process — no .so, no plugin.Open — and OnLoad runs during
+	// registration (tickets loads its config/store + event hooks here).
+	if err := ModMgr.RegisterBuiltinsWithFilter(Cfg.Modules.EnabledModules, &modules.Context{
+		BotName:      Cfg.Bot.Name,
+		OwnerID:      Cfg.Bot.OwnerID,
+		DataDir:      filepath.Join(Dir, Cfg.Modules.Path),
+		Logger:       Log,
+		Rest:         Client.Rest,
+		Bot:          ba,
+		VoiceManager: vm,
+	}, cleanup.New, tickets.New); err != nil {
+		Log.Error("Failed to register builtin modules: %v", err)
+	}
 	registerSlashCommands()
 
 	// One-time migration: remove stale plugin-era .so files now that the
 	// dashboard + feature modules are compiled into the binary.
 	migrateFromPluginEra()
 
-	// Register the compiled-in feature modules (cleanup, tickets), gated by
-	// enabled_modules in config (missing key = enabled). They are constructed
-	// in-process — no .so, no plugin.Open.
-	ModMgr.RegisterBuiltinsWithFilter(Cfg.Modules.EnabledModules, cleanup.New, tickets.New)
-
 	// Start the dashboard as core infrastructure, right after the gateway is
 	// up (OAuth guild checks need the client cache). It is always on — never
-	// a module, never unloadable.
+	// a module, never unloadable. Its data dir is pinned to the historical
+	// modules/Go/dashboard/ folder so existing module-local state (session
+	// secret, allowed guilds) survives the migration.
 	dash = dashboard.New(dashboard.Deps{
 		Bot:     ba,
 		BotName: Cfg.Bot.Name,
-		DataDir: filepath.Join(Dir, "modules", "Go", "dashboard"),
+		DataDir: filepath.Join(Dir, Cfg.Modules.Path, "Go", "dashboard"),
 		Logger:  Log,
 	})
 	dash.Start()
