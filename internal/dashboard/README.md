@@ -12,7 +12,7 @@ already in `go.mod`.
 
 ```bash
 # from the repo root
-go build -buildmode=plugin -o modules/Go/dashboard/dashboard.so ./modules/Go/dashboard/
+go build -o bot ./cmd/bot/   # dashboard is compiled into the single binary
 ./bot                       # then, in Discord:
 [p]load dashboard
 [p]dashboard status
@@ -234,7 +234,7 @@ and the `<meta name="csrf-token">` tag.
 ## Testing
 
 ```bash
-go test ./modules/Go/dashboard/   # template-render coverage + field types (no Discord needed)
+go test ./internal/dashboard/   # template-render coverage + field types (no Discord needed)
 ```
 
 ## Notes & limitations
