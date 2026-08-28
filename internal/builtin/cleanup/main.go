@@ -34,6 +34,10 @@ func (m *CleanupModule) OnLoad(ctx *modules.Context) error {
 
 func (m *CleanupModule) OnUnload() error { return nil }
 
+// OnDisable implements modules.Disablable. Cleanup is stateless — disabling
+// it needs no teardown beyond the manager removing its hooks.
+func (m *CleanupModule) OnDisable() error { return nil }
+
 const (
 	twoWeeks      = 13 * 24 * time.Hour // 13 days — Discord's bulk delete API allows up to 14 days
 	bulkBatchSize = 100                 // Discord's bulk-delete endpoint accepts at most 100 messages per request

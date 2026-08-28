@@ -107,6 +107,13 @@ func (m *TicketsModule) OnUnload() error {
 	return nil
 }
 
+// OnDisable implements modules.Disablable: disabling tickets via
+// [p]modules disable flushes state (same as unload) so no tickets are lost
+// when the feature is turned off and later re-enabled.
+func (m *TicketsModule) OnDisable() error {
+	return m.OnUnload()
+}
+
 // isLoaded reports whether OnLoad completed and OnUnload has not run. Entry
 // points that touch the store check this first.
 func (m *TicketsModule) isLoaded() bool {

@@ -73,3 +73,27 @@ func TestRegisterBuiltinsNameCollision(t *testing.T) {
 		t.Fatal("tickets should still be registered")
 	}
 }
+
+// fakeDisablable wraps a builtin with an OnDisable flag.
+type fakeDisablable struct {
+	*fakeBuiltin
+	disabledCalled bool
+}
+
+func (f *fakeDisablable) OnDisable() error { f.disabledCalled = true; return nil }
+
+// TestRegisterBuiltinsDisableHook verifies the manager calls OnDisable (not
+// OnUnload) when a registered module implements Disablable.
+func TestRegisterBuiltinsDisableHook(t *testing.T) {
+	m := NewManager()
+	mod := &fakeDisablable{fakeBuiltin: &fakeBuiltin{name: "tickets"}}
+	ctor := func() Module { return mod }
+	m.RegisterBuiltins(ctor)
+	// Unloading a Disablable should route to OnDisable.
+	if err := m.Unload("tickets"); err != nil {
+		t.Fatalf("unload: %v", err)
+	}
+	if !mod.disabledCalled {
+		t.Fatal("OnDisable not called on unload of a Disablable builtin")
+	}
+}

@@ -106,6 +106,21 @@ func IsWebTabser(m Module) (WebTabser, bool) {
 	return wt, ok
 }
 
+// Disablable is the optional interface a builtin implements to run graceful
+// teardown when it is disabled via [p]modules disable (or unloaded). The
+// manager calls OnDisable() instead of OnUnload() for modules that implement
+// it — a builtin's OnUnload is reserved for full shutdown, while OnDisable
+// is the "turn this feature off" path (deregister hooks, flush state).
+type Disablable interface {
+	OnDisable() error
+}
+
+// IsDisablable type-asserts a module to Disablable.
+func IsDisablable(m Module) (Disablable, bool) {
+	d, ok := m.(Disablable)
+	return d, ok
+}
+
 // HasWebConfig is the opt-in marker for wrapper types whose Go struct ALWAYS
 // satisfies WebConfigurable even when their integration file is absent
 // (LuaModule / PythonModule). Consumers (the dashboard's webCfg) must treat a
@@ -665,8 +680,15 @@ func (m *Manager) Unload(name string) error {
 		m.RemoveModuleHooks(hooks)
 	}
 
-	// Call OnUnload WITHOUT holding the lock to avoid deadlock
-	unloadErr := mod.OnUnload()
+	// Call OnUnload (or OnDisable for a Disablable builtin) WITHOUT holding the
+	// lock to avoid deadlock. A Disablable module gets its graceful teardown
+	// path; its OnUnload is reserved for full process shutdown.
+	var unloadErr error
+	if d, ok := IsDisablable(mod); ok {
+		unloadErr = d.OnDisable()
+	} else {
+		unloadErr = mod.OnUnload()
+	}
 
 	if unloadErr != nil {
 		return fmt.Errorf("failed to unload module %s: %w", name, unloadErr)
