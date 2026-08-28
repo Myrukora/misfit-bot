@@ -80,6 +80,9 @@ type ModulesConfig struct {
 	AutoLoad bool     `yaml:"auto_load"`
 	Path     string   `yaml:"path"`
 	Disabled []string `yaml:"disabled"`
+	// EnabledModules gates the compiled-in feature modules (cleanup, tickets).
+	// Missing key = enabled (zero-config default preserves current behavior).
+	EnabledModules map[string]bool `yaml:"enabled_modules,omitempty"`
 }
 
 type LoggingConfig struct {

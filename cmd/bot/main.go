@@ -15,6 +15,9 @@ import (
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/builtin/cleanup"
+	"github.com/misfit/bot/internal/builtin/tickets"
+	"github.com/misfit/bot/internal/dashboard"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/logger"
 	"github.com/misfit/bot/modules"
@@ -48,6 +51,7 @@ var (
 	rtLimiter    *ratelimit.Limiter
 	sigCh        chan os.Signal
 	updaterMgr   *updater.Manager
+	dash         *dashboard.DashboardModule
 )
 
 // Auto-delete rule: the bot auto-deletes ONLY error-colored embeds (red,
@@ -276,6 +280,22 @@ func run() bool {
 	loadCoreModules(ba)
 	registerSlashCommands()
 
+	// Register the compiled-in feature modules (cleanup, tickets), gated by
+	// enabled_modules in config (missing key = enabled). They are constructed
+	// in-process — no .so, no plugin.Open.
+	ModMgr.RegisterBuiltinsWithFilter(Cfg.Modules.EnabledModules, cleanup.New, tickets.New)
+
+	// Start the dashboard as core infrastructure, right after the gateway is
+	// up (OAuth guild checks need the client cache). It is always on — never
+	// a module, never unloadable.
+	dash = dashboard.New(dashboard.Deps{
+		Bot:     ba,
+		BotName: Cfg.Bot.Name,
+		DataDir: filepath.Join(Dir, "modules", "Go", "dashboard"),
+		Logger:  Log,
+	})
+	dash.Start()
+
 	// Apply the persisted presence status (online/idle/dnd/invisible) once the
 	// gateway is up. bot.status lives in config.yml and is applied on every
 	// (re)start so the bot comes up with the owner's chosen status.
@@ -292,14 +312,23 @@ func run() bool {
 	select {
 	case <-sc:
 		Log.Info("Received shutdown signal, closing...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return false
 	case <-shutdownCh:
 		Log.Info("Shutdown requested, closing...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return false
 	case <-restartCh:
 		Log.Info("Received restart signal, restarting...")
+		if dash != nil {
+			dash.Stop()
+		}
 		Client.Close(context.Background())
 		return true
 	}
@@ -1412,18 +1441,6 @@ func loadCoreModules(ba *botAdapter) {
 	if len(saved) == 0 {
 		if Cfg.Modules.AutoLoad {
 			Log.Info("AutoLoad enabled, scanning for modules...")
-			// Go plugins: modules/Go/<name>/<name>.so
-			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Go")); err == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-					so := filepath.Join(modulesDir, "Go", entry.Name(), entry.Name()+".so")
-					if _, err := os.Stat(so); err == nil {
-						loadSingleModule(ba, modulesDir, entry.Name())
-					}
-				}
-			}
 			// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
 			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
 				for _, entry := range entries {
