@@ -47,8 +47,13 @@ nix-shell   # drops into a dev shell with everything pinned (shell.nix)
 ### Option 3: manual
 
 ```bash
-go build -o bot ./cmd/bot/
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/
 ```
+
+The `-ldflags` stamp injects the version from the `VERSION` file (the single
+source of truth). Build without it and the bot reports `dev` — harmless, but
+the updater then falls back to commit counting instead of release versions.
+See [Versioning](#versioning).
 
 ### First run
 
@@ -107,6 +112,57 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 
 **See [MODULE_GUIDE.md](MODULE_GUIDE.md)** for the full module-authoring guide (Go, Lua, and Python).
 
+## Versioning
+
+`VERSION` at the repository root is the **single source of truth** for the bot's
+version (currently `0.1.0`). Every build site stamps it into the binary:
+
+```bash
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/
+```
+
+`install.sh`, CI and the updater's own self-build all do this. Build without the
+stamp and the bot reports `dev` — an *unknown* version, not `0.0.0`: the updater
+then reports commits instead of versions (see below). `[p]info` shows the
+version, and `./bot --version` prints it without touching `config.yml`.
+
+### What the numbers mean
+
+Semantic versioning, in the **0.x era**: `v1.0.0` is *the* release, and it is
+not close.
+
+| Bump | Tag | Used for |
+|---|---|---|
+| **major** | `v1.0.0` | the release itself (reserved — while the major is `0` it stays unused) |
+| **minor** | `v0.(Y+1).0` | feature waves and notable reworks (tickets v2, a dashboard redesign) |
+| **patch** | `v0.Y.(Z+1)` | small features, bugfixes, subtle fixes — the default |
+
+This is standard pre-`1.0` SemVer: the minor slot carries what would be a major
+later, the patch slot carries everything smaller.
+
+### Bumping
+
+Bumping **is part of the PR** — edit `VERSION` in your branch alongside the
+change, and the merge to `main` becomes that release. No labels, no separate
+release branch, no version to guess after the fact.
+
+```
+fix(tickets): stop double-closing archived tickets   →  VERSION: 0.1.0 → 0.1.1
+feat(dashboard): command manager rework              →  VERSION: 0.1.0 → 0.2.0
+```
+
+CI does not fail when code changes without a bump — it posts a warning, because
+pure refactors and docs-only PRs genuinely have nothing to release. Reviewers
+treat that warning as a question, not a formality.
+
+### Tagging and releases
+
+`.github/workflows/release.yml` runs on every push to `main`: it reads `VERSION`,
+and if `v<VERSION>` does not exist yet it creates the annotated tag and publishes
+a GitHub Release with `--generate-notes` (the changelog is the merged PRs since
+the previous tag). It is idempotent — a merge that did not bump `VERSION` finds
+its tag already there and does nothing.
+
 ## Self-updater
 
 The bot polls its own GitHub repository every `check_interval` seconds (default 300):
@@ -161,7 +217,7 @@ misfit-bot/
 ## Development
 
 ```bash
-go build -o bot ./cmd/bot/                                     # build the single binary (dashboard + feature modules included)
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/           # build the single binary (dashboard + feature modules included)
 go test ./...                                                  # run all tests
 go vet ./...                                                   # static analysis
 ```

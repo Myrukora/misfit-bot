@@ -109,7 +109,7 @@ func New() modules.Module { return &HelloModule{} }
 
 **Build:**
 ```bash
-go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 ```
 
 **Load:**
@@ -721,7 +721,7 @@ func (m *WelcomeModule) OnLoad(ctx *modules.Context) error {
 
 ```bash
 # Build module (Go plugin; output lives next to the source, gitignored)
-go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 
 # Load in Discord
 [p]load <name>
@@ -794,7 +794,7 @@ func (m *DashboardModule) OnUnload() error { m.stopServer(); return nil }
 Build a multi-file module with the **package path** (not a single `main.go`):
 
 ```bash
-go build -o bot ./cmd/bot/   # the dashboard is compiled into the single binary
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/   # the dashboard is compiled into the single binary
 ```
 
 ### Exposing settings on the dashboard (`modules.WebConfigurable`)
@@ -997,7 +997,7 @@ the starboard module — with the owner/elevated able to edit all of them and a
 guild's staff able to edit the `GuildScoped` ones for their guild.
 
 ```bash
-go build -o bot ./cmd/bot/   # feature modules are compiled into the single binary
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/   # feature modules are compiled into the single binary
 [p]load starboard
 ```
 
