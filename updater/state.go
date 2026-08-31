@@ -13,6 +13,13 @@ type state struct {
 	LastCommitSHA string       `json:"last_commit_sha"` // remote HEAD of the tracked branch, last time we looked
 	SeenPRs       map[int]bool `json:"seen_prs"`        // PR numbers we have already notified about
 	Seeded        bool         `json:"seeded"`          // first poll completed silently (records, posts nothing)
+
+	// LatestVersion is the newest release tag seen on the tracked branch, and
+	// NotifiedVersion the one already announced in the notify channel. Together
+	// they make the version announcement edge-triggered: one embed per new
+	// release, not one every check_interval.
+	LatestVersion   string `json:"latest_version,omitempty"`
+	NotifiedVersion string `json:"notified_version,omitempty"`
 }
 
 func (m *Manager) statePath() string {

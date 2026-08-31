@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/misfit/bot/config"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/misfit/bot/config"
 )
 
 // GitHub-flavored embed colors.
@@ -89,6 +89,44 @@ func buildPREmbed(cfg *config.UpdaterConfig, pr ghPR) discord.Embed {
 		WithDescription(truncate(body, maxDescription)).
 		WithColor(colorGitHubGreen).
 		WithFooter(repoAtBranch(cfg), "").
+		WithTimestamp(time.Now())
+}
+
+// buildUpdateEmbed announces an incoming release (posted just before an
+// auto-update is applied). The version pair leads — the whole point of the
+// release pipeline — with the commit count demoted to the footer:
+//
+//	Update available — v0.1.0 → v0.2.0
+//	Pulling, rebuilding and restarting now.
+//	3 commits · Myrukora/misfit-bot @ main
+func buildUpdateEmbed(cfg *config.UpdaterConfig, res *CheckResult) discord.Embed {
+	title := "Update available"
+	if summary := res.VersionSummary(); summary != "" {
+		title = "Update available — " + summary
+	}
+
+	desc := "Pulling, rebuilding and restarting now."
+	if len(res.NewSHAs) > 0 {
+		shas := make([]string, 0, len(res.NewSHAs))
+		for _, s := range res.NewSHAs {
+			shas = append(shas, "`"+s+"`")
+		}
+		desc += "\n" + strings.Join(shas, ", ")
+	}
+
+	footer := repoAtBranch(cfg)
+	switch {
+	case res.Behind == 1:
+		footer = "1 commit · " + footer
+	case res.Behind > 1:
+		footer = fmt.Sprintf("%d commits · %s", res.Behind, footer)
+	}
+
+	return discord.NewEmbed().
+		WithTitle(title).
+		WithDescription(truncate(desc, maxDescription)).
+		WithColor(colorGitHubBlue).
+		WithFooter(footer, "").
 		WithTimestamp(time.Now())
 }
 
