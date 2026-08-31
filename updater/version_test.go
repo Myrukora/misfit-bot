@@ -66,3 +66,16 @@ func TestReadVersionFile(t *testing.T) {
 		t.Errorf("ReadVersionFile(missing dir) = %q, want empty", got)
 	}
 }
+
+// Build metadata is rejected here even though ParseVersion canonicalises it,
+// because scripts/version.sh — the other half of this contract — rejects it, and
+// the self-build must not stamp a version a shell build site would refuse.
+func TestReadVersionFileRejectsBuildMetadata(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("1.0.0+build.5\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ReadVersionFile(dir); got != "" {
+		t.Errorf("ReadVersionFile() = %q for '1.0.0+build.5', want \"\" (scripts/version.sh rejects it too)", got)
+	}
+}

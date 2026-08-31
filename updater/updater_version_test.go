@@ -469,3 +469,22 @@ func TestCommitNotificationsKeepsConcurrentVersionFields(t *testing.T) {
 func (m *Manager) setCfgForTest(cfg *config.UpdaterConfig) {
 	m.getCfg = func() *config.UpdaterConfig { return cfg }
 }
+
+// A build sitting on the newest release tag but behind by post-release commits
+// is not receiving a new release — announcing one would be wrong.
+func TestAnnounceUpdateSkippedWhenNotVersionBehind(t *testing.T) {
+	m, sent := newTestManager(t, &fakeGH{})
+
+	m.announceUpdate(testCfg(), &CheckResult{
+		Behind: 4, FromVersion: "0.2.0", ToVersion: "0.2.0", VersionBehind: false,
+	})
+	if len(*sent) != 0 {
+		t.Fatalf("announceUpdate posted %d embeds, want none: v0.2.0 → v0.2.0 is not a release", len(*sent))
+	}
+
+	// Unstamped builds have no version to compare, so they still announce.
+	m.announceUpdate(testCfg(), &CheckResult{Behind: 4, ToVersion: "0.2.0"})
+	if len(*sent) != 1 {
+		t.Errorf("announceUpdate posted %d embeds, want the unstamped build's announcement", len(*sent))
+	}
+}

@@ -38,6 +38,12 @@ func ReadVersionFile(dir string) string {
 		if s == "" || strings.HasPrefix(s, "#") {
 			continue
 		}
+		// Build metadata is not part of a release identity and scripts/version.sh
+		// rejects it, so the Go twin must not quietly canonicalise "1.0.0+build.5"
+		// into a release the shell build sites refuse to stamp.
+		if strings.Contains(s, "+") {
+			return ""
+		}
 		return NormalizeVersion(s)
 	}
 	return ""

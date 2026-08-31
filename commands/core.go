@@ -589,22 +589,30 @@ func init() {
 				if err != nil {
 					return ctx.Respond(embed.Error("❌ Update Check Failed", err.Error()))
 				}
-				if res.UpToDate {
+				// Four states, version first where the repo has release tags.
+				// "Commits are current" and "the running binary is current" are
+				// different facts: a manual `git pull` without a rebuild leaves the
+				// process on the previous release while HEAD sits on the new tag, and
+				// that must never be reported as "up to date".
+				switch {
+				case res.VersionBehind && res.UpToDate:
+					return ctx.Respond(embed.Info("📥 Rebuild Pending",
+						fmt.Sprintf("The code is at **v%s** but this process runs **v%s** — it was pulled without rebuilding. Run `%supdate now` to rebuild and restart.",
+							res.ToVersion, res.FromVersion, ctx.Bot.GetPrefix())))
+				case res.VersionBehind:
+					return ctx.Respond(embed.Info("📥 Update Available",
+						fmt.Sprintf("%s (**%d** new commit%s). Run `%supdate now` to pull, rebuild and restart.",
+							res.VersionSummary(), res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
+				case res.UpToDate:
 					title := fmt.Sprintf("`%s` is on the latest commit (`%s`).", ctx.Bot.GetName(), short7(res.LocalSHA))
 					if summary := res.VersionSummary(); summary != "" {
 						title = fmt.Sprintf("`%s` is up to date — %s (`%s`).", ctx.Bot.GetName(), summary, short7(res.LocalSHA))
 					}
 					return ctx.Respond(embed.Success("✅ Up to Date", title))
-				}
-
-				// Version-first when the repo publishes release tags; the commit
-				// count stays the fallback for untagged repos.
-				if res.VersionBehind {
+				default:
 					return ctx.Respond(embed.Info("📥 Update Available",
-						fmt.Sprintf("%s (**%d** new commit%s). Run `%supdate now` to pull, rebuild and restart.",
-							res.VersionSummary(), res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
+						fmt.Sprintf("**%d** new commit%s available. Run `%supdate now` to pull, rebuild and restart.", res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
 				}
-				return ctx.Respond(embed.Info("📥 Update Available", fmt.Sprintf("**%d** new commit(s) available. Run `%supdate now` to pull, rebuild and restart.", res.Behind, ctx.Bot.GetPrefix())))
 			case "now":
 				if err := ctx.Respond(embed.Info("🔄 Updating", "Pulling latest code, rebuilding...")); err != nil {
 					return err

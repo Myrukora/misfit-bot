@@ -370,6 +370,12 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	// ── Commits ──
 	head, err := m.gh.fetchRemoteHead(ctx)
 	if err != nil {
+		// The PR pass above may already have posted embeds that are recorded only
+		// in this uncommitted copy. Persist them first, or the next poll reads the
+		// old state and re-sends the same PRs.
+		if cerr := commit(); cerr != nil {
+			m.Logger.Warn("Updater: failed to save the PR notifications: %v", cerr)
+		}
 		return fmt.Errorf("fetch remote head: %w", err)
 	}
 	if st.Seeded && st.LastCommitSHA != "" && st.LastCommitSHA != head {
@@ -754,6 +760,14 @@ func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
 // polls) must not spam the channel about the same one.
 func (m *Manager) announceUpdate(cfg *config.UpdaterConfig, res *CheckResult) {
 	if cfg.NotifyChannel == "" || res.ToVersion == "" {
+		return
+	}
+	// Announce a release that is actually newer than what is running. A build on
+	// the newest tag but behind by post-release commits would otherwise be
+	// announced as "Update available — v0.1.0 → v0.1.0", and every later commit
+	// batch would look like a release that never happened. An unstamped build has
+	// no version of its own to compare against, so it still announces.
+	if res.FromVersion != "" && !res.VersionBehind {
 		return
 	}
 	// The dedupe key covers the whole target, not just the version (see
