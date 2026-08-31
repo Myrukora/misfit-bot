@@ -284,7 +284,8 @@ check_runtime() {
 
 build_core() {
   info "building core binary (./cmd/bot)"
-  ( cd "$(dirname "$0")" && CGO_ENABLED=1 go build -o bot ./cmd/bot/ )
+  # -X main.Version is stamped from the VERSION file (single source of truth).
+  ( cd "$(dirname "$0")" && CGO_ENABLED=1 go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/ )
   ok "core binary: ./bot"
 }
 
