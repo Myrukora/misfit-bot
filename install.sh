@@ -287,10 +287,16 @@ build_core() {
   # -X main.Version is stamped from the VERSION file (single source of truth).
   # scripts/version.sh is the one parser for it, shared with CI, the release
   # workflow and updater.ReadVersionFile.
-  local root
+  local root version
   root=$(cd "$(dirname "$0")" && pwd)
-  ( cd "$root" && CGO_ENABLED=1 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/ )
-  ok "core binary: ./bot"
+  # Read (and validate) through the shared parser *before* building, so a bad
+  # VERSION stops the install here instead of producing a binary whose version
+  # nothing agrees on. A $(…) failure would not trip the build's own exit code.
+  if ! version=$( cd "$root" && ./scripts/version.sh 2>&1 ); then
+    die "cannot stamp the version: $version"
+  fi
+  ( cd "$root" && CGO_ENABLED=1 go build -ldflags "-X main.Version=$version" -o bot ./cmd/bot/ )
+  ok "core binary: ./bot (v$version)"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────

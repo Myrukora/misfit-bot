@@ -31,6 +31,12 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Validate VERSION
+        # Must be its own step: inside $(…) a failed command substitution would
+        # not fail the build step, so a corrupt VERSION would stamp garbage that
+        # CI's own comparison (garbage vs garbage) would happily accept.
+        run: ./scripts/version.sh > /dev/null
+
       - name: Build single binary
         # VERSION is the single source of truth; without this stamp the binary
         # reports "dev" and the version-aware updater loses its baseline.

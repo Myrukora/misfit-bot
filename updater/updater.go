@@ -184,12 +184,28 @@ func (m *Manager) Version() string {
 
 // LatestVersion returns the newest release tag the updater has seen on the
 // tracked branch (persisted across restarts). Empty until the first successful
-// check that finds a version tag. The read takes Manager.mu: the state is a
-// single shared struct that the poll loop writes concurrently.
+// check that finds a version tag — and empty for a target other than the one it
+// was cached for, so switching repo or branch never advertises the previous
+// target's release. The read takes Manager.mu: the state is a single shared
+// struct that the poll loop writes concurrently.
 func (m *Manager) LatestVersion() string {
+	cfg := m.getCfg()
+	if cfg == nil {
+		return ""
+	}
+	return m.cachedVersion(versionScope(cfg.Repo, cfg.Branch))
+}
+
+// cachedVersion returns the cached latest version, but only if it was recorded
+// for the given scope (see state.LatestScope).
+func (m *Manager) cachedVersion(scope string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.loadStateLocked().LatestVersion
+	st := m.loadStateLocked()
+	if st.LatestVersion == "" || st.LatestScope != scope {
+		return ""
+	}
+	return st.LatestVersion
 }
 
 // SetRest attaches the current Discord REST client. Called on every bot run()
@@ -440,7 +456,7 @@ func (m *Manager) Check(ctx context.Context) (*CheckResult, error) {
 		m.Logger.Debug("Updater: tag lookup failed (%v) — reporting commits only", err)
 	} else {
 		res.FromVersion, res.ToVersion, res.VersionBehind = resolveVersions(m.Version(), tags)
-		m.recordLatestVersion(res.ToVersion)
+		m.recordLatestVersion(cfg, res.ToVersion)
 	}
 
 	if !res.UpToDate {
@@ -561,10 +577,11 @@ func (m *Manager) Status() map[string]string {
 		"last_sha":       lastSHA,
 		"last_check":     lastCheck.Format("2006-01-02 15:04:05"),
 		"last_error":     lastErr,
-		// Version reporting (Task 3): what this build is, and the newest release
-		// tag seen on the tracked branch ("" until a check finds one).
+		// Version reporting: what this build is, and the newest release tag seen
+		// on the tracked branch ("" until a check finds one, and always the scoped
+		// read — a version cached for another repo@branch is not this one's).
 		"version":        m.Version(),
-		"latest_version": st.LatestVersion,
+		"latest_version": m.LatestVersion(),
 	}
 }
 
@@ -718,14 +735,18 @@ func (m *Manager) reachableTags(ctx context.Context, refs []tagRef, upstream str
 
 // recordLatestVersion caches the newest release tag seen on the tracked branch
 // so [p]info and the dashboard can report it without shelling out to git.
-func (m *Manager) recordLatestVersion(to string) {
-	if to == "" {
+func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
+	if to == "" || cfg == nil {
 		return
 	}
-	if m.LatestVersion() == to {
+	scope := versionScope(cfg.Repo, cfg.Branch)
+	if m.cachedVersion(scope) == to {
 		return // the common path: no rewrite of updater_state.json per check
 	}
-	m.updateState(func(st *state) { st.LatestVersion = to })
+	m.updateState(func(st *state) {
+		st.LatestVersion = to
+		st.LatestScope = scope
+	})
 }
 
 // announceUpdate posts the "a new release is on the way" embed right before an

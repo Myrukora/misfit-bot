@@ -27,20 +27,12 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          # The same parser install.sh and CI use, so the tag, the stamped binary
-          # and updater.ParseVersion can never disagree about what VERSION says.
-          raw=$(./scripts/version.sh)
-          canonical=${raw#v}
-          # The official SemVer grammar, build metadata excluded: VERSION holds a
-          # bare X.Y.Z[-prerelease]. The generic prerelease alternative must
-          # contain a letter or hyphen, so zero-padded numbers ("-01") and empty
-          # components ("-rc..1") are rejected here exactly as they are in Go —
-          # otherwise a tag would ship a version the binary cannot parse and the
-          # updater would silently fall back to commit counting.
-          if ! printf '%s' "$canonical" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'; then
-            echo "::error::VERSION must contain a bare SemVer (major.minor.patch[-prerelease], no build metadata); found '$raw'"
-            exit 1
-          fi
+          # scripts/version.sh is the one parser *and* the one grammar check —
+          # install.sh, CI and updater.ReadVersionFile/ParseVersion apply the same
+          # rule, so a tag can never be published for a version the running
+          # binary would refuse to parse (which would silently degrade that
+          # install to commit counting). Its message lands in the run log.
+          canonical=$(./scripts/version.sh)
           echo "tag=v${canonical}" >> "$GITHUB_OUTPUT"
           echo "Releasing v${canonical} from ${GITHUB_SHA}"
 

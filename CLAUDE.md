@@ -484,6 +484,13 @@ injected into the binary via `-ldflags "-X main.Version=$(./scripts/version.sh)"
 CI, `install.sh`, the release workflow and the updater's self-build. A binary
 built without the stamp reports `dev` (unknown version).
 
+`scripts/version.sh` is the one VERSION reader (first non-blank, non-comment
+line, trimmed, `v` stripped) **and validator** — missing file, empty/comment-only
+file, or anything that is not bare SemVer (so no `1.2.3-01`, no `-rc..1`, no
+`+build`) exits non-zero. CI has a dedicated `Validate VERSION` step because a
+failure inside `$(…)` would not fail the build step next to it, `install.sh` dies
+on it, and `updater.ReadVersionFile` + `ParseVersion` are its Go twin.
+
 SemVer, 0.x era: `v1.0.0` is THE release, not close. Until then `v0.Y.0`
 (minor bumps) carry feature waves and `v0.Y.Z` (patch) carries fixes and small
 features — the standard pre-1.0 convention. **Bumping is part of the PR**: the
@@ -504,7 +511,10 @@ VersionSummary`) with the commit count as secondary detail. "Up to date" stays
 defined by commit SHAs, so an untagged repo or an unstamped `dev` build behaves
 exactly as before — versions change the reporting, never the trigger. The
 newest tag seen is cached in `updater_state.json` (`LatestVersion`) and drives
-the once-per-release "Update available" announcement.
+the once-per-release "Update available" announcement. The cache is scoped: it
+stores `LatestScope` (`repo@branch`) and `LatestVersion()` / `Status()` return
+empty for any other scope, so repointing the updater at another repo or branch
+cannot transiently advertise the previous target's release.
 
 SemVer lives in `updater/semver.go` (no `golang.org/x/mod/semver` — it is not
 in the module graph); components are compared as **digit strings**, so ordering

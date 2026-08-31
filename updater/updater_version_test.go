@@ -275,12 +275,12 @@ func TestBuildUpdateEmbedWithoutVersion(t *testing.T) {
 
 func TestRecordLatestVersionCachesAndRoundTrips(t *testing.T) {
 	m := New(t.TempDir(), testLogger{}, func() *config.UpdaterConfig { return testCfg() })
-	m.recordLatestVersion("") // a tagless repo must not create an entry
+	m.recordLatestVersion(testCfg(), "") // a tagless repo must not create an entry
 	if m.LatestVersion() != "" {
 		t.Fatalf("LatestVersion() = %q, want empty", m.LatestVersion())
 	}
 
-	m.recordLatestVersion("0.2.0")
+	m.recordLatestVersion(testCfg(), "0.2.0")
 	if got := m.LatestVersion(); got != "0.2.0" {
 		t.Fatalf("LatestVersion() = %q, want 0.2.0", got)
 	}
@@ -289,6 +289,36 @@ func TestRecordLatestVersionCachesAndRoundTrips(t *testing.T) {
 	m2 := New(m.Dir, testLogger{}, func() *config.UpdaterConfig { return testCfg() })
 	if got := m2.LatestVersion(); got != "0.2.0" {
 		t.Errorf("LatestVersion() after restart = %q, want 0.2.0", got)
+	}
+}
+
+// The cache belongs to a repo@branch: pointing the updater somewhere else must
+// not keep advertising the previous target's newest release while the next
+// check is still running.
+func TestLatestVersionIsScopedToItsTarget(t *testing.T) {
+	m := New(t.TempDir(), testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+	m.recordLatestVersion(testCfg(), "0.2.0")
+
+	stable := testCfg()
+	stable.Branch = "stable"
+	if got := m.LatestVersion(); got != "0.2.0" {
+		t.Fatalf("LatestVersion() = %q on the recorded target, want 0.2.0", got)
+	}
+
+	m.setCfgForTest(stable)
+	defer m.setCfgForTest(testCfg())
+	if got := m.LatestVersion(); got != "" {
+		t.Errorf("LatestVersion() = %q after switching branch, want empty rather than the old target's 0.2.0", got)
+	}
+	if got := m.Status()["latest_version"]; got != "" {
+		t.Errorf("Status()[latest_version] = %q after switching branch, want empty", got)
+	}
+
+	// The cached value is still there for the target it came from, and a switch
+	// back restores it — the cache was scoped, not lost.
+	m.setCfgForTest(testCfg())
+	if got := m.LatestVersion(); got != "0.2.0" {
+		t.Errorf("LatestVersion() = %q back on the original target, want 0.2.0", got)
 	}
 }
 
@@ -386,7 +416,7 @@ func TestConcurrentStateAccess(t *testing.T) {
 			for n := 0; n < 50; n++ {
 				switch (w + n) % 5 {
 				case 0:
-					m.recordLatestVersion(fmt.Sprintf("0.%d.0", n))
+					m.recordLatestVersion(testCfg(), fmt.Sprintf("0.%d.0", n))
 				case 1:
 					_ = m.LatestVersion()
 				case 2:
@@ -420,8 +450,8 @@ func TestCommitNotificationsKeepsConcurrentVersionFields(t *testing.T) {
 	st.Seeded = true
 	st.LastCommitSHA = "abcdef1234567890"
 
-	// …during which Check records a newer release through updateState.
-	m.updateState(func(s *state) { s.LatestVersion = "0.2.0" })
+	// …during which Check records a newer release through the normal path.
+	m.recordLatestVersion(testCfg(), "0.2.0")
 
 	if err := commit(); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -432,4 +462,10 @@ func TestCommitNotificationsKeepsConcurrentVersionFields(t *testing.T) {
 	if got := m.loadState().LastCommitSHA; got != "abcdef1234567890" {
 		t.Errorf("LastCommitSHA = %q, want the value the notification pass set", got)
 	}
+}
+
+// setCfgForTest points a manager's live config source at a fixed value.
+// Test-only: production wires the real one in New and never swaps it.
+func (m *Manager) setCfgForTest(cfg *config.UpdaterConfig) {
+	m.getCfg = func() *config.UpdaterConfig { return cfg }
 }

@@ -18,8 +18,24 @@ type state struct {
 	// Announced the update targets already posted to the notify channel. Together
 	// they make the version announcement edge-triggered: one embed per new
 	// release, not one every check_interval.
+	//
+	// LatestVersion is only meaningful together with LatestScope — the
+	// repo@branch it was read from. Without it, repointing the updater at another
+	// repo or branch would keep advertising the previous target's newest release
+	// until the next check completed.
 	LatestVersion string   `json:"latest_version,omitempty"`
+	LatestScope   string   `json:"latest_scope,omitempty"`
 	Announced     []string `json:"announced_releases,omitempty"`
+}
+
+// versionScope identifies what a cached version belongs to. It matches the
+// granularity of releaseKey, minus the notify channel: a version is a property
+// of a repository's branch, not of wherever we talk about it.
+func versionScope(repo, branch string) string {
+	if branch == "" {
+		branch = "main"
+	}
+	return repo + "@" + branch
 }
 
 // clone returns a deep copy. Callers that mutate the state outside Manager.mu

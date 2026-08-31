@@ -125,8 +125,11 @@ go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
 through **one parser** — `scripts/version.sh` for the shell sites and
 `updater.ReadVersionFile` (its Go twin) for the self-build — so the tag, the
 stamped binary and the release workflow cannot disagree about what the file
-says. Build without the stamp and the bot reports `dev` — an *unknown* version,
-not `0.0.0`: the updater then reports commits instead of versions (see below). `[p]info` shows the
+says. The script also *validates*: a `VERSION` that is missing, empty or not
+bare SemVer fails CI, fails `install.sh` and fails the release workflow, rather
+than stamping a value nothing downstream can parse. Build without the stamp and
+the bot reports `dev` — an *unknown* version, not `0.0.0`: the updater then
+reports commits instead of versions (see below). `[p]info` shows the
 version, and `./bot --version` prints it without touching `config.yml`.
 
 ### What the numbers mean
