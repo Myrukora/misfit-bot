@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/misfit/bot/config"
 	"github.com/disgoorg/disgo/discord"
+	"github.com/misfit/bot/config"
 )
 
 // ── test doubles ──────────────────────────────────────────────────────────

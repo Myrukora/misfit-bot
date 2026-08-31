@@ -1,0 +1,60 @@
+name: Release
+
+# The release version is the VERSION file: a PR bumps it, the merge to main is
+# the release event, and this workflow turns it into a git tag + GitHub Release.
+# It is idempotent — a merge that did not change VERSION resolves to "tag
+# already exists" and does nothing, so re-running a failed run is always safe.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write # push the tag and create the release
+
+jobs:
+  release:
+    # Never publish from a fork or another repository using this workflow.
+    if: github.repository == 'Myrukora/misfit-bot'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # tags + history so --generate-notes can diff releases
+
+      - name: Resolve the release version
+        id: version
+        run: |
+          set -euo pipefail
+          # scripts/version.sh is the one parser *and* the one grammar check —
+          # install.sh, CI and updater.ReadVersionFile/ParseVersion apply the same
+          # rule, so a tag can never be published for a version the running
+          # binary would refuse to parse (which would silently degrade that
+          # install to commit counting). Its message lands in the run log.
+          canonical=$(./scripts/version.sh)
+          echo "tag=v${canonical}" >> "$GITHUB_OUTPUT"
+          echo "Releasing v${canonical} from ${GITHUB_SHA}"
+
+      - name: Tag the release and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              echo "::notice title=Already released::${TAG} is published — merge again after bumping VERSION to publish a new release."
+              exit 0
+            fi
+            # Tag pushed but the release never made it (a run died in between):
+            # fall through and create the release, which is the whole point.
+            echo "::warning title=Missing release::${TAG} is tagged but has no GitHub Release — creating it now."
+          else
+            git tag --annotate "${TAG}" --message "Release ${TAG}"
+            git push origin "refs/tags/${TAG}"
+          fi
+
+          # --generate-notes writes the changelog from the merged PRs since the
+          # previous tag, so no extra bookkeeping file is needed.
+          gh release create "${TAG}" --generate-notes --verify-tag --latest

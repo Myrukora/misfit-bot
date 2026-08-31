@@ -39,12 +39,78 @@ type Logger interface {
 }
 
 // CheckResult is the outcome of a [Manager.Check].
+//
+// Version reporting is additive on top of the commit-count check: ToVersion is
+// the newest v-tag reachable on the tracked branch (empty when the repo has no
+// version tags), and VersionBehind says whether that tag outranks the running
+// build. "Up to date" stays defined by commit SHAs — see the package comment —
+// so a repo without tags (or a binary built without a version stamp, which
+// reports "dev") keeps working exactly as before.
 type CheckResult struct {
 	UpToDate  bool     `json:"up_to_date"`
 	Behind    int      `json:"behind"`   // commits behind the remote branch
 	NewSHAs   []string `json:"new_shas"` // abbreviated new SHAs, newest first (max 10)
 	LocalSHA  string   `json:"local_sha"`
 	RemoteSHA string   `json:"remote_sha"`
+
+	FromVersion   string `json:"from_version"`   // version this build reports ("dev" when unstamped)
+	ToVersion     string `json:"to_version"`     // newest version tag on the tracked branch ("" = none)
+	VersionBehind bool   `json:"version_behind"` // the remote tag outranks FromVersion
+}
+
+// VersionSummary renders "v0.1.0 → v0.2.0" for humans, falling back to the
+// running version alone when no newer tag is known. Returns "" when this build
+// has no usable version (an unstamped "dev" build).
+func (r *CheckResult) VersionSummary() string {
+	from := displayVersion(r.FromVersion)
+	if from == "" {
+		return ""
+	}
+	to := displayVersion(r.ToVersion)
+	if to == "" || !r.VersionBehind {
+		return "v" + from
+	}
+	return "v" + from + " → v" + to
+}
+
+// resolveVersions compares the running build's version with the tags published
+// on the tracked branch and returns the pair for a CheckResult. from is ""
+// when the build has no usable version (an unstamped "dev" build); to is ""
+// when the remote publishes no version tags at all — the caller then falls back
+// to the commit-count check, which is the historical behaviour.
+//
+// versionBehind is deliberately true only when BOTH sides parse and the remote
+// tag outranks the build: an unknown local version must never be reported as
+// "behind" while the commit count already drives the decision.
+func resolveVersions(buildVersion string, tags []string) (from, to string, versionBehind bool) {
+	from = displayVersion(buildVersion)
+	latest, ok := LatestVersionTag(tags)
+	if !ok {
+		return from, "", false
+	}
+	to = latest
+	if from == "" {
+		return from, to, false
+	}
+	cur, err := ParseVersion(from)
+	if err != nil {
+		return from, to, false
+	}
+	higher, err := ParseVersion(to)
+	if err != nil {
+		return from, to, false
+	}
+	return from, to, compare(cur, higher) < 0
+}
+
+// displayVersion canonicalises a version for display ("v0.1.0" and " 0.1.0 "
+// both become "0.1.0") and returns "" for anything that is not a version.
+func displayVersion(s string) string {
+	v, err := ParseVersion(s)
+	if err != nil {
+		return ""
+	}
+	return v.String()
 }
 
 // Manager coordinates the self-update pipeline and GitHub notifications.
@@ -60,10 +126,16 @@ type Manager struct {
 	// send posts an embed to a channel; overridable in tests.
 	send func(channelID string, e discord.Embed) error
 
-	mu             sync.Mutex // guards state, lastCheck, lastError
-	state          *state
-	lastCheck      time.Time
-	lastError      string
+	buildVersion string // version of the running binary (main injects it via SetVersion)
+
+	mu        sync.Mutex // guards state, lastCheck, lastError, buildVersion, listTags
+	state     *state
+	lastCheck time.Time
+	lastError string
+
+	// listTags enumerates the tag refs on origin. Overridable in tests; the
+	// default shells out to git ls-remote.
+	listTags       func(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error)
 	applyMu        sync.Mutex  // serializes Apply (and its build steps)
 	applyRequested atomic.Bool // set when a new binary is installed and a restart is pending
 	onApplied      func()      // invoked after a successful Apply (main wires it to the restart channel)
@@ -83,7 +155,57 @@ func New(dir string, logger Logger, getCfg func() *config.UpdaterConfig) *Manage
 		restReady: make(chan struct{}),
 	}
 	m.send = m.sendEmbed
+	m.listTags = m.listRemoteTags
 	return m
+}
+
+// SetVersion records the version stamped into the running binary (main passes
+// its Version variable). It is the "from" side of every version comparison;
+// an unstamped build passes "dev" and the updater degrades to commit counting.
+func (m *Manager) SetVersion(v string) {
+	v = strings.TrimSpace(v)
+	if !IsVersion(v) {
+		// Not fatal: every comparison degrades to the historical commit-count
+		// check, but the owner should know the build was not stamped.
+		m.Logger.Debug("Updater: build version %q is not a semantic version — reporting commits, not releases", v)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.buildVersion = v
+}
+
+// Version returns the running binary's version as reported by SetVersion
+// ("dev" for an unstamped build, "" when never set).
+func (m *Manager) Version() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.buildVersion
+}
+
+// LatestVersion returns the newest release tag the updater has seen on the
+// tracked branch (persisted across restarts). Empty until the first successful
+// check that finds a version tag — and empty for a target other than the one it
+// was cached for, so switching repo or branch never advertises the previous
+// target's release. The read takes Manager.mu: the state is a single shared
+// struct that the poll loop writes concurrently.
+func (m *Manager) LatestVersion() string {
+	cfg := m.getCfg()
+	if cfg == nil {
+		return ""
+	}
+	return m.cachedVersion(versionScope(cfg.Repo, cfg.Branch))
+}
+
+// cachedVersion returns the cached latest version, but only if it was recorded
+// for the given scope (see state.LatestScope).
+func (m *Manager) cachedVersion(scope string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	st := m.loadStateLocked()
+	if st.LatestVersion == "" || st.LatestScope != scope {
+		return ""
+	}
+	return st.LatestVersion
 }
 
 // SetRest attaches the current Discord REST client. Called on every bot run()
@@ -174,7 +296,16 @@ func (m *Manager) poll(ctx context.Context) {
 		m.setError(nil)
 		return
 	}
-	m.Logger.Info("Updater: %d new commit(s) behind %s — applying update", res.Behind, cfg.Branch)
+
+	// Version-first reporting; the commit count stays the trigger either way.
+	if summary := res.VersionSummary(); summary != "" && res.VersionBehind {
+		m.Logger.Info("Updater: %s is behind by %d commit(s) — applying update", summary, res.Behind)
+	} else {
+		m.Logger.Info("Updater: %d new commit(s) behind %s — applying update", res.Behind, cfg.Branch)
+	}
+
+	m.announceUpdate(cfg, res)
+
 	if err := m.Apply(ctx); err != nil {
 		m.Logger.Error("Updater: auto-apply failed: %v", err)
 		m.setError(err)
@@ -201,7 +332,11 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	if cfg.NotifyChannel == "" {
 		return nil // notifications disabled
 	}
-	st := m.loadState()
+	// A private copy of the bookkeeping this pass owns: it makes Discord sends
+	// between state updates and must not hold Manager.mu (Status and the version
+	// cache read it), so its edits land in one merge at the end — a merge of
+	// these fields only, never of the whole struct.
+	st, commit := m.editNotifications()
 
 	// ── Pull requests ──
 	prs, err := m.gh.fetchOpenPRs(ctx)
@@ -235,6 +370,12 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	// ── Commits ──
 	head, err := m.gh.fetchRemoteHead(ctx)
 	if err != nil {
+		// The PR pass above may already have posted embeds that are recorded only
+		// in this uncommitted copy. Persist them first, or the next poll reads the
+		// old state and re-sends the same PRs.
+		if cerr := commit(); cerr != nil {
+			m.Logger.Warn("Updater: failed to save the PR notifications: %v", cerr)
+		}
 		return fmt.Errorf("fetch remote head: %w", err)
 	}
 	if st.Seeded && st.LastCommitSHA != "" && st.LastCommitSHA != head {
@@ -278,7 +419,7 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 		st.LastCommitSHA = head
 	}
 	st.Seeded = true
-	if err := m.saveState(); err != nil {
+	if err := commit(); err != nil {
 		m.Logger.Warn("Updater: failed to save state: %v", err)
 	}
 	return nil
@@ -312,6 +453,18 @@ func (m *Manager) Check(ctx context.Context) (*CheckResult, error) {
 	remote = strings.TrimSpace(remote)
 
 	res := &CheckResult{UpToDate: local == remote, LocalSHA: local, RemoteSHA: remote}
+
+	// Version awareness on top of the commit check. The tag list is best-effort:
+	// a repo with no tags (or a failing ls-remote) leaves ToVersion empty and the
+	// caller keeps deciding on commit counts alone.
+	res.FromVersion = displayVersion(m.Version())
+	if tags, err := m.listTagsOnce(ctx, cfg); err != nil {
+		m.Logger.Debug("Updater: tag lookup failed (%v) — reporting commits only", err)
+	} else {
+		res.FromVersion, res.ToVersion, res.VersionBehind = resolveVersions(m.Version(), tags)
+		m.recordLatestVersion(cfg, res.ToVersion)
+	}
+
 	if !res.UpToDate {
 		if out, err := m.gitOutput(ctx, "rev-list", "--count", "HEAD..FETCH_HEAD"); err == nil {
 			fmt.Sscanf(strings.TrimSpace(out), "%d", &res.Behind)
@@ -363,8 +516,19 @@ func (m *Manager) Apply(ctx context.Context) error {
 		return fmt.Errorf("git merge --ff-only: %v (%s)", err, strings.TrimSpace(out))
 	}
 
-	// 2. Build the core binary.
-	build := exec.CommandContext(ctx, "go", "build", "-o", "bot.new", "./cmd/bot/")
+	// 2. Build the core binary, stamping it with the version declared by the
+	//    freshly merged VERSION file. Without the -X injection the new binary
+	//    would report "dev" and the version-aware updater could never tell it
+	//    was current. The value is validated (see NormalizeVersion) and passed
+	//    as an argv element — never through a shell.
+	buildArgs := []string{"build"}
+	if v := ReadVersionFile(m.Dir); v != "" {
+		buildArgs = append(buildArgs, "-ldflags", "-X main.Version="+v)
+	} else {
+		m.Logger.Warn("Updater: no valid VERSION file in %s — building without a version stamp", m.Dir)
+	}
+	buildArgs = append(buildArgs, "-o", "bot.new", "./cmd/bot/")
+	build := exec.CommandContext(ctx, "go", buildArgs...)
 	build.Dir = m.Dir
 	if out, err := build.CombinedOutput(); err != nil {
 		return fmt.Errorf("go build: %v (%s)", err, strings.TrimSpace(string(out)))
@@ -398,7 +562,7 @@ func (m *Manager) Status() map[string]string {
 	lastCheck := m.lastCheck
 	lastErr := m.lastError
 	m.mu.Unlock()
-	st := m.loadState() // locks internally
+	st := m.stateSnapshot() // a private copy: the poll loop writes the shared one
 
 	enabled, repo, branch, notify, interval, autoPull := false, "", "main", "", 0, false
 	if cfg != nil {
@@ -419,6 +583,11 @@ func (m *Manager) Status() map[string]string {
 		"last_sha":       lastSHA,
 		"last_check":     lastCheck.Format("2006-01-02 15:04:05"),
 		"last_error":     lastErr,
+		// Version reporting: what this build is, and the newest release tag seen
+		// on the tracked branch ("" until a check finds one, and always the scoped
+		// read — a version cached for another repo@branch is not this one's).
+		"version":        m.Version(),
+		"latest_version": m.LatestVersion(),
 	}
 }
 
@@ -473,6 +642,189 @@ func (m *Manager) NotifyTest() error {
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────
+
+// listTagsOnce resolves origin's tag refs through the (test-overridable)
+// listTags hook, defaulting to git ls-remote.
+func (m *Manager) listTagsOnce(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error) {
+	if m.listTags != nil {
+		return m.listTags(ctx, cfg)
+	}
+	return m.listRemoteTags(ctx, cfg)
+}
+
+// listRemoteTags lists the release tags published by origin *for the tracked
+// branch*. git ls-remote is read-only and needs no working tree, but tags are
+// global in git — a release tagged on some hotfix branch is not an update for
+// this one — so the candidates are filtered by reachability afterwards.
+func (m *Manager) listRemoteTags(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error) {
+	args := append(m.gitAuthArgs(cfg), "ls-remote", "--tags", "origin")
+	out, err := m.gitOutput(ctx, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git ls-remote --tags origin: %v (%s)", err, strings.TrimSpace(out))
+	}
+
+	// Only version-shaped tags can be releases; filtering before the ancestry
+	// test keeps the number of git invocations down to the release count.
+	refs := parseTagRefs(out)
+	versions := make([]tagRef, 0, len(refs))
+	for _, r := range refs {
+		if IsVersion(r.name) {
+			versions = append(versions, r)
+		}
+	}
+
+	// Check fetched the tracked branch immediately before this call, so its tip
+	// is available as FETCH_HEAD and the test costs no extra network round trip.
+	return m.reachableTags(ctx, versions, "FETCH_HEAD"), nil
+}
+
+// tagRef is one remote tag: the tag name and the object it ultimately points
+// at — the peeled commit for annotated tags.
+type tagRef struct {
+	name string
+	sha  string
+}
+
+// parseTagRefs turns `git ls-remote --tags` output into name/SHA pairs, in
+// listing order. A peeled entry ("refs/tags/v0.1.0^{}") is not a tag of its
+// own: it supplies the commit SHA of the tag with the same name.
+func parseTagRefs(out string) []tagRef {
+	var order []string
+	shaOf := map[string]string{}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || !strings.HasPrefix(fields[1], "refs/tags/") {
+			continue
+		}
+		name := strings.TrimPrefix(fields[1], "refs/tags/")
+		peeled := strings.HasSuffix(name, "^{}")
+		name = strings.TrimSuffix(name, "^{}")
+		if name == "" {
+			continue
+		}
+		if _, seen := shaOf[name]; !seen {
+			order = append(order, name)
+		}
+		if peeled || shaOf[name] == "" {
+			shaOf[name] = fields[0]
+		}
+	}
+	refs := make([]tagRef, 0, len(order))
+	for _, name := range order {
+		refs = append(refs, tagRef{name: name, sha: shaOf[name]})
+	}
+	return refs
+}
+
+// reachableTags keeps the tags whose commit is contained in upstream. A tag
+// from another branch has no object in this checkout, so the ancestry lookup
+// fails and the tag is dropped — which is the correct answer: a release
+// published elsewhere is not an update for the branch being tracked.
+func (m *Manager) reachableTags(ctx context.Context, refs []tagRef, upstream string) []string {
+	var names []string
+	for _, r := range refs {
+		if r.sha == "" {
+			continue
+		}
+		if _, err := m.gitOutput(ctx, "merge-base", "--is-ancestor", r.sha, upstream); err != nil {
+			m.Logger.Debug("Updater: tag %s is not on %s — ignored", r.name, upstream)
+			continue
+		}
+		names = append(names, r.name)
+	}
+	return names
+}
+
+// parseTagRefs turns `git ls-remote --tags` output ("<sha>\trefs/tags/v1.2.3")
+// into tag names. Peeled entries for annotated tags ("<name>^{}") collapse onto
+// their base tag, and everything else (SHAs, stray lines) is dropped.
+
+// recordLatestVersion caches the newest release tag seen on the tracked branch
+// so [p]info and the dashboard can report it without shelling out to git.
+func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
+	if to == "" || cfg == nil {
+		return
+	}
+	scope := versionScope(cfg.Repo, cfg.Branch)
+	if m.cachedVersion(scope) == to {
+		return // the common path: no rewrite of updater_state.json per check
+	}
+	m.updateState(func(st *state) {
+		st.LatestVersion = to
+		st.LatestScope = scope
+	})
+}
+
+// announceUpdate posts the "a new release is on the way" embed right before an
+// auto-update is applied, deduplicated per release: a failing Apply (or several
+// polls) must not spam the channel about the same one.
+func (m *Manager) announceUpdate(cfg *config.UpdaterConfig, res *CheckResult) {
+	if cfg.NotifyChannel == "" || res.ToVersion == "" {
+		return
+	}
+	// Announce a release that is actually newer than what is running. A build on
+	// the newest tag but behind by post-release commits would otherwise be
+	// announced as "Update available — v0.1.0 → v0.1.0", and every later commit
+	// batch would look like a release that never happened. An unstamped build has
+	// no version of its own to compare against, so it still announces.
+	if res.FromVersion != "" && !res.VersionBehind {
+		return
+	}
+	// The dedupe key covers the whole target, not just the version (see
+	// releaseKey), and the Discord send happens outside Manager.mu — only the
+	// read and the mark take the lock.
+	key := releaseKey(cfg, res.ToVersion)
+	if m.releaseAnnounced(key) {
+		return
+	}
+	if err := m.send(cfg.NotifyChannel, buildUpdateEmbed(cfg, res)); err != nil {
+		m.Logger.Warn("Updater: failed to post the update announcement (%v) — retrying on the next poll", err)
+		return
+	}
+	m.markReleaseAnnounced(key)
+}
+
+// maxAnnouncedReleases bounds the announcement history: room for a long run of
+// releases (and for the occasional repo/branch/channel change) without letting
+// updater_state.json grow forever.
+const maxAnnouncedReleases = 20
+
+func (m *Manager) releaseAnnounced(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.loadStateLocked().Announced {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Manager) markReleaseAnnounced(key string) {
+	m.updateState(func(st *state) {
+		for _, k := range st.Announced {
+			if k == key {
+				return
+			}
+		}
+		st.Announced = append(st.Announced, key)
+		if over := len(st.Announced) - maxAnnouncedReleases; over > 0 {
+			st.Announced = st.Announced[over:]
+		}
+	})
+}
+
+// releaseKey identifies an announced update. The updater's configuration is
+// live, so the version alone is not enough: repointing the bot at another repo
+// or branch, or moving the notify channel, must produce a fresh announcement
+// even when the new target happens to publish the same version number.
+func releaseKey(cfg *config.UpdaterConfig, version string) string {
+	branch := cfg.Branch
+	if branch == "" {
+		branch = "main"
+	}
+	return cfg.Repo + "@" + branch + "#" + cfg.NotifyChannel + "@v" + version
+}
 
 // sendEmbed posts an embed to a Discord channel via the REST client.
 func (m *Manager) sendEmbed(channelID string, e discord.Embed) error {

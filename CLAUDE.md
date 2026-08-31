@@ -442,13 +442,14 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
    - New commits on the tracked branch → one embed per commit: same author row, bold title `1 new commit #<sha7>`, full commit message as description, GitHub-blue `0x0969DA`. Merge commits (`Merge pull request` / `Merge branch`) are skipped.
    - **First poll seeds silently** (records HEAD + all open PRs, posts nothing); closed PRs are pruned from the seen set so a reopen re-notifies. Force-pushed history resyncs silently. Descriptions truncated to 4000 chars.
    - **At-least-once delivery**: a PR is only marked seen (and the last-seen commit SHA only advances) AFTER its embed was actually sent. Failed sends (e.g. the REST client not ready during the startup race) are retried on the next poll and survive restarts — the state file never records them as delivered. `Run()` also waits for the first `SetRest` (30s cap) so the first poll can't fire with a nil client.
-2. **Auto-update** (if `auto_pull`) — `Check()` does `git fetch origin <branch>` with a per-invocation `-c http.extraheader="AUTHORIZATION: basic <base64(x-access-token:<token>)>"` (the token never lands in `.git/config`); if behind, `Apply()` runs: `git merge --ff-only FETCH_HEAD` (aborts with a clear error on local changes — bot keeps running untouched) → `go build -o bot.new ./cmd/bot/` → builds the single binary (dashboard + feature modules included) → swaps `bot`→`bot.old`, `bot.new`→`bot` → sets the apply flag and fires `OnApplied` (wired to `restartCh` with a 2s delay so the success embed is delivered).
+2. **Auto-update** (if `auto_pull`) — `Check()` does `git fetch origin <branch>` with a per-invocation `-c http.extraheader="AUTHORIZATION: basic <base64(x-access-token:<token>)>"` (the token never lands in `.git/config`); if behind, `Apply()` runs: `git merge --ff-only FETCH_HEAD` (aborts with a clear error on local changes — bot keeps running untouched) → `go build -ldflags "-X main.Version=$(updater.ReadVersionFile(Dir))" -o bot.new ./cmd/bot/` — the Go twin of `scripts/version.sh`, see `ReadVersionFile` — without the stamp the new binary would report `dev` and could never be recognised as current) → builds the single binary (dashboard + feature modules included) → swaps `bot`→`bot.old`, `bot.new`→`bot` → sets the apply flag and fires `OnApplied` (wired to `restartCh` with a 2s delay so the success embed is delivered).
 3. **True self-update** — in the restart loop, before calling `run()` again, if `updaterMgr.ApplyRequested()` the bot `syscall.Exec`s the new binary (`Dir/bot`) — an in-process restart would keep running the OLD code. On exec failure it logs loudly and falls back to the in-process restart. The updater never runs the bot's repo commands with user-controlled input.
 
 **`[p]update` command** (owner-only):
-- `update` / `update check` — fetch + report "N new commit(s) available" or "Up to date".
+- `update` / `update check` — fetch + report the release first when the repo is tagged (`v0.1.0 → v0.2.0 (3 new commits)`), otherwise "N new commit(s) available" / "Up to date".
 - `update now` — force apply (pull → rebuild → swap → restart).
-- `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error.
+- `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error, plus **Running Version** (this build) and **Latest Release** (newest tag seen, once a check has found one).
+- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to `notify_channel`, deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + channel + version, so a live config change re-announces instead of being silenced by the old entry.
 - `update test` — **temporary embed tester**: posts one sample PR + one sample commit embed to `notify_channel` (markdown-rich bodies — bold/italic/code block/link/list — so the owner can verify markdown renders; the author row uses the real authenticated GitHub user when a token is set).
 - `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull, notify_channel` (routes to `Config.Set`, takes effect without restart; token value is never echoed back).
 
@@ -470,12 +471,59 @@ Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS U
 ### Build & Run
 
 ```bash
-go build -o bot ./cmd/bot/         # Build bot
+go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/   # Build (version stamped from VERSION)
 ./bot                              # Run (onboarding if no config)
 ./bot --no-modules                 # Skip all module loading
-go build -o bot ./cmd/bot/  # Build the single binary (dashboard + feature modules included)
 go vet ./...                       # Vet
 ```
+
+### Versioning
+
+`VERSION` at the repo root (committed) is the single source of truth: it is
+injected into the binary via `-ldflags "-X main.Version=$(./scripts/version.sh)"` by
+CI, `install.sh`, the release workflow and the updater's self-build. A binary
+built without the stamp reports `dev` (unknown version).
+
+`scripts/version.sh` is the one VERSION reader (first non-blank, non-comment
+line, trimmed, `v` stripped) **and validator** — missing file, empty/comment-only
+file, or anything that is not bare SemVer (so no `1.2.3-01`, no `-rc..1`, no
+`+build`) exits non-zero. CI has a dedicated `Validate VERSION` step because a
+failure inside `$(…)` would not fail the build step next to it, `install.sh` dies
+on it, and `updater.ReadVersionFile` + `ParseVersion` are its Go twin.
+
+SemVer, 0.x era: `v1.0.0` is THE release, not close. Until then `v0.Y.0`
+(minor bumps) carry feature waves and `v0.Y.Z` (patch) carries fixes and small
+features — the standard pre-1.0 convention. **Bumping is part of the PR**: the
+author edits `VERSION` in the branch (CI warns, but does not fail, when a PR
+changes code without touching `VERSION`). On merge to `main` the release
+workflow tags `v<VERSION>` and publishes a GitHub Release
+(`.github/workflows/release.yml`); it no-ops when that tag already exists.
+
+The updater is version-aware: `Check()` lists origin's tags (`git ls-remote
+--tags`, parsed by `parseTagRefs` into name + peeled-SHA `tagRef`s,
+overridable in tests via the `listTags` hook), keeps only the version-shaped
+ones **merged into the tracked branch** (`reachableTags` runs
+`git merge-base --is-ancestor <sha> FETCH_HEAD` against the branch Check just
+fetched — a release tagged on some hotfix branch is not an update for this
+one), picks the highest with `LatestVersionTag`, compares it against the
+running build with `updater/semver.go`, and reports `vA → vB` (`CheckResult.
+VersionSummary`) with the commit count as secondary detail. "Up to date" stays
+defined by commit SHAs, so an untagged repo or an unstamped `dev` build behaves
+exactly as before — versions change the reporting, never the trigger. The
+newest tag seen is cached in `updater_state.json` (`LatestVersion`) and drives
+the once-per-release "Update available" announcement. The cache is scoped: it
+stores `LatestScope` (`repo@branch`) and `LatestVersion()` / `Status()` return
+empty for any other scope, so repointing the updater at another repo or branch
+cannot transiently advertise the previous target's release.
+
+SemVer lives in `updater/semver.go` (no `golang.org/x/mod/semver` — it is not
+in the module graph); components are compared as **digit strings**, so ordering
+stays exact past any integer width.
+
+`updater_state.json`'s struct is shared: read it with `stateSnapshot()`, mutate
++ persist with `updateState()` (or `editState()`/`commit()` when Discord sends
+sit between the reads — the notification pass never holds `Manager.mu` across
+I/O). `TestConcurrentStateAccess` runs under `-race` to keep it that way.
 
 ### Privileged Intents (Discord Dev Portal)
 

@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history: the version-bump reminder diffs against the base branch
 
       - uses: actions/setup-go@v5
         with:
@@ -29,5 +31,44 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Validate VERSION
+        # Must be its own step: inside $(…) a failed command substitution would
+        # not fail the build step, so a corrupt VERSION would stamp garbage that
+        # CI's own comparison (garbage vs garbage) would happily accept.
+        run: ./scripts/version.sh > /dev/null
+
       - name: Build single binary
-        run: go build -o /tmp/bot ./cmd/bot/
+        # VERSION is the single source of truth; without this stamp the binary
+        # reports "dev" and the version-aware updater loses its baseline.
+        # scripts/version.sh is the one parser, shared with install.sh, the
+        # release workflow and updater.ReadVersionFile.
+        run: go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o /tmp/bot ./cmd/bot/
+
+      - name: Verify the version stamp survived the build
+        run: |
+          set -euo pipefail
+          want=$(./scripts/version.sh)
+          got=$(/tmp/bot --version)
+          if [ "$got" != "$want" ]; then
+            echo "::error::binary reports '$got', expected '$want' from VERSION"
+            exit 1
+          fi
+
+      - name: Remind to bump VERSION on code PRs
+        # Non-blocking by design: bumping is the author's call (README →
+        # Versioning), CI only makes sure it is never forgotten silently.
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -uo pipefail
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD" 2>/dev/null || true)
+          if [ -z "$changed" ]; then
+            echo "No diff against ${BASE_REF} (or the base is unavailable) — skipping the reminder." >&2
+            exit 0
+          fi
+          code=$(printf '%s\n' "$changed" | grep -E '^(cmd|commands|config|internal|modules|permissions|updater)/' || true)
+          if [ -n "$code" ] && ! printf '%s\n' "$changed" | grep -qx 'VERSION'; then
+            echo "::warning title=VERSION not bumped::This PR changes Go code but leaves VERSION at $(./scripts/version.sh). Bump it (patch/minor per README → Versioning) unless it is a pure refactor or docs-only change."
+          fi

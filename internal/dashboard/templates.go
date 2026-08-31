@@ -61,16 +61,17 @@ type navTabItem struct {
 }
 
 var tmplFuncs = template.FuncMap{
-	"join":        strings.Join,
-	"joinOr":      joinOr,
-	"yesno":       yesno,
-	"csvContains": csvContains,
-	"pageTitle":   pageTitle,
-	"initial":     initial,
-	"dict":        dict,
-	"dateHuman":   dateHuman,
-	"substrUpper": substrUpper,
-	"fileBase":    fileBase,
+	"join":         strings.Join,
+	"joinOr":       joinOr,
+	"yesno":        yesno,
+	"csvContains":  csvContains,
+	"pageTitle":    pageTitle,
+	"initial":      initial,
+	"dict":         dict,
+	"dateHuman":    dateHuman,
+	"substrUpper":  substrUpper,
+	"fileBase":     fileBase,
+	"versionLabel": versionLabel,
 }
 
 // dateHuman renders a time in a short human format for tables/transcripts.
