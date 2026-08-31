@@ -36,7 +36,14 @@ import (
 )
 
 var (
-	Version      = "1.0.0"
+	// Version is the bot's release version. The single source of truth is the
+	// VERSION file at the repository root; the build stamps it with
+	//   go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/
+	// (CI, the release workflow and the updater's self-build all do). A binary
+	// built without the injection reports "dev": an unknown version, which the
+	// updater treats as "cannot compare by version" and falls back to
+	// commit-count tracking. See README → Versioning.
+	Version      = "dev"
 	Dir          string
 	Log          *logger.Logger
 	Cfg          *config.Config
@@ -147,8 +154,15 @@ func main() {
 	}
 
 	for _, arg := range os.Args[1:] {
-		if arg == "--no-modules" {
+		switch arg {
+		case "--no-modules":
 			noModules = true
+		case "--version", "-v":
+			// Handled before anything touches config.yml: CI verifies the version
+			// stamp on a checkout that has no config, and the bot's own update
+			// pipeline can ask the same question the [p]info embed answers.
+			fmt.Println(Version)
+			os.Exit(0)
 		}
 	}
 
@@ -211,6 +225,10 @@ func main() {
 	// goroutine that checks GitHub notifications + auto-pulls; the exec-based
 	// self-update handoff happens in the restart loop below.
 	updaterMgr = updater.New(Dir, Log, func() *config.UpdaterConfig { return &Cfg.Updater })
+	// The version stamped into this binary (see VERSION) is the "from" side of
+	// every update comparison. An unstamped build reports "dev" and the updater
+	// falls back to counting commits.
+	updaterMgr.SetVersion(Version)
 	updaterMgr.OnApplied(func() {
 		// Give Discord a moment to deliver the "Update Applied" embed before
 		// the process re-executes itself.
