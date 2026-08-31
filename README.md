@@ -47,7 +47,7 @@ nix-shell   # drops into a dev shell with everything pinned (shell.nix)
 ### Option 3: manual
 
 ```bash
-go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/
+go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
 ```
 
 The `-ldflags` stamp injects the version from the `VERSION` file (the single
@@ -118,12 +118,15 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 version (currently `0.1.0`). Every build site stamps it into the binary:
 
 ```bash
-go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/
+go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
 ```
 
-`install.sh`, CI and the updater's own self-build all do this. Build without the
-stamp and the bot reports `dev` — an *unknown* version, not `0.0.0`: the updater
-then reports commits instead of versions (see below). `[p]info` shows the
+`install.sh`, CI and the updater's own self-build all do this. `VERSION` is read
+through **one parser** — `scripts/version.sh` for the shell sites and
+`updater.ReadVersionFile` (its Go twin) for the self-build — so the tag, the
+stamped binary and the release workflow cannot disagree about what the file
+says. Build without the stamp and the bot reports `dev` — an *unknown* version,
+not `0.0.0`: the updater then reports commits instead of versions (see below). `[p]info` shows the
 version, and `./bot --version` prints it without touching `config.yml`.
 
 ### What the numbers mean
@@ -222,7 +225,7 @@ misfit-bot/
 ## Development
 
 ```bash
-go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/           # build the single binary (dashboard + feature modules included)
+go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/           # build the single binary (dashboard + feature modules included)
 go test ./...                                                  # run all tests
 go vet ./...                                                   # static analysis
 ```

@@ -21,6 +21,8 @@ func NormalizeVersion(raw string) string {
 // ReadVersionFile returns the version declared in <dir>/VERSION — the single
 // source of truth for the bot's release version, stamped into the binary by
 // every build site — or "" when the file is missing, unreadable or malformed.
+// The rule it applies is the one scripts/version.sh documents and implements
+// for install.sh, CI and the release workflow: change one, change the other.
 //
 // The first real content line wins. Blank lines and "#" comment lines may
 // surround it (a VERSION file is sometimes annotated), but a version is never

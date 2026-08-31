@@ -408,3 +408,28 @@ func TestConcurrentStateAccess(t *testing.T) {
 		t.Error("updateState() writes were lost")
 	}
 }
+
+// ── the notification pass must not roll back concurrent fields ────────────
+
+func TestCommitNotificationsKeepsConcurrentVersionFields(t *testing.T) {
+	m := New(t.TempDir(), testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+
+	// The notification pass takes its copy, then makes GitHub and Discord calls
+	// with no lock held…
+	st, commit := m.editNotifications()
+	st.Seeded = true
+	st.LastCommitSHA = "abcdef1234567890"
+
+	// …during which Check records a newer release through updateState.
+	m.updateState(func(s *state) { s.LatestVersion = "0.2.0" })
+
+	if err := commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if got := m.LatestVersion(); got != "0.2.0" {
+		t.Errorf("LatestVersion() = %q after commit, want 0.2.0 — the commit rolled back a concurrent write", got)
+	}
+	if got := m.loadState().LastCommitSHA; got != "abcdef1234567890" {
+		t.Errorf("LastCommitSHA = %q, want the value the notification pass set", got)
+	}
+}

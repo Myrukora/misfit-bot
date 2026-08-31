@@ -285,7 +285,11 @@ check_runtime() {
 build_core() {
   info "building core binary (./cmd/bot)"
   # -X main.Version is stamped from the VERSION file (single source of truth).
-  ( cd "$(dirname "$0")" && CGO_ENABLED=1 go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/ )
+  # scripts/version.sh is the one parser for it, shared with CI, the release
+  # workflow and updater.ReadVersionFile.
+  local root
+  root=$(cd "$(dirname "$0")" && pwd)
+  ( cd "$root" && CGO_ENABLED=1 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/ )
   ok "core binary: ./bot"
 }
 

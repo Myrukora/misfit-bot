@@ -316,10 +316,11 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	if cfg.NotifyChannel == "" {
 		return nil // notifications disabled
 	}
-	// A private copy: this pass makes Discord sends between state updates and
-	// must not hold Manager.mu (Status and the version cache read it), so the
-	// edits land in one publish at the end instead of on the shared struct.
-	st, commit := m.editState()
+	// A private copy of the bookkeeping this pass owns: it makes Discord sends
+	// between state updates and must not hold Manager.mu (Status and the version
+	// cache read it), so its edits land in one merge at the end — a merge of
+	// these fields only, never of the whole struct.
+	st, commit := m.editNotifications()
 
 	// ── Pull requests ──
 	prs, err := m.gh.fetchOpenPRs(ctx)

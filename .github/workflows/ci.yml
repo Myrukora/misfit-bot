@@ -34,12 +34,14 @@ jobs:
       - name: Build single binary
         # VERSION is the single source of truth; without this stamp the binary
         # reports "dev" and the version-aware updater loses its baseline.
-        run: go build -ldflags "-X main.Version=$(cat VERSION)" -o /tmp/bot ./cmd/bot/
+        # scripts/version.sh is the one parser, shared with install.sh, the
+        # release workflow and updater.ReadVersionFile.
+        run: go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o /tmp/bot ./cmd/bot/
 
       - name: Verify the version stamp survived the build
         run: |
           set -euo pipefail
-          want=$(cat VERSION)
+          want=$(./scripts/version.sh)
           got=$(/tmp/bot --version)
           if [ "$got" != "$want" ]; then
             echo "::error::binary reports '$got', expected '$want' from VERSION"
@@ -62,5 +64,5 @@ jobs:
           fi
           code=$(printf '%s\n' "$changed" | grep -E '^(cmd|commands|config|internal|modules|permissions|updater)/' || true)
           if [ -n "$code" ] && ! printf '%s\n' "$changed" | grep -qx 'VERSION'; then
-            echo "::warning title=VERSION not bumped::This PR changes Go code but leaves VERSION at $(cat VERSION). Bump it (patch/minor per README → Versioning) unless it is a pure refactor or docs-only change."
+            echo "::warning title=VERSION not bumped::This PR changes Go code but leaves VERSION at $(./scripts/version.sh). Bump it (patch/minor per README → Versioning) unless it is a pure refactor or docs-only change."
           fi

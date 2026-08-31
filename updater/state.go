@@ -72,18 +72,24 @@ func (m *Manager) loadStateLocked() *state {
 	return st
 }
 
-// editState hands out a private copy of the state plus a commit function that
-// publishes it and persists the result, both under Manager.mu. Use it when
-// changes are made between I/O calls that must not run under the lock; the
-// short version (compare, set, persist) is updateState.
-func (m *Manager) editState() (*state, func() error) {
+// editNotifications hands out a private copy of the notification bookkeeping —
+// the fields checkNotifications owns — plus a commit function that publishes
+// exactly those fields and persists, under Manager.mu. The short version for a
+// plain compare-set-persist is updateState.
+//
+// Publishing only those three fields matters: Check and announceUpdate write
+// LatestVersion and Announced, and the notification pass runs its GitHub and
+// Discord calls with no lock held. Committing a whole stale struct would roll
+// back a version another goroutine recorded in the meantime.
+func (m *Manager) editNotifications() (*state, func() error) {
 	m.mu.Lock()
 	st := m.loadStateLocked().clone()
 	m.mu.Unlock()
 	return st, func() error {
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		m.state = st
+		cur := m.loadStateLocked()
+		cur.LastCommitSHA, cur.Seeded, cur.SeenPRs = st.LastCommitSHA, st.Seeded, st.SeenPRs
 		return m.saveStateLocked()
 	}
 }

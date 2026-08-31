@@ -27,16 +27,17 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          # Only the line ending is stripped: a value with stray whitespace or a
-          # trailing comment must fail here, not publish a tag that the binary's
-          # own parser (updater.ParseVersion) would reject.
-          raw=$(head -n 1 VERSION | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          # The same parser install.sh and CI use, so the tag, the stamped binary
+          # and updater.ParseVersion can never disagree about what VERSION says.
+          raw=$(./scripts/version.sh)
           canonical=${raw#v}
           # The official SemVer grammar, build metadata excluded: VERSION holds a
-          # bare X.Y.Z[-prerelease], so the tag, the file and the compiled binary
-          # are the same string. Empty prerelease components ("-rc..1") and
-          # zero-padded ones ("-01") are rejected here exactly as in Go.
-          if ! printf '%s' "$canonical" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-][0-9A-Za-z-]*))*)?$'; then
+          # bare X.Y.Z[-prerelease]. The generic prerelease alternative must
+          # contain a letter or hyphen, so zero-padded numbers ("-01") and empty
+          # components ("-rc..1") are rejected here exactly as they are in Go —
+          # otherwise a tag would ship a version the binary cannot parse and the
+          # updater would silently fall back to commit counting.
+          if ! printf '%s' "$canonical" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'; then
             echo "::error::VERSION must contain a bare SemVer (major.minor.patch[-prerelease], no build metadata); found '$raw'"
             exit 1
           fi
