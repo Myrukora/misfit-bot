@@ -449,7 +449,7 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
 - `update` / `update check` — fetch + report the release first when the repo is tagged (`v0.1.0 → v0.2.0 (3 new commits)`), otherwise "N new commit(s) available" / "Up to date".
 - `update now` — force apply (pull → rebuild → swap → restart).
 - `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error, plus **Running Version** (this build) and **Latest Release** (newest tag seen, once a check has found one).
-- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to `notify_channel`, deduplicated by target version through `state.NotifiedVersion`.
+- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to `notify_channel`, deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + channel + version, so a live config change re-announces instead of being silenced by the old entry.
 - `update test` — **temporary embed tester**: posts one sample PR + one sample commit embed to `notify_channel` (markdown-rich bodies — bold/italic/code block/link/list — so the owner can verify markdown renders; the author row uses the real authenticated GitHub user when a token is set).
 - `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull, notify_channel` (routes to `Config.Set`, takes effect without restart; token value is never echoed back).
 
@@ -493,15 +493,27 @@ workflow tags `v<VERSION>` and publishes a GitHub Release
 (`.github/workflows/release.yml`); it no-ops when that tag already exists.
 
 The updater is version-aware: `Check()` lists origin's tags (`git ls-remote
---tags`, parsed by `parseTagRefs`, overridable in tests via the `listTags`
-hook), picks the highest with `LatestVersionTag`, compares it against the
+--tags`, parsed by `parseTagRefs` into name + peeled-SHA `tagRef`s,
+overridable in tests via the `listTags` hook), keeps only the version-shaped
+ones **merged into the tracked branch** (`reachableTags` runs
+`git merge-base --is-ancestor <sha> FETCH_HEAD` against the branch Check just
+fetched — a release tagged on some hotfix branch is not an update for this
+one), picks the highest with `LatestVersionTag`, compares it against the
 running build with `updater/semver.go`, and reports `vA → vB` (`CheckResult.
 VersionSummary`) with the commit count as secondary detail. "Up to date" stays
 defined by commit SHAs, so an untagged repo or an unstamped `dev` build behaves
 exactly as before — versions change the reporting, never the trigger. The
 newest tag seen is cached in `updater_state.json` (`LatestVersion`) and drives
-the once-per-release "Update available" announcement (deduplicated by
-`NotifiedVersion`).
+the once-per-release "Update available" announcement.
+
+SemVer lives in `updater/semver.go` (no `golang.org/x/mod/semver` — it is not
+in the module graph); components are compared as **digit strings**, so ordering
+stays exact past any integer width.
+
+`updater_state.json`'s struct is shared: read it with `stateSnapshot()`, mutate
++ persist with `updateState()` (or `editState()`/`commit()` when Discord sends
+sit between the reads — the notification pass never holds `Manager.mu` across
+I/O). `TestConcurrentStateAccess` runs under `-race` to keep it that way.
 
 ### Privileged Intents (Discord Dev Portal)
 

@@ -9,20 +9,22 @@ import (
 func TestParseVersionValid(t *testing.T) {
 	for _, tc := range []struct {
 		in        string
-		major     int
-		minor     int
-		patch     int
+		major     string
+		minor     string
+		patch     string
 		pre       string
 		canonical string
 	}{
-		{"0.1.0", 0, 1, 0, "", "0.1.0"},
-		{"v0.1.0", 0, 1, 0, "", "0.1.0"},
-		{"1.22.3", 1, 22, 3, "", "1.22.3"},
-		{"v10.20.30", 10, 20, 30, "", "10.20.30"},
-		{"v0.2.0-rc.1", 0, 2, 0, "rc.1", "0.2.0-rc.1"},
-		{"1.0.0-alpha", 1, 0, 0, "alpha", "1.0.0-alpha"},
-		{"1.0.0-rc.1+build.5", 1, 0, 0, "rc.1", "1.0.0-rc.1"}, // build metadata ignored
-		{" v1.2.3 ", 1, 2, 3, "", "1.2.3"},
+		{"0.1.0", "0", "1", "0", "", "0.1.0"},
+		{"v0.1.0", "0", "1", "0", "", "0.1.0"},
+		{"1.22.3", "1", "22", "3", "", "1.22.3"},
+		{"v10.20.30", "10", "20", "30", "", "10.20.30"},
+		{"v0.2.0-rc.1", "0", "2", "0", "rc.1", "0.2.0-rc.1"},
+		{"1.0.0-alpha", "1", "0", "0", "alpha", "1.0.0-alpha"},
+		{"1.0.0-rc.1+build.5", "1", "0", "0", "rc.1", "1.0.0-rc.1"}, // build metadata ignored
+		{" v1.2.3 ", "1", "2", "3", "", "1.2.3"},
+		// Components are exact at any width — nothing is truncated to an int.
+		{"99999999999999999999.0.0", "99999999999999999999", "0", "0", "", "99999999999999999999.0.0"},
 	} {
 		v, err := ParseVersion(tc.in)
 		if err != nil {
@@ -30,7 +32,7 @@ func TestParseVersionValid(t *testing.T) {
 			continue
 		}
 		if v.major != tc.major || v.minor != tc.minor || v.patch != tc.patch || v.pre != tc.pre {
-			t.Errorf("ParseVersion(%q) = %+v, want major=%d minor=%d patch=%d pre=%q", tc.in, v, tc.major, tc.minor, tc.patch, tc.pre)
+			t.Errorf("ParseVersion(%q) = %+v, want major=%s minor=%s patch=%s pre=%q", tc.in, v, tc.major, tc.minor, tc.patch, tc.pre)
 		}
 		if got := v.String(); got != tc.canonical {
 			t.Errorf("ParseVersion(%q).String() = %q, want %q", tc.in, got, tc.canonical)
@@ -104,6 +106,12 @@ func TestCompareVersions(t *testing.T) {
 		// build metadata is ignored for precedence
 		{"1.0.0+build.1", "1.0.0+build.2", 0},
 		{"1.0.0+build.1", "1.0.0", 0},
+
+		// widths beyond any integer type still order exactly: components are
+		// compared as digit strings, so nothing saturates or compares equal
+		{"99999999999999999999.0.0", "100000000000000000000.0.0", -1},
+		{"1.0.0-99999999999999999999", "1.0.0-100000000000000000000", -1},
+		{"18446744073709551615.0.0", "18446744073709551616.0.0", -1}, // past MaxUint64
 	} {
 		got, err := CompareVersions(tc.a, tc.b)
 		if err != nil {

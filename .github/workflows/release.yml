@@ -27,10 +27,17 @@ jobs:
         id: version
         run: |
           set -euo pipefail
-          raw=$(tr -d '[:space:]\r' < VERSION)
+          # Only the line ending is stripped: a value with stray whitespace or a
+          # trailing comment must fail here, not publish a tag that the binary's
+          # own parser (updater.ParseVersion) would reject.
+          raw=$(head -n 1 VERSION | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           canonical=${raw#v}
-          if ! printf '%s' "$canonical" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::VERSION must contain a bare SemVer (major.minor.patch[-prerelease]); found '$raw'"
+          # The official SemVer grammar, build metadata excluded: VERSION holds a
+          # bare X.Y.Z[-prerelease], so the tag, the file and the compiled binary
+          # are the same string. Empty prerelease components ("-rc..1") and
+          # zero-padded ones ("-01") are rejected here exactly as in Go.
+          if ! printf '%s' "$canonical" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9A-Za-z-][0-9A-Za-z-]*))*)?$'; then
+            echo "::error::VERSION must contain a bare SemVer (major.minor.patch[-prerelease], no build metadata); found '$raw'"
             exit 1
           fi
           echo "tag=v${canonical}" >> "$GITHUB_OUTPUT"
@@ -43,12 +50,17 @@ jobs:
         run: |
           set -euo pipefail
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "::notice title=Already released::${TAG} is already tagged — merge again after bumping VERSION to publish a new release."
-            exit 0
+            if gh release view "${TAG}" >/dev/null 2>&1; then
+              echo "::notice title=Already released::${TAG} is published — merge again after bumping VERSION to publish a new release."
+              exit 0
+            fi
+            # Tag pushed but the release never made it (a run died in between):
+            # fall through and create the release, which is the whole point.
+            echo "::warning title=Missing release::${TAG} is tagged but has no GitHub Release — creating it now."
+          else
+            git tag --annotate "${TAG}" --message "Release ${TAG}"
+            git push origin "refs/tags/${TAG}"
           fi
-
-          git tag --annotate "${TAG}" --message "Release ${TAG}"
-          git push origin "refs/tags/${TAG}"
 
           # --generate-notes writes the changelog from the merged PRs since the
           # previous tag, so no extra bookkeeping file is needed.

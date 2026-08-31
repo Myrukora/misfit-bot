@@ -146,10 +146,15 @@ Bumping **is part of the PR** — edit `VERSION` in your branch alongside the
 change, and the merge to `main` becomes that release. No labels, no separate
 release branch, no version to guess after the fact.
 
-```
+```text
 fix(tickets): stop double-closing archived tickets   →  VERSION: 0.1.0 → 0.1.1
 feat(dashboard): command manager rework              →  VERSION: 0.1.0 → 0.2.0
 ```
+
+The file holds **one bare version** — `0.1.0`, no `v`, no build metadata (`+`),
+no trailing comment. Blank lines and `#` comment lines around it are ignored;
+anything that is not a valid SemVer fails the release workflow rather than
+publishing a tag the binary's own parser would reject.
 
 CI does not fail when code changes without a bump — it posts a warning, because
 pure refactors and docs-only PRs genuinely have nothing to release. Reviewers

@@ -1,8 +1,14 @@
 package updater
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/disgoorg/disgo/discord"
@@ -120,12 +126,111 @@ func TestParseTagRefs(t *testing.T) {
 		"\n" +
 		"garbage line\n"
 	got := parseTagRefs(out)
-	want := []string{"v0.1.0", "v0.2.0"} // peeled duplicate collapsed, branch refs dropped
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Errorf("parseTagRefs() = %v, want %v", got, want)
+	// The peeled duplicate collapses onto its tag and supplies the commit SHA;
+	// branch refs and junk lines are dropped.
+	want := []tagRef{{"v0.1.0", "e0f9c2d4"}, {"v0.2.0", "9b7f0a11"}}
+	if len(got) != len(want) {
+		t.Fatalf("parseTagRefs() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("parseTagRefs()[%d] = %v, want %v", i, got[i], want[i])
+		}
 	}
 	if empty := parseTagRefs(""); len(empty) != 0 {
 		t.Errorf("parseTagRefs(\"\") = %v, want no tags", empty)
+	}
+}
+
+// ── tags are scoped to the tracked branch ─────────────────────────────────
+
+// gitTestRepo builds a throwaway clone of a throwaway origin: main carries
+// v0.1.0 and v0.2.0, a hotfix branch carries v9.9.9, and FETCH_HEAD is set by
+// a real `git fetch origin main` — the state Check() leaves behind.
+func gitTestRepo(t *testing.T) *Manager {
+	t.Helper()
+	root := t.TempDir()
+	remote := filepath.Join(root, "origin.git")
+	dir := filepath.Join(root, "work")
+
+	runIn := func(cwd string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cwd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@invalid", "GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@invalid", "GIT_COMMITTER_DATE=2026-01-01T00:00:00Z")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git -C %s %s: %v (%s)", cwd, strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	commit := func(msg string) {
+		runIn(dir, "commit", "-q", "--allow-empty", "-m", msg)
+	}
+
+	runIn(root, "init", "-q", "--bare", "--initial-branch=main", "origin.git")
+	runIn(root, "init", "-q", "-b", "main", "work")
+	runIn(dir, "remote", "add", "origin", remote)
+	runIn(dir, "commit", "-q", "--allow-empty", "-m", "first")
+	runIn(dir, "tag", "v0.1.0")
+	runIn(dir, "push", "-q", "--set-upstream", "origin", "main")
+
+	runIn(dir, "checkout", "-q", "-b", "hotfix")
+	commit("work off the tracked branch")
+	runIn(dir, "tag", "v9.9.9") // a release published somewhere else
+	runIn(dir, "push", "-q", "origin", "hotfix", "--tags")
+
+	runIn(dir, "checkout", "-q", "main")
+	commit("second")
+	runIn(dir, "tag", "v0.2.0")
+	runIn(dir, "push", "-q", "origin", "main", "--tags")
+
+	runIn(dir, "fetch", "-q", "origin", "main") // leaves FETCH_HEAD at main's tip
+
+	return New(dir, testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+}
+
+func TestListRemoteTagsIgnoresForeignTags(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	m := gitTestRepo(t)
+
+	// ls-remote itself sees every tag in the repository, including the one on
+	// the hotfix branch; only tags merged into the tracked branch are releases.
+	tags, err := m.listRemoteTags(context.Background(), testCfg())
+	if err != nil {
+		t.Fatalf("listRemoteTags: %v", err)
+	}
+	if strings.Join(tags, ",") != "v0.1.0,v0.2.0" {
+		t.Errorf("listRemoteTags() = %v, want [v0.1.0 v0.2.0]", tags)
+	}
+	if latest, _ := LatestVersionTag(tags); latest != "0.2.0" {
+		t.Errorf("LatestVersionTag() = %q, want 0.2.0 — the foreign v9.9.9 must not win", latest)
+	}
+}
+
+func TestCheckReportsVersionsScopedToTheTrackedBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	m := gitTestRepo(t)
+	m.SetVersion("0.1.0")
+
+	res, err := m.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if res.ToVersion != "0.2.0" {
+		t.Errorf("ToVersion = %q, want 0.2.0 (not the hotfix branch's v9.9.9)", res.ToVersion)
+	}
+	if !res.VersionBehind || res.FromVersion != "0.1.0" {
+		t.Errorf("FromVersion/VersionBehind = %q/%v, want 0.1.0/true", res.FromVersion, res.VersionBehind)
+	}
+	if m.LatestVersion() != "0.2.0" {
+		t.Errorf("LatestVersion() = %q, want the cached 0.2.0", m.LatestVersion())
 	}
 }
 
@@ -207,6 +312,36 @@ func TestAnnounceUpdateOncePerVersion(t *testing.T) {
 	}
 }
 
+func TestAnnounceUpdateIsScopedToItsTarget(t *testing.T) {
+	m, sent := newTestManager(t, &fakeGH{})
+	res := &CheckResult{Behind: 2, ToVersion: "0.2.0"}
+
+	// The updater's configuration is live, so "the same version" is not by
+	// itself the same release: another branch or another repo must announce
+	// again rather than be swallowed by the previous target's dedupe entry.
+	m.announceUpdate(testCfg(), res)
+
+	otherBranch := testCfg()
+	otherBranch.Branch = "stable"
+	m.announceUpdate(otherBranch, res)
+
+	otherRepo := testCfg()
+	otherRepo.Repo = "someoneelse/fork"
+	m.announceUpdate(otherRepo, res)
+
+	if len(*sent) != 3 {
+		t.Fatalf("announceUpdate posted %d embeds, want one per target", len(*sent))
+	}
+
+	// The identical targets stay silent, so the scoping did not simply disable
+	// deduplication.
+	m.announceUpdate(testCfg(), res)
+	m.announceUpdate(otherBranch, res)
+	if len(*sent) != 3 {
+		t.Errorf("announceUpdate posted %d embeds, want the known targets left alone", len(*sent))
+	}
+}
+
 func TestAnnounceUpdateNeedsATargetVersion(t *testing.T) {
 	m, sent := newTestManager(t, &fakeGH{})
 	// No version tag known (prod today has none) → no announcement at all.
@@ -222,8 +357,8 @@ func TestAnnounceUpdateFailureIsRetried(t *testing.T) {
 	res := &CheckResult{Behind: 2, ToVersion: "0.2.0"}
 
 	m.announceUpdate(testCfg(), res)
-	if got := m.loadState().NotifiedVersion; got != "" {
-		t.Fatalf("NotifiedVersion = %q after a failed send, want it left unset so the next poll retries", got)
+	if got := m.loadState().Announced; len(got) != 0 {
+		t.Fatalf("Announced = %v after a failed send, want it left empty so the next poll retries", got)
 	}
 
 	sent := 0
@@ -231,5 +366,45 @@ func TestAnnounceUpdateFailureIsRetried(t *testing.T) {
 	m.announceUpdate(testCfg(), res)
 	if sent != 1 {
 		t.Errorf("failed announcement was not retried: %d sends", sent)
+	}
+}
+
+// ── concurrent state access ───────────────────────────────────────────────
+
+// TestConcurrentStateAccess exercises the updater's persisted state from
+// several goroutines at once — the poll loop writing versions, the command and
+// dashboard surfaces reading them. Run under -race it fails if any of them
+// touches the shared struct (or marshals it) without Manager.mu.
+func TestConcurrentStateAccess(t *testing.T) {
+	m := New(t.TempDir(), testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for n := 0; n < 50; n++ {
+				switch (w + n) % 5 {
+				case 0:
+					m.recordLatestVersion(fmt.Sprintf("0.%d.0", n))
+				case 1:
+					_ = m.LatestVersion()
+				case 2:
+					_ = m.Status()["latest_version"]
+				case 3:
+					m.updateState(func(st *state) { st.SeenPRs[n] = true })
+				case 4:
+					m.markReleaseAnnounced(releaseKey(testCfg(), fmt.Sprintf("0.%d.0", n)))
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	if m.LatestVersion() == "" {
+		t.Error("LatestVersion() lost the value written concurrently")
+	}
+	if got := len(m.loadState().SeenPRs); got == 0 {
+		t.Error("updateState() writes were lost")
 	}
 }

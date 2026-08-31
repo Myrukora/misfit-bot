@@ -3,7 +3,7 @@ package updater
 import (
 	"fmt"
 	"regexp"
-	"strconv"
+
 	"strings"
 )
 
@@ -16,10 +16,15 @@ var semverPattern = regexp.MustCompile(`^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\
 // version is a parsed semantic version. pre is the pre-release string without
 // its leading "-" ("" = a normal release). Build metadata is parsed only to
 // validate it and then dropped — it never affects precedence.
+//
+// The numeric components are kept as the exact digit strings the grammar allows
+// (never with a leading zero) rather than as ints, so ordering stays exact for
+// any width: an absurd 30-digit component can neither overflow into a wrong
+// order nor collapse onto a different version.
 type version struct {
-	major int
-	minor int
-	patch int
+	major string
+	minor string
+	patch string
 	pre   string
 }
 
@@ -33,18 +38,7 @@ func ParseVersion(s string) (version, error) {
 	if m == nil {
 		return version{}, fmt.Errorf("invalid semantic version %q", trimmed)
 	}
-	major, minor, patch := 0, 0, 0
-	for _, f := range []struct {
-		dst *int
-		raw string
-	}{{&major, m[1]}, {&minor, m[2]}, {&patch, m[3]}} {
-		n, err := strconv.Atoi(f.raw)
-		if err != nil {
-			return version{}, fmt.Errorf("invalid semantic version %q: component %s out of range", trimmed, f.raw)
-		}
-		*f.dst = n
-	}
-	return version{major: major, minor: minor, patch: patch, pre: m[4]}, nil
+	return version{major: m[1], minor: m[2], patch: m[3], pre: m[4]}, nil
 }
 
 // Ahead reports whether the version in to sorts after the version in from. It
@@ -70,9 +64,10 @@ func IsVersion(s string) bool {
 }
 
 // String returns the canonical "major.minor.patch[-pre]" form (no "v" prefix,
-// no build metadata).
+// no build metadata). The grammar forbids leading zeros, so the parsed digits
+// already are the canonical digits.
 func (v version) String() string {
-	core := fmt.Sprintf("%d.%d.%d", v.major, v.minor, v.patch)
+	core := v.major + "." + v.minor + "." + v.patch
 	if v.pre != "" {
 		return core + "-" + v.pre
 	}
@@ -97,12 +92,22 @@ func CompareVersions(a, b string) (int, error) {
 }
 
 func compare(a, b version) int {
-	for _, pair := range [][2]int{{a.major, b.major}, {a.minor, b.minor}, {a.patch, b.patch}} {
-		if c := compareInts(pair[0], pair[1]); c != 0 {
+	for _, pair := range [][2]string{{a.major, b.major}, {a.minor, b.minor}, {a.patch, b.patch}} {
+		if c := compareNumeric(pair[0], pair[1]); c != 0 {
 			return c
 		}
 	}
 	return comparePre(a.pre, b.pre)
+}
+
+// compareNumeric orders two grammar-valid numeric identifiers of any width: with
+// no leading zeros to account for, the longer digit string is the larger number,
+// and equal-width strings then compare lexicographically.
+func compareNumeric(a, b string) int {
+	if len(a) != len(b) {
+		return compareInts(len(a), len(b))
+	}
+	return strings.Compare(a, b)
 }
 
 func compareInts(a, b int) int {
@@ -143,9 +148,7 @@ func comparePre(a, b string) int {
 			return 1
 		}
 		if isAllDigits(x) {
-			xn, _ := strconv.Atoi(x)
-			yn, _ := strconv.Atoi(y)
-			return compareInts(xn, yn)
+			return compareNumeric(x, y) // exact at any width — no int conversion
 		}
 		return strings.Compare(x, y)
 	}

@@ -184,9 +184,12 @@ func (m *Manager) Version() string {
 
 // LatestVersion returns the newest release tag the updater has seen on the
 // tracked branch (persisted across restarts). Empty until the first successful
-// check that finds a version tag.
+// check that finds a version tag. The read takes Manager.mu: the state is a
+// single shared struct that the poll loop writes concurrently.
 func (m *Manager) LatestVersion() string {
-	return m.loadState().LatestVersion
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.loadStateLocked().LatestVersion
 }
 
 // SetRest attaches the current Discord REST client. Called on every bot run()
@@ -313,7 +316,10 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 	if cfg.NotifyChannel == "" {
 		return nil // notifications disabled
 	}
-	st := m.loadState()
+	// A private copy: this pass makes Discord sends between state updates and
+	// must not hold Manager.mu (Status and the version cache read it), so the
+	// edits land in one publish at the end instead of on the shared struct.
+	st, commit := m.editState()
 
 	// ── Pull requests ──
 	prs, err := m.gh.fetchOpenPRs(ctx)
@@ -390,7 +396,7 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 		st.LastCommitSHA = head
 	}
 	st.Seeded = true
-	if err := m.saveState(); err != nil {
+	if err := commit(); err != nil {
 		m.Logger.Warn("Updater: failed to save state: %v", err)
 	}
 	return nil
@@ -533,7 +539,7 @@ func (m *Manager) Status() map[string]string {
 	lastCheck := m.lastCheck
 	lastErr := m.lastError
 	m.mu.Unlock()
-	st := m.loadState() // locks internally
+	st := m.stateSnapshot() // a private copy: the poll loop writes the shared one
 
 	enabled, repo, branch, notify, interval, autoPull := false, "", "main", "", 0, false
 	if cfg != nil {
@@ -622,38 +628,92 @@ func (m *Manager) listTagsOnce(ctx context.Context, cfg *config.UpdaterConfig) (
 	return m.listRemoteTags(ctx, cfg)
 }
 
-// listRemoteTags lists the tag refs published by origin. git ls-remote is
-// read-only, touches no working tree, and needs no prior fetch — so Check can
-// report versions straight from the remote.
+// listRemoteTags lists the release tags published by origin *for the tracked
+// branch*. git ls-remote is read-only and needs no working tree, but tags are
+// global in git — a release tagged on some hotfix branch is not an update for
+// this one — so the candidates are filtered by reachability afterwards.
 func (m *Manager) listRemoteTags(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error) {
 	args := append(m.gitAuthArgs(cfg), "ls-remote", "--tags", "origin")
 	out, err := m.gitOutput(ctx, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-remote --tags origin: %v (%s)", err, strings.TrimSpace(out))
 	}
-	return parseTagRefs(out), nil
+
+	// Only version-shaped tags can be releases; filtering before the ancestry
+	// test keeps the number of git invocations down to the release count.
+	refs := parseTagRefs(out)
+	versions := make([]tagRef, 0, len(refs))
+	for _, r := range refs {
+		if IsVersion(r.name) {
+			versions = append(versions, r)
+		}
+	}
+
+	// Check fetched the tracked branch immediately before this call, so its tip
+	// is available as FETCH_HEAD and the test costs no extra network round trip.
+	return m.reachableTags(ctx, versions, "FETCH_HEAD"), nil
 }
 
-// parseTagRefs turns `git ls-remote --tags` output ("<sha>\trefs/tags/v1.2.3")
-// into tag names. Peeled entries for annotated tags ("<name>^{}") collapse onto
-// their base tag, and everything else (SHAs, stray lines) is dropped.
-func parseTagRefs(out string) []string {
-	var tags []string
-	seen := map[string]bool{}
+// tagRef is one remote tag: the tag name and the object it ultimately points
+// at — the peeled commit for annotated tags.
+type tagRef struct {
+	name string
+	sha  string
+}
+
+// parseTagRefs turns `git ls-remote --tags` output into name/SHA pairs, in
+// listing order. A peeled entry ("refs/tags/v0.1.0^{}") is not a tag of its
+// own: it supplies the commit SHA of the tag with the same name.
+func parseTagRefs(out string) []tagRef {
+	var order []string
+	shaOf := map[string]string{}
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || !strings.HasPrefix(fields[1], "refs/tags/") {
 			continue
 		}
-		name := strings.TrimSuffix(strings.TrimPrefix(fields[1], "refs/tags/"), "^{}")
-		if name == "" || seen[name] {
+		name := strings.TrimPrefix(fields[1], "refs/tags/")
+		peeled := strings.HasSuffix(name, "^{}")
+		name = strings.TrimSuffix(name, "^{}")
+		if name == "" {
 			continue
 		}
-		seen[name] = true
-		tags = append(tags, name)
+		if _, seen := shaOf[name]; !seen {
+			order = append(order, name)
+		}
+		if peeled || shaOf[name] == "" {
+			shaOf[name] = fields[0]
+		}
 	}
-	return tags
+	refs := make([]tagRef, 0, len(order))
+	for _, name := range order {
+		refs = append(refs, tagRef{name: name, sha: shaOf[name]})
+	}
+	return refs
 }
+
+// reachableTags keeps the tags whose commit is contained in upstream. A tag
+// from another branch has no object in this checkout, so the ancestry lookup
+// fails and the tag is dropped — which is the correct answer: a release
+// published elsewhere is not an update for the branch being tracked.
+func (m *Manager) reachableTags(ctx context.Context, refs []tagRef, upstream string) []string {
+	var names []string
+	for _, r := range refs {
+		if r.sha == "" {
+			continue
+		}
+		if _, err := m.gitOutput(ctx, "merge-base", "--is-ancestor", r.sha, upstream); err != nil {
+			m.Logger.Debug("Updater: tag %s is not on %s — ignored", r.name, upstream)
+			continue
+		}
+		names = append(names, r.name)
+	}
+	return names
+}
+
+// parseTagRefs turns `git ls-remote --tags` output ("<sha>\trefs/tags/v1.2.3")
+// into tag names. Peeled entries for annotated tags ("<name>^{}") collapse onto
+// their base tag, and everything else (SHAs, stray lines) is dropped.
 
 // recordLatestVersion caches the newest release tag seen on the tracked branch
 // so [p]info and the dashboard can report it without shelling out to git.
@@ -661,35 +721,73 @@ func (m *Manager) recordLatestVersion(to string) {
 	if to == "" {
 		return
 	}
-	st := m.loadState()
-	if st.LatestVersion == to {
-		return
+	if m.LatestVersion() == to {
+		return // the common path: no rewrite of updater_state.json per check
 	}
-	st.LatestVersion = to
-	if err := m.saveState(); err != nil {
-		m.Logger.Warn("Updater: failed to save state: %v", err)
-	}
+	m.updateState(func(st *state) { st.LatestVersion = to })
 }
 
 // announceUpdate posts the "a new release is on the way" embed right before an
-// auto-update is applied, deduplicated by target version: a failing Apply (or
-// several polls) must not spam the channel about the same release.
+// auto-update is applied, deduplicated per release: a failing Apply (or several
+// polls) must not spam the channel about the same one.
 func (m *Manager) announceUpdate(cfg *config.UpdaterConfig, res *CheckResult) {
 	if cfg.NotifyChannel == "" || res.ToVersion == "" {
 		return
 	}
-	st := m.loadState()
-	if st.NotifiedVersion == res.ToVersion {
+	// The dedupe key covers the whole target, not just the version (see
+	// releaseKey), and the Discord send happens outside Manager.mu — only the
+	// read and the mark take the lock.
+	key := releaseKey(cfg, res.ToVersion)
+	if m.releaseAnnounced(key) {
 		return
 	}
 	if err := m.send(cfg.NotifyChannel, buildUpdateEmbed(cfg, res)); err != nil {
 		m.Logger.Warn("Updater: failed to post the update announcement (%v) — retrying on the next poll", err)
 		return
 	}
-	st.NotifiedVersion = res.ToVersion
-	if err := m.saveState(); err != nil {
-		m.Logger.Warn("Updater: failed to save state: %v", err)
+	m.markReleaseAnnounced(key)
+}
+
+// maxAnnouncedReleases bounds the announcement history: room for a long run of
+// releases (and for the occasional repo/branch/channel change) without letting
+// updater_state.json grow forever.
+const maxAnnouncedReleases = 20
+
+func (m *Manager) releaseAnnounced(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.loadStateLocked().Announced {
+		if k == key {
+			return true
+		}
 	}
+	return false
+}
+
+func (m *Manager) markReleaseAnnounced(key string) {
+	m.updateState(func(st *state) {
+		for _, k := range st.Announced {
+			if k == key {
+				return
+			}
+		}
+		st.Announced = append(st.Announced, key)
+		if over := len(st.Announced) - maxAnnouncedReleases; over > 0 {
+			st.Announced = st.Announced[over:]
+		}
+	})
+}
+
+// releaseKey identifies an announced update. The updater's configuration is
+// live, so the version alone is not enough: repointing the bot at another repo
+// or branch, or moving the notify channel, must produce a fresh announcement
+// even when the new target happens to publish the same version number.
+func releaseKey(cfg *config.UpdaterConfig, version string) string {
+	branch := cfg.Branch
+	if branch == "" {
+		branch = "main"
+	}
+	return cfg.Repo + "@" + branch + "#" + cfg.NotifyChannel + "@v" + version
 }
 
 // sendEmbed posts an embed to a Discord channel via the REST client.
