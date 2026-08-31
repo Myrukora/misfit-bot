@@ -18,7 +18,7 @@ already in `go.mod`.
 
 ```bash
 # from the repo root
-go build -o bot ./cmd/bot/   # dashboard + feature modules are compiled into the single binary
+go build -ldflags "-X main.Version=$(cat VERSION)" -o bot ./cmd/bot/   # dashboard + feature modules are compiled into the single binary
 ./bot                        # dashboard starts automatically (always on)
 ```
 

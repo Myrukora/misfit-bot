@@ -38,6 +38,30 @@ func short7(sha string) string {
 	return sha
 }
 
+// plural marks an English count as plural ("1 commit" / "3 commits").
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// displayVersion renders a build version for an embed. Release versions get the
+// conventional "v" prefix; an unstamped build says so instead of pretending to
+// be a version (see VERSION + the -ldflags stamp in README → Versioning).
+func displayVersion(v string) string {
+	switch v {
+	case "":
+		return "unknown"
+	case "dev":
+		return "dev (unstamped build)"
+	}
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	return "v" + v
+}
+
 func title(s string) string {
 	if s == "" {
 		return s
@@ -78,10 +102,21 @@ func init() {
 		Category:    "general",
 		Execute: func(ctx *Context) error {
 			fields := []discord.EmbedField{
-				{Name: "Version", Value: ctx.Bot.GetVersion(), Inline: util.PtrBool(true)},
+				{Name: "Version", Value: displayVersion(ctx.Bot.GetVersion()), Inline: util.PtrBool(true)},
 				{Name: "Creator", Value: fmt.Sprintf("<@%s>", ctx.Bot.GetOwnerID()), Inline: util.PtrBool(true)},
 				{Name: "Go Version", Value: runtime.Version(), Inline: util.PtrBool(true)},
 				{Name: "OS/Arch", Value: fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH), Inline: util.PtrBool(true)},
+			}
+
+			// The updater caches the newest release tag it has seen on the tracked
+			// branch, so a pending release is visible right next to the version —
+			// no extra network call here, and nothing shown until there is one.
+			if upd, ok := ctx.Bot.GetUpdater().(*updater.Manager); ok && upd != nil {
+				if latest := upd.LatestVersion(); updater.Ahead(ctx.Bot.GetVersion(), latest) {
+					fields = append(fields, discord.EmbedField{
+						Name: "Update Available", Value: "v" + latest, Inline: util.PtrBool(true),
+					})
+				}
 			}
 
 			if ctx.Bot.GetToS() != "" {
@@ -555,7 +590,19 @@ func init() {
 					return ctx.Respond(embed.Error("❌ Update Check Failed", err.Error()))
 				}
 				if res.UpToDate {
-					return ctx.Respond(embed.Success("✅ Up to Date", fmt.Sprintf("`%s` is on the latest commit (`%s`).", ctx.Bot.GetName(), short7(res.LocalSHA))))
+					title := fmt.Sprintf("`%s` is on the latest commit (`%s`).", ctx.Bot.GetName(), short7(res.LocalSHA))
+					if summary := res.VersionSummary(); summary != "" {
+						title = fmt.Sprintf("`%s` is up to date — %s (`%s`).", ctx.Bot.GetName(), summary, short7(res.LocalSHA))
+					}
+					return ctx.Respond(embed.Success("✅ Up to Date", title))
+				}
+
+				// Version-first when the repo publishes release tags; the commit
+				// count stays the fallback for untagged repos.
+				if res.VersionBehind {
+					return ctx.Respond(embed.Info("📥 Update Available",
+						fmt.Sprintf("%s (**%d** new commit%s). Run `%supdate now` to pull, rebuild and restart.",
+							res.VersionSummary(), res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
 				}
 				return ctx.Respond(embed.Info("📥 Update Available", fmt.Sprintf("**%d** new commit(s) available. Run `%supdate now` to pull, rebuild and restart.", res.Behind, ctx.Bot.GetPrefix())))
 			case "now":
@@ -579,6 +626,10 @@ func init() {
 					{Name: "Notify Channel", Value: "`" + s["notify_channel"] + "`", Inline: util.PtrBool(true)},
 					{Name: "Last Seen SHA", Value: "`" + s["last_sha"] + "`", Inline: util.PtrBool(true)},
 					{Name: "Last Check", Value: s["last_check"], Inline: util.PtrBool(true)},
+					{Name: "Running Version", Value: displayVersion(s["version"]), Inline: util.PtrBool(true)},
+				}
+				if s["latest_version"] != "" {
+					fields = append(fields, discord.EmbedField{Name: "Latest Release", Value: "v" + s["latest_version"], Inline: util.PtrBool(true)})
 				}
 				if s["last_error"] != "" {
 					fields = append(fields, discord.EmbedField{Name: "Last Error", Value: s["last_error"], Inline: util.PtrBool(false)})

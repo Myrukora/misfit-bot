@@ -200,6 +200,10 @@
           const goEl = document.getElementById('sys-go');
           if (goEl && s.runtime.go_version) goEl.textContent = s.runtime.go_version;
         }
+        // Version card: the Go side owns the "vA → vB" formatting (versionLabel),
+        // the browser only paints the string it is given.
+        const verEl = document.getElementById('sys-version');
+        if (verEl && s.version_label) verEl.textContent = s.version_label;
       } catch (_) {}
     }
     refresh();
