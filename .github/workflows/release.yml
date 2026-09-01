@@ -42,6 +42,10 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+          # An annotated tag records a tagger identity and the runner has none
+          # by default, so `git tag --annotate` dies with "empty ident name".
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             if gh release view "${TAG}" >/dev/null 2>&1; then
               echo "::notice title=Already released::${TAG} is published — merge again after bumping VERSION to publish a new release."
