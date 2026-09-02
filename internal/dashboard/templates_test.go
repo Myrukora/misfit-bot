@@ -274,6 +274,48 @@ func TestScopedSidebar(t *testing.T) {
 	}
 }
 
+// TestGuildPageActiveNav pins the Server info nav state: on /guild/<id>
+// (Page "guild") the scoped sidebar's Server info link is active, and on
+// other scoped pages it is not.
+func TestGuildPageActiveNav(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = true
+	d.Page = "guild"
+	d.GuildID = "123"
+	d.GuildName = "My Server"
+	d.Content = &guildDetail{ID: "123", Name: "My Server", MemberCount: 5, OwnerID: "1", BotPerms: "ManageGuild"}
+	var sb strings.Builder
+	if err := b.render(&sb, "guild", d); err != nil {
+		t.Fatalf("render guild: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `href="/guild/123" class="nav-item active"`) {
+		t.Error("Server info link must be active on the guild page")
+	}
+	if !strings.Contains(out, `title="Server info" aria-current="page"`) {
+		t.Error("Server info link must carry aria-current on the guild page")
+	}
+
+	// On another scoped page the Server info link is not active.
+	d2 := mkData(lvlOwner)
+	d2.ShowSidebar = true
+	d2.Page = "commands"
+	d2.GuildID = "123"
+	d2.GuildName = "My Server"
+	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
+	var sb2 strings.Builder
+	if err := b.render(&sb2, "commands", d2); err != nil {
+		t.Fatalf("render commands (scoped): %v", err)
+	}
+	if strings.Contains(sb2.String(), `href="/guild/123" class="nav-item active"`) {
+		t.Error("Server info link must not be active on other scoped pages")
+	}
+}
+
 // TestServersPageBotWideSections pins the bot-wide config sections on the
 // /servers page for the super owner (and their absence for non-super users).
 func TestServersPageBotWideSections(t *testing.T) {

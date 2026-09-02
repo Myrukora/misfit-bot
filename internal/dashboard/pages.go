@@ -353,6 +353,7 @@ func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request
 		return
 	}
 	d := m.baseData(sessionOf(r))
+	d.Page = "guild"
 	d.Content = detail
 	m.tmpl.render(w, "guild", d)
 }
