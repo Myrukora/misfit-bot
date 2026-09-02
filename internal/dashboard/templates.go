@@ -42,6 +42,12 @@ type renderData struct {
 	// modules that implement WebTabser (extra tabs) and/or WebConfigurable
 	// (implicit Settings entry). Empty for standalone pages.
 	ModuleNav []moduleNavItem
+	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
+	// header.html renders the server-scoped sidebar (server name + back-to-servers
+	// + Commands/Tickets/Modules/Server info) instead of the global nav. Empty
+	// GuildID = top-level page (global sidebar).
+	GuildID   string
+	GuildName string
 }
 
 // moduleNavItem is one per-module sidebar group: the module's display name

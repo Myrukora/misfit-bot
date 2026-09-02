@@ -225,34 +225,28 @@ func (m *DashboardModule) handleServersPage(w http.ResponseWriter, r *http.Reque
 	}
 	d := m.baseData(us)
 	d.Page = "servers"
-	d.Content = map[string]any{
+	content := map[string]any{
 		"guilds":  rows,
 		"level":   level,
 		"isSuper": level == lvlOwner,
 		"isElev":  level == lvlOwner || level == lvlElevated,
 	}
+	// Bot-wide config sections render ON the picker page for the super owner
+	// (the bot-wide admin panel moved here; /admin now redirects to /).
+	if level == lvlOwner {
+		content["adminSections"] = m.coreSettingsFields(true, "", us)
+	}
+	d.Content = content
 	m.tmpl.render(w, "servers", d)
 }
 
 // ── /admin (super owner only) ─────────────────────────────────────────────
 
-// handleAdminPage renders the bot-wide admin panel: every core-config surface
-// that is NOT per-server — identity, logging, dashboard infra, updater,
-// secrets and backups. Gated to lvlOwner (the configured owner_id) upstream.
+// handleAdminPage is a redirect: the bot-wide admin panel moved onto the
+// /servers page (super owner). /admin is kept as a redirect so old links
+// still land somewhere sensible. Gated to lvlOwner upstream.
 func (m *DashboardModule) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	us := sessionOf(r)
-	if us == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	data := adminPageData{}
-	// Owner-only: full core sections (secrets unlocked), updater panel,
-	// backups panel.
-	data.Sections = m.coreSettingsFields(true, "", us)
-	d := m.baseData(us)
-	d.Page = "admin"
-	d.Content = data
-	m.tmpl.render(w, "admin", d)
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // ── /g/<id>/{commands,tickets,guild,settings} (server-scoped) ─────────────
@@ -277,12 +271,23 @@ func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.R
 	}
 }
 
+// guildDisplayName returns the guild's display name for the scoped sidebar,
+// falling back to the raw ID when the guild isn't in cache.
+func (m *DashboardModule) guildDisplayName(guildID string, us *userSession) string {
+	if g := m.guildSummary(guildID, us); g != nil {
+		return g.Name
+	}
+	return guildID
+}
+
 // renderGuildCommands renders the commands grid pinned to one guild.
 func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
 	level := m.resolveLevel(us)
 	views := m.filterCatalog(us, false, true, guildID)
 	d := m.baseData(us)
 	d.Page = "commands"
+	d.GuildID = guildID
+	d.GuildName = m.guildDisplayName(guildID, us)
 	content := map[string]any{
 		"groups":      groupCommands(views),
 		"guild":       guildID,
@@ -333,6 +338,8 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 	}
 	d := m.baseData(us)
 	d.Page = "guildmodules"
+	d.GuildID = guildID
+	d.GuildName = m.guildDisplayName(guildID, us)
 	d.Content = data
 	m.tmpl.render(w, "settings", d)
 }

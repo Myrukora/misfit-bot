@@ -1,6 +1,8 @@
 package dashboard
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,6 +88,22 @@ func TestTemplatesStandaloneLayout(t *testing.T) {
 	}
 	if strings.Contains(index, "app-standalone") {
 		t.Error("index page wrongly uses standalone layout")
+	}
+}
+
+// TestAdminRedirectsToRoot pins that /admin is a redirect to / (the bot-wide
+// admin panel moved onto the /servers page; /admin is kept as a redirect so
+// old links still land somewhere sensible).
+func TestAdminRedirectsToRoot(t *testing.T) {
+	m := &DashboardModule{}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/admin", nil)
+	m.handleAdminPage(w, r)
+	if w.Code != http.StatusSeeOther {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusSeeOther)
+	}
+	if got := w.Header().Get("Location"); got != "/" {
+		t.Errorf("Location = %q, want /", got)
 	}
 }
 

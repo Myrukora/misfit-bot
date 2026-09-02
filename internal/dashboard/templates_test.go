@@ -218,6 +218,120 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 }
 
+// TestScopedSidebar pins the per-server scoped sidebar: when GuildID is set,
+// the header renders the server-scoped nav (server name + back-to-servers +
+// Commands/Tickets/Modules/Server info) instead of the global nav.
+func TestScopedSidebar(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = true
+	d.Page = "commands"
+	d.GuildID = "123"
+	d.GuildName = "My Server"
+	d.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
+	var sb strings.Builder
+	if err := b.render(&sb, "commands", d); err != nil {
+		t.Fatalf("render commands (scoped): %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `guild-context-name">My Server`) {
+		t.Error("scoped sidebar missing server name")
+	}
+	if !strings.Contains(out, `guild-context-back`) {
+		t.Error("scoped sidebar missing back-to-servers link")
+	}
+	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`, `/guild/123`} {
+		if !strings.Contains(out, link) {
+			t.Errorf("scoped sidebar missing %s link", link)
+		}
+	}
+	// Global nav must be hidden on per-server pages.
+	if strings.Contains(out, `href="/" class="nav-item`) {
+		t.Error("global Servers nav must be hidden on per-server pages")
+	}
+	if strings.Contains(out, `>Administration</a>`) {
+		t.Error("global Administration nav must be hidden on per-server pages")
+	}
+
+	// Top-level pages (GuildID empty) keep the global sidebar.
+	d2 := mkData(lvlOwner)
+	d2.ShowSidebar = true
+	d2.Page = "commands"
+	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}
+	var sb2 strings.Builder
+	if err := b.render(&sb2, "commands", d2); err != nil {
+		t.Fatalf("render commands (global): %v", err)
+	}
+	out2 := sb2.String()
+	if strings.Contains(out2, `guild-context-name`) {
+		t.Error("top-level page must not render the scoped sidebar")
+	}
+	if !strings.Contains(out2, `href="/" class="nav-item`) {
+		t.Error("top-level page must keep the global Servers nav")
+	}
+}
+
+// TestServersPageBotWideSections pins the bot-wide config sections on the
+// /servers page for the super owner (and their absence for non-super users).
+func TestServersPageBotWideSections(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.Page = "servers"
+	d.Content = map[string]any{
+		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
+		"level":   lvlOwner,
+		"isSuper": true,
+		"isElev":  true,
+		"adminSections": []settingsSection{
+			{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
+			{Title: "Secrets", Fields: []fieldRender{{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true}}},
+		},
+	}
+	var sb strings.Builder
+	if err := b.render(&sb, "servers", d); err != nil {
+		t.Fatalf("render servers: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, "Bot-wide configuration") {
+		t.Error("servers page missing bot-wide configuration heading")
+	}
+	if !strings.Contains(out, `<h3>Bot</h3>`) {
+		t.Error("servers page missing Bot section")
+	}
+	if !strings.Contains(out, `<h3>Secrets</h3>`) {
+		t.Error("servers page missing Secrets section")
+	}
+	if !strings.Contains(out, `id="bk-create"`) {
+		t.Error("servers page missing Backups card")
+	}
+	if !strings.Contains(out, `id="upd-check"`) {
+		t.Error("servers page missing Updater status card")
+	}
+
+	// Non-super users must NOT see the bot-wide sections.
+	d2 := mkData(lvlStaff)
+	d2.Page = "servers"
+	d2.Content = map[string]any{
+		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
+		"level":   lvlStaff,
+		"isSuper": false,
+		"isElev":  false,
+	}
+	var sb2 strings.Builder
+	if err := b.render(&sb2, "servers", d2); err != nil {
+		t.Fatalf("render servers (staff): %v", err)
+	}
+	if strings.Contains(sb2.String(), "Bot-wide configuration") {
+		t.Error("staff render must NOT show bot-wide configuration")
+	}
+}
+
 // TestCommandsRunAffordance pins the Run button on usable commands (never on SuperOwnerOnly ones).
 func TestCommandsRunAffordance(t *testing.T) {
 	b, err := loadTemplates()
