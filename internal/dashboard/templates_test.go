@@ -74,14 +74,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		// Server picker: guild cards + super-owner admin links.
 		{"servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Owner: true}}, "level": lvlOwner, "isSuper": true, "isElev": true}},
 		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
-		// Admin panel: core sections incl. presence status + secrets.
-		{"admin", adminPageData{Sections: []settingsSection{
-			{Title: "Bot", Help: "h", Fields: []fieldRender{
-				{Key: "prefix", Label: "Prefix", Type: "text", Value: "[p]"},
-				{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"", "online", "idle", "dnd", "invisible"}},
-			}},
-			{Title: "Secrets", Fields: []fieldRender{{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true}}},
-		}}},
 		// Guild-scoped module settings reuse the settings template.
 		{"settings", settingsPageData{GuildID: "1", GuildName: "G", Modules: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
 	}

@@ -490,15 +490,6 @@ func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Requ
 	m.tmpl.render(w, "settings", d)
 }
 
-// ── /configuration ────────────────────────────────────────────────────────
-
-// adminPageData is the payload for the super-owner admin panel: core bot
-// config sections only (identity/logging/dashboard/updater/secrets) — no
-// per-server pickers, no module panels.
-type adminPageData struct {
-	Sections []settingsSection
-}
-
 // ── core settings (schema-driven, grouped into sections) ────────────────
 
 // coreSettingsFields renders every core bot setting as a typed, labeled field
