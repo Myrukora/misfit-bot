@@ -352,8 +352,11 @@ func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	d := m.baseData(sessionOf(r))
+	us := sessionOf(r)
+	d := m.baseData(us)
 	d.Page = "guild"
+	d.GuildID = id
+	d.GuildName = m.guildDisplayName(id, us)
 	d.Content = detail
 	m.tmpl.render(w, "guild", d)
 }
