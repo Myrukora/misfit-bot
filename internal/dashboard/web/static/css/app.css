@@ -516,6 +516,7 @@ pre { margin: 0; }
 .quick-links { display: flex; gap: 8px; flex-wrap: wrap; }
 .guild-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .guild-icon { width: 40px; height: 40px; border-radius: var(--radius); object-fit: cover; border: 1px solid var(--hairline-strong); }
+.guild-fallback { display: flex; align-items: center; justify-content: center; font-weight: 700; color: var(--fg); background: var(--surface); }
 .guild-title { font-size: 17px; font-weight: 650; color: var(--fg-strong); }
 .msg-entry { padding: 8px 0; border-bottom: 1px solid var(--hairline); font-size: 13px; }
 .msg-entry:last-child { border-bottom: none; }
