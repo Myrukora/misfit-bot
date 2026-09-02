@@ -273,22 +273,27 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "403 no access to this guild", http.StatusForbidden)
 		return
 	}
-	m.renderTicketsList(w, us, level, guildID)
+	m.renderTicketsList(w, us, level, guildID, false)
 }
 
 // handleTicketsInGuild renders the tickets page pinned to one guild
 // (server-scoped /g/<id>/tickets route).
 func (m *DashboardModule) handleTicketsInGuild(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
 	level := m.resolveLevel(us)
-	m.renderTicketsList(w, us, level, guildID)
+	m.renderTicketsList(w, us, level, guildID, true)
 }
 
 // renderTicketsList builds the tickets payload for a fixed guild and renders
-// the list page. Shared by /tickets?guild= and /g/<id>/tickets.
-func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSession, level, guildID string) {
+// the list page. Shared by /tickets?guild= (top-level, global sidebar) and
+// /g/<id>/tickets (server-scoped, scoped sidebar when scoped=true).
+func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSession, level, guildID string, scoped bool) {
 	d := m.baseData(us)
 	d.Page = "tickets"
 	d.Level = level
+	if scoped {
+		d.GuildID = guildID
+		d.GuildName = m.guildDisplayName(guildID, us)
+	}
 	if guildID != "" && !m.allowed(guildID) {
 		http.Error(w, "403 no access to this guild", http.StatusForbidden)
 		return

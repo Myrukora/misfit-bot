@@ -129,16 +129,26 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "g":
-		// Server-scoped dashboard: /g/<id>/commands, /g/<id>/tickets, …
-		// Everything under this prefix is scoped to ONE guild; core config
-		// and bot-wide pages are NOT reachable here.
-		if len(parts) < 3 || r.Method != "GET" {
+		// Server-scoped dashboard: /g/<id> (→ /g/<id>/commands), /g/<id>/commands,
+		// /g/<id>/tickets, /g/<id>/modules, … Everything under this prefix is
+		// scoped to ONE guild; core config and bot-wide pages are NOT reachable
+		// here.
+		if r.Method != "GET" {
 			methodNotAllowed(w)
 			return
 		}
-		gid, sub := parts[1], parts[2]
+		if len(parts) < 2 {
+			http.NotFound(w, r)
+			return
+		}
+		gid := parts[1]
 		guarded := m.requireGuild(gid, func(w http.ResponseWriter, r *http.Request) {
-			m.handleGuildScopedPage(w, r, gid, sub)
+			if len(parts) == 2 {
+				// /g/<id> → the first per-server page (no dedicated home page).
+				http.Redirect(w, r, "/g/"+gid+"/commands", http.StatusSeeOther)
+				return
+			}
+			m.handleGuildScopedPage(w, r, gid, parts[2])
 		})
 		guarded(w, r)
 		return

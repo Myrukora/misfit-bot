@@ -21,36 +21,6 @@ func mkServers() renderData {
 	return d
 }
 
-func mkAdmin() renderData {
-	d := mkData(lvlOwner)
-	d.Page = "admin"
-	d.Content = adminPageData{Sections: []settingsSection{
-		{Title: "Bot", Help: "Identity, ownership and the links shown by the info command.", Fields: []fieldRender{
-			{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands.", Type: "text", Value: "[p]"},
-			{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123456789012345678", OwnerOnly: true},
-			{Key: "tos_url", Label: "Terms of Service URL", Type: "text", Value: "https://example.com/tos"},
-			{Key: "privacy_url", Label: "Privacy Policy URL", Type: "text", Value: ""},
-		}},
-		{Title: "Logging", Help: "File logging (JSON, daily rotation).", Fields: []fieldRender{
-			{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
-			{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
-			{Key: "log_file_path", Label: "Log file path", Type: "text", Value: "logs/bot.log"},
-		}},
-		{Title: "Updater", Help: "Self-update from GitHub.", Fields: []fieldRender{
-			{Key: "updater_enabled", Label: "Enabled", Type: "toggle", Value: "true"},
-			{Key: "updater_repo", Label: "Repository", Type: "text", Value: "Myrukora/misfit-bot"},
-			{Key: "updater_branch", Label: "Branch", Type: "text", Value: "main"},
-			{Key: "updater_interval", Label: "Check interval (seconds)", Type: "number", Value: "300", Min: "30", Step: "1"},
-			{Key: "updater_auto_pull", Label: "Auto pull", Type: "toggle", Value: "true"},
-		}},
-		{Title: "Secrets", Help: "Credentials. Owner only.", Fields: []fieldRender{
-			{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true},
-			{Key: "oauth_client_secret", Label: "OAuth client secret", Type: "secret", OwnerOnly: true},
-		}},
-	}}
-	return d
-}
-
 func mkOverview() renderData {
 	d := mkData(lvlOwner)
 	d.Page = "index"
@@ -120,7 +90,6 @@ func TestDumpPreviewHTML(t *testing.T) {
 	}
 	pages := map[string]renderData{
 		"servers":  mkServers(),
-		"admin":    mkAdmin(),
 		"index":    mkOverview(),
 		"commands": mkCommands(),
 		"tickets":  mkTickets(),
