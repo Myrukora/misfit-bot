@@ -16,6 +16,7 @@ import (
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/builtin/cleanup"
+	"github.com/misfit/bot/internal/builtin/imagefilter"
 	"github.com/misfit/bot/internal/builtin/tickets"
 	"github.com/misfit/bot/internal/dashboard"
 	"github.com/misfit/bot/internal/util"
@@ -356,7 +357,7 @@ func run() bool {
 		Rest:         Client.Rest,
 		Bot:          ba,
 		VoiceManager: vm,
-	}, cleanup.New, tickets.New); err != nil {
+	}, cleanup.New, tickets.New, imagefilter.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()

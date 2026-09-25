@@ -1,1 +1,0 @@
-# No external dependencies required — the Misfit SDK is bundled.

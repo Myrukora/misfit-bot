@@ -1,0 +1,92 @@
+{{define "rd_imagefilter"}}{{template "rd_header" .}}
+        <!-- ===== Image filter: enable + model status ===== -->
+        <section class="card">
+          <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
+            <div>
+              <h2 style="margin:0">Image spam filter</h2>
+              <p class="muted" style="margin:4px 0 0">Detect and punish blacklisted images via CLIP (ONNX, CPU).</p>
+            </div>
+            <label class="toggle">
+              <input type="checkbox" id="if-enabled" {{if .Content.enabled}}checked{{end}}>
+              <span class="toggle-track"></span>
+              <span class="toggle-label">Enabled on this server</span>
+            </label>
+          </div>
+          <div class="if-model-row">
+            <span class="chip" id="if-model-state">{{if .Content.status.Warm}}🟢 model warm{{else}}⚪ model cold{{end}}</span>
+            <span class="muted">variant <code>{{.Content.status.Variant}}</code> · {{.Content.status.EnabledGuilds}} server(s) enabled</span>
+          </div>
+        </section>
+
+        <!-- ===== Detection settings ===== -->
+        <section class="card">
+          <h2>Detection</h2>
+          <div class="field-grid">
+            <div class="field">
+              <label class="field-label">Similarity threshold</label>
+              <input class="field-input" type="number" id="if-threshold" min="0.5" max="1" step="0.01" value="{{index .Content.config "threshold"}}">
+            </div>
+            <div class="field">
+              <label class="field-label">Punishment</label>
+              <select class="field-input" id="if-punishment">
+                {{$p := index .Content.config "punishment"}}
+                <option value="none" {{if eq $p "none"}}selected{{end}}>None (log only)</option>
+                <option value="mute" {{if eq $p "mute"}}selected{{end}}>Timeout</option>
+                <option value="kick" {{if eq $p "kick"}}selected{{end}}>Kick</option>
+                <option value="ban" {{if eq $p "ban"}}selected{{end}}>Ban</option>
+              </select>
+            </div>
+            <div class="field" id="if-mute-row" {{if ne (index .Content.config "punishment") "mute"}}hidden{{end}}>
+              <label class="field-label">Timeout duration (seconds)</label>
+              <input class="field-input" type="number" id="if-mute-duration" min="10" step="10" value="{{index .Content.config "mute_duration"}}">
+            </div>
+            <div class="field">
+              <label class="field-label">Log channel</label>
+              <select class="field-input" id="if-log-channel">
+                {{$lc := index .Content.config "log_channel"}}
+                <option value="" {{if not $lc}}selected{{end}}>— none —</option>
+                {{range .Content.channels}}
+                <option value="{{.ID}}" {{if eq .ID $lc}}selected{{end}}>#{{.Name}}</option>
+                {{end}}
+              </select>
+            </div>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" id="if-delete-on-none" {{if index .Content.config "delete_on_none"}}checked{{end}}>
+            <span class="toggle-track"></span>
+            <span class="toggle-label">Delete the message even when punishment is none</span>
+          </label>
+          <button class="btn btn-primary" id="if-save">Save settings</button>
+        </section>
+
+        <!-- ===== Blacklist gallery ===== -->
+        <section class="card">
+          <h2>Blacklisted images</h2>
+          <p class="muted">Incoming images are compared against these. Add by upload or a Discord CDN link.</p>
+          {{if .Content.images}}
+          <div class="image-gallery" id="if-gallery">
+            {{range .Content.images}}
+            <div class="image-tile" data-name="{{.}}">
+              <img src="/api/guilds/{{$.GuildID}}/imagefilter/raw?name={{urlquery .}}" alt="{{.}}" loading="lazy">
+              <button class="btn btn-small btn-danger image-remove" data-remove="{{.}}">Remove</button>
+            </div>
+            {{end}}
+          </div>
+          {{else}}
+          <p class="muted" id="if-empty">No blacklisted images yet.</p>
+          <div class="image-gallery" id="if-gallery" hidden></div>
+          {{end}}
+
+          <div class="add-row">
+            <div class="field" style="flex:2">
+              <label class="field-label">Upload images</label>
+              <input class="field-input" type="file" id="if-upload" accept="image/*" multiple>
+            </div>
+            <div class="field" style="flex:3">
+              <label class="field-label">…or paste a Discord CDN URL</label>
+              <input class="field-input" type="url" id="if-url" placeholder="https://cdn.discordapp.com/attachments/…">
+            </div>
+            <button class="btn btn-primary" id="if-add">Add</button>
+          </div>
+        </section>
+{{template "rd_footer" .}}{{end}}

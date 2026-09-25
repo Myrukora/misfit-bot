@@ -894,6 +894,11 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 	case "tickets":
 		m.routeTicketsAPI(w, r, meth, parts)
 		return
+	case "imagefilter":
+		// Image filter: bot-wide owner endpoints + guild-scoped config/images
+		// (guards + CSRF enforced inside routeImageFilterAPI).
+		m.routeImageFilterAPI(w, r, meth, parts)
+		return
 	case "ticketfiles":
 		// /api/ticketfiles/<guild>/<ticket>/<filename> — mirrored attachments.
 		if meth == "GET" && len(parts) == 4 {

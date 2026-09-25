@@ -95,3 +95,12 @@ scratch/
 
 # Leftover git worktrees from dev sessions
 .worktrees/
+
+# Dashboard redesign drafts (local only)
+/redesign/
+
+# ONNX Runtime C library (scripts/setup_onnx.sh, local only)
+lib/onnxruntime/
+
+# imagefilter builtin model files (regenerable via scripts/export_clip_onnx.py)
+modules/imagefilter/models/

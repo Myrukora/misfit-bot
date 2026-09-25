@@ -1,0 +1,29 @@
+{{define "rd_logs"}}{{template "rd_header" .}}
+        <section class="card">
+          <h2>Bot logs</h2>
+          <p class="muted">{{if .Content.note}}{{.Content.note}}{{else}}Last 200 lines from <code>{{.Content.path}}</code>.{{end}}</p>
+
+          <!-- Toolbar: level filter + search -->
+          <div class="log-toolbar">
+            <div class="field">
+              <label class="field-label">Level</label>
+              <select class="field-input" id="log-level">
+                <option selected>all</option>
+                <option>debug</option>
+                <option>info</option>
+                <option>warn</option>
+                <option>error</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">Search</label>
+              <input class="field-input" type="search" id="log-search" placeholder="Filter log lines…">
+            </div>
+          </div>
+
+          <!-- Log viewer -->
+          <div class="log-viewer" id="log-viewer">
+            {{range .Content.lines}}<div class="log-line"><span class="log-msg">{{.}}</span></div>{{end}}
+          </div>
+        </section>
+{{template "rd_footer" .}}{{end}}

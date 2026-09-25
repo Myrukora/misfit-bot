@@ -1,0 +1,19 @@
+{{define "rd_servers"}}{{template "rd_header" .}}
+        <!-- ===== Servers: the picker (landing page) ===== -->
+        <section class="card">
+          <h2>Servers</h2>
+          <p class="muted">Pick a server to open its dashboard.</p>
+          {{if .Guilds}}
+          <div class="server-grid">
+            {{range .Guilds}}
+            <a class="server-tile" href="/g/{{.ID}}">
+              {{if .Icon}}<img class="server-tile-icon" src="{{.Icon}}" alt="">{{else}}<span class="server-tile-icon server-tile-fallback">{{initial .Name}}</span>{{end}}
+              <span class="server-tile-name">{{.Name}}</span>
+            </a>
+            {{end}}
+          </div>
+          {{else}}
+          <p class="muted">No servers you manage share a server with the bot.</p>
+          {{end}}
+        </section>
+{{template "rd_footer" .}}{{end}}

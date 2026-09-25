@@ -1,0 +1,42 @@
+{{define "rd_admin"}}{{template "rd_header" .}}
+        <!-- ===== Core configuration (superowner) ===== -->
+        {{with .Content}}
+        {{if .Sections}}
+        <section class="card">
+          <h2>Core configuration</h2>
+          <p class="muted">Bot-wide settings — the same surface as [p]set. Channel/role/user pickers populate from the selected server.</p>
+          {{range .Sections}}
+          <div class="config-section">
+            <h3>{{.Title}}</h3>
+            {{if .Help}}<p class="muted" style="font-size:13px;margin:2px 0 8px">{{.Help}}</p>{{end}}
+            {{range .Fields}}{{template "field" .}}{{end}}
+            <button class="btn btn-primary save-section" data-section="{{.Title}}">Save {{.Title}}</button>
+          </div>
+          {{end}}
+        </section>
+
+        <!-- ===== Updater status (owner) ===== -->
+        <section class="card">
+          <h2>Updater</h2>
+          <p class="muted">Live updater state; actions mirror the owner-only [p]update commands.</p>
+          <div class="updater-status" id="updater-status">Loading…</div>
+          <div class="add-row">
+            <button type="button" class="btn btn-small" id="upd-check">Check now</button>
+            <button type="button" class="btn btn-small" id="upd-apply">Update now</button>
+            <button type="button" class="btn btn-small" id="upd-test">Send test embeds</button>
+          </div>
+        </section>
+        {{end}}
+        {{end}}
+
+        <!-- ===== Image filter model (owner) ===== -->
+        <section class="card">
+          <h2>Image filter model</h2>
+          <p class="muted">Bot-wide CLIP variant. Switching closes the loaded model, wipes cached embeddings and reloads if any server uses the filter.</p>
+          <div class="field" style="max-width:320px">
+            <label class="field-label">Variant</label>
+            <select class="field-input" id="clip-variant"></select>
+          </div>
+          <button class="btn btn-primary" id="clip-variant-save">Switch variant</button>
+        </section>
+{{template "rd_footer" .}}{{end}}

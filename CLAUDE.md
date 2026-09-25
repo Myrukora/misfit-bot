@@ -12,7 +12,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets feature m
 | Discord Library | [disgo](https://github.com/disgoorg/disgo) | v0.19.6 |
 | Config | YAML (`gopkg.in/yaml.v3`) | v3.0.1 |
 | Snowflake IDs | `github.com/disgoorg/snowflake/v2` | v2.0.3 |
-| Module System | Compiled-in core (dashboard, cleanup, tickets) + dynamic Lua/Python modules | stdlib |
+| Module System | Compiled-in core (dashboard, cleanup, tickets, imagefilter) + dynamic Lua/Python modules | stdlib |
 | Lua Modules | [gopher-lua](https://github.com/yuin/gopher-lua) | v1.1.2 |
 | Python Modules | Subprocess IPC (per-module venv) | Python 3 |
 | Logging | `log/slog` (stdlib) + file output | stdlib |
@@ -463,6 +463,38 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
 - Implements `modules.Logger` interface
 - `Close()` waits for drain via `done` channel before closing file
 - Level and file-enabled state fixed at `New()` — config changes require restart
+
+### Image Filter (`internal/builtin/imagefilter/`)
+
+Compiled-in builtin (gated by `enabled_modules.imagefilter`), **dashboard-only** — it
+registers no Discord commands. Images posted in enabled guilds are embedded with a
+CLIP vision tower via **ONNX Runtime (CPU)** and compared by cosine similarity
+against that guild's blacklisted reference images.
+
+- **Model lifecycle (warm/cold):** enabling the filter on the first guild loads the
+  model and keeps it warm; disabling everywhere closes the session and frees RAM
+  (`manager.go` refcount). Variant switch (`b32` default, `b16`, `l14`, `l14-336`)
+  closes the session and wipes cached embeddings — different vector space.
+- **Port sheet (exact Python semantics):** `vision_model → pooler_output` (768-d
+  CLS, L2-normalized in Go; NOT the 512-d projected features), max cosine over
+  refs, threshold default 0.95, punishments none|mute(timeout)|kick|ban, message
+  deleted unless (punishment=none AND delete_on_none=false), guild-owner/role-
+  hierarchy immunity, red log embeds to the guild's log channel only.
+- **Safety (ported):** HTTPS + Discord-CDN host allowlist, redirects refused,
+  private-IP dial guard, 50 MiB fetch cap, 25 MP decode cap, bots exempt, first
+  image attachment per message checked.
+- **Dashboard contract:** `modules.ImageFilterAdmin` (same resolution pattern as
+  `TicketProvider`) — per-guild config, enable/disable, reference image
+  add/remove/list (upload or Discord-CDN URL), model status, variant switch.
+- **Setup (one-time per machine, artifacts are gitignored):**
+  `bash scripts/setup_onnx.sh` (ONNX Runtime C lib 1.30.0 → `lib/onnxruntime/`) and
+  `python3 scripts/export_clip_onnx.py export --variant b32` (torch → ONNX vision
+  tower → `modules/imagefilter/models/`; needs torch+transformers+onnxruntime+onnxscript
+  in whatever Python env you run it with).
+  Missing lib or model = filter stays cold with the reason visible on the
+  dashboard; the module itself still loads. Tests skip silently without them.
+  (The Python image_spam_filter module was retired 2026-09; a full backup lives
+  in `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`, gitignored.)
 
 ### Onboarding (`onboarding/`)
 

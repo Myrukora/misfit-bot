@@ -3,6 +3,8 @@ package dashboard
 import (
 	"strings"
 	"testing"
+
+	"github.com/misfit/bot/modules"
 )
 
 func mkData(level string) renderData {
@@ -76,15 +78,65 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
 		// Guild-scoped module settings reuse the settings template.
 		{"settings", settingsPageData{GuildID: "1", GuildName: "G", Modules: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
+		// ── Redesign templates (rd_*) ──
+		{"rd_login", nil},
+		{"rd_login", nil}, // standalone variant also exercised via ShowSidebar=false below
+		{"rd_servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Icon: "https://cdn/i.png"}, {ID: "2", Name: "Second"}}}},
+		{"rd_servers", map[string]any{"guilds": []guildPickerRow{}}},
+		{"rd_overview", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5, "gc_cycles": 2, "go_version": "go1.26.4"}, Modules: []string{"cleanup"}}},
+		{"rd_permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
+		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": []string{"l1"}, "note": ""}},
+		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": nil, "note": "no log file"}},
+		{"rd_admin", map[string]any{
+			"sections": []settingsSection{{Title: "Bot", Help: "h", Fields: []fieldRender{
+				{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"},
+				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info"}},
+				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
+			}}},
+			"variants": []string{"b32", "b16"}, "variant": "b32",
+		}},
+		{"rd_imagefilter", map[string]any{
+			"admin":    true,
+			"guild":    "1",
+			"config":   map[string]string{"enabled": "true", "threshold": "0.95", "punishment": "mute", "mute_duration": "600", "log_channel": "", "delete_on_none": "false"},
+			"images":   []string{"abc_ref.png"},
+			"status":   modules.ImageFilterStatus{Warm: true, Variant: "b32", EnabledGuilds: 2},
+			"enabled":  true,
+			"channels": []entityOpt{{ID: "c1", Name: "general"}},
+		}},
+		{"rd_imagefilter", map[string]any{"admin": false, "guild": "1", "config": map[string]string{}, "images": []string{}, "enabled": false}},
 	}
 
 	for i, c := range cases {
 		d := mkData(lvlOwner)
 		d.Content = c.content
+		// Server-scoped sidebar variant for guild pages.
+		switch c.page {
+		case "rd_imagefilter":
+			d.GuildID = "1"
+			d.GuildName = "G"
+			d.ShowImageFilter = true
+		}
 		var sb strings.Builder
 		if err := b.render(&sb, c.page, d); err != nil {
 			t.Errorf("render %s (#%d): %v", c.page, i, err)
 		}
+	}
+}
+
+// TestRedesignStandaloneLogin renders the login page without a session (no
+// sidebar, no user chip).
+func TestRedesignStandaloneLogin(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlRegular)
+	d.ShowSidebar = false
+	d.Page = "rd_login"
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_login", d); err != nil {
+		t.Fatalf("render rd_login standalone: %v", err)
 	}
 }
 

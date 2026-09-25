@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +11,55 @@ import (
 	"github.com/misfit/bot/logger"
 )
 
+// helloFixture is the minimal hello module previously living at
+// modules/Lua/hello/hello.lua (placeholder removed from the repo). The test
+// writes it to a temp dir so the Lua loader still has a real file to load.
+const helloFixture = `-- minimal test module for the Lua loader
+M = {}
+
+M.name = "hello"
+M.version = "1.0.0"
+M.description = "A simple hello module (test fixture)."
+M.author = "sam"
+
+function M.on_load(M, name)
+    ctx.log("Hello Lua module loaded!")
+end
+
+function M.on_unload()
+end
+
+function M.commands()
+    return {
+        {
+            name = "hello",
+            description = "Say hello from the Lua example module.",
+            usage = "hello",
+            category = "fun",
+            execute = function(M)
+                ctx.respond("Hello from Lua!", "This command was written in Lua!")
+            end
+        },
+        {
+            name = "luainfo",
+            description = "Show info about the Lua example module.",
+            usage = "luainfo",
+            category = "fun",
+            execute = function(M)
+                local info = "Lua Module: " .. M.name .. "\n"
+                info = info .. "Version: " .. M.version .. "\n"
+                info = info .. "Description: " .. M.description
+                ctx.respond("Lua Module Info", info)
+            end
+        }
+    }
+end
+
+function M.slash_commands()
+    return {}
+end
+`
+
 func TestHelloLuaLoadsAndRuns(t *testing.T) {
 	log, err := logger.New(t.TempDir(), "error", false)
 	if err != nil {
@@ -17,8 +67,11 @@ func TestHelloLuaLoadsAndRuns(t *testing.T) {
 	}
 	defer log.Close()
 	loader := NewLuaLoader(nil, log, "", nil)
-	// hello lives at modules/Lua/hello/hello.lua (test cwd = modules/).
-	mod, err := loader.Load(filepath.Join("Lua", "hello", "hello.lua"))
+	path := filepath.Join(t.TempDir(), "hello.lua")
+	if err := os.WriteFile(path, []byte(helloFixture), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	mod, err := loader.Load(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}

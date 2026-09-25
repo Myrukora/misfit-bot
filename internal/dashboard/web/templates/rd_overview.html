@@ -1,0 +1,27 @@
+{{define "rd_overview"}}{{template "rd_header" .}}
+        <!-- ===== Bot-wide live metrics ===== -->
+        <section class="stats-grid">
+          <div class="stat-card"><div class="stat-value">{{.Content.Guilds}}</div><div class="stat-label">Servers</div></div>
+          <div class="stat-card"><div class="stat-value">{{.Content.Members}}</div><div class="stat-label">Cached members</div></div>
+          <div class="stat-card"><div class="stat-value">{{.Content.Channels}}</div><div class="stat-label">Cached channels</div></div>
+          <div class="stat-card"><div class="stat-value">{{.Content.Roles}}</div><div class="stat-label">Cached roles</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-latency">{{.Content.Latency}}</div><div class="stat-label">Gateway latency</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-uptime">{{.Content.Uptime}}</div><div class="stat-label">Uptime</div></div>
+          <div class="stat-card"><div class="stat-value">{{.Content.ModulesLoaded}}<small>/{{.Content.ModulesAvail}}</small></div><div class="stat-label">Modules loaded</div></div>
+          <div class="stat-card"><div class="stat-value">{{.Content.Commands}}</div><div class="stat-label">Commands</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-mem">{{.Content.Runtime.alloc_mb}} MB</div><div class="stat-label">Memory</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-goros">{{.Content.Runtime.goroutines}}</div><div class="stat-label">Goroutines</div></div>
+          <div class="stat-card"><div class="stat-value stat-value-sm">{{.Content.Runtime.go_version}}</div><div class="stat-label">Go runtime</div></div>
+          <div class="stat-card"><div class="stat-value stat-value-sm">{{versionLabel .Content.Version .Content.LatestVersion .Content.UpdateAvailable}}</div><div class="stat-label">Version</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-gc">{{.Content.Runtime.gc_cycles}}</div><div class="stat-label">GC cycles</div></div>
+        </section>
+
+        <!-- ===== Loaded modules ===== -->
+        <section class="card">
+          <h2>Modules</h2>
+          <p class="muted">Currently loaded across the bot.</p>
+          <div class="chips">
+            {{range .Content.Modules}}<span class="chip">{{.}}</span>{{else}}<span class="muted">No modules loaded.</span>{{end}}
+          </div>
+        </section>
+{{template "rd_footer" .}}{{end}}
