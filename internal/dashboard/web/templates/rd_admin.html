@@ -9,7 +9,7 @@
           <div class="config-section">
             <h3>{{.Title}}</h3>
             {{if .Help}}<p class="muted" style="font-size:13px;margin:2px 0 8px">{{.Help}}</p>{{end}}
-            {{range .Fields}}{{template "field" .}}{{end}}
+            {{range .Fields}}{{template "rd_field" .}}{{end}}
             <button class="btn btn-primary save-section" data-section="{{.Title}}">Save {{.Title}}</button>
           </div>
           {{end}}

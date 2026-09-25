@@ -1125,6 +1125,67 @@ code {
     cursor: pointer;
 }
 
+/* ---------- schema-driven fields (rd_field partial) ---------- */
+
+.field-help {
+    margin: 0;
+    font-size: 12.5px;
+}
+
+.scope {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    color: #a1a1aa;
+}
+
+.scope-owner {
+    border-color: rgba(255, 255, 255, 0.45);
+    color: white;
+}
+
+.rangeval {
+    font-size: 13px;
+}
+
+input[type="range"].cfg-field {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    max-width: 320px;
+    height: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(to right, white var(--fill, 50%), rgba(255, 255, 255, 0.18) var(--fill, 50%));
+    cursor: pointer;
+}
+
+input[type="range"].cfg-field::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: none;
+    cursor: pointer;
+}
+
+input[type="range"].cfg-field::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: none;
+    cursor: pointer;
+}
+
 /* ================= DATA TABLES (tickets, modules) ================= */
 
 .tbl-wrap {

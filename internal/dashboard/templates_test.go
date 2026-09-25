@@ -112,6 +112,15 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		// Tickets list (redesign): populated, empty and module-missing.
 		{"rd_tickets", map[string]any{"GuildID": "1", "Types": []struct{ Key, Label string }{{"support", "Support"}}, "Open": nil, "Closed": nil}},
 		{"rd_tickets", map[string]any{"GuildID": "", "Error": "tickets module is not loaded"}},
+		// Modules (redesign): owner management view + guild settings view
+		// (both empty-panel variants).
+		{"rd_modules", settingsPageData{Manage: true, MgmtRows: []moduleView{
+			{Name: "cleanup", Loaded: true, Description: "d"},
+			{Name: "hello", Loaded: false},
+		}}},
+		{"rd_modules", settingsPageData{Manage: true, MgmtRows: nil}},
+		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
+		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", Sections: []settingsSection{{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"}}}}, DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "s", Label: "S", Type: "secret", Value: ""}}}, ModulesView: nil}},
 	}
 
 	for i, c := range cases {
@@ -539,5 +548,69 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 	}
 	if strings.Count(out, "tk-close") != 1 {
 		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, "tk-close"))
+	}
+}
+
+// TestRedesignFieldEveryType mirrors TestSettingsFieldEveryType for the
+// redesign field partial: every field type renders through rd_field, locked
+// variants render disabled with the owner-only marker.
+func TestRedesignFieldEveryType(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	fields := []fieldRender{
+		{Key: "t1", Label: "Toggle", Type: "toggle", Value: "true"},
+		{Key: "t2", Label: "Text", Type: "text", Value: "hi", Placeholder: "type"},
+		{Key: "t3", Label: "Textarea", Type: "textarea", Value: "multi\nline"},
+		{Key: "t4", Label: "Number", Type: "number", Value: "3", Min: "0", Max: "10", Step: "1"},
+		{Key: "t5", Label: "Range", Type: "range", Value: "50", Min: "0", Max: "100", Step: "5"},
+		{Key: "t6", Label: "Select", Type: "select", Value: "b", Options: []string{"a", "b", "c"}},
+		{Key: "t7", Label: "Multi", Type: "multi", Value: "a,c", Options: []string{"a", "b", "c"}},
+		{Key: "t8", Label: "Secret", Type: "secret", Value: "••••••••"},
+		{Key: "t9", Label: "Channel", Type: "channel", Value: "c", Entities: []entityOpt{{ID: "c", Name: "general"}}},
+		{Key: "t10", Label: "Role", Type: "role", Value: "r", Entities: []entityOpt{{ID: "r", Name: "@everyone"}}},
+		{Key: "t11", Label: "User", Type: "user", Value: "u", Entities: []entityOpt{{ID: "u", Name: "sam"}}},
+		{Key: "t12", Label: "Unknown", Type: "banana", Value: "x"}, // falls back to text
+	}
+	for i, fr := range fields {
+		var sb strings.Builder
+		if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fr); err != nil {
+			t.Errorf("rd_field partial #%d (%s): %v", i, fr.Type, err)
+		}
+	}
+	// Locked (elevated view of an owner-only field): disabled + data-owneronly.
+	locked := fieldRender{Key: "tok", Label: "Secret", Type: "secret", Value: "••", OwnerOnly: true, Locked: true}
+	var sb strings.Builder
+	if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", locked); err != nil {
+		t.Fatalf("rd_field locked: %v", err)
+	}
+	if !strings.Contains(sb.String(), `data-owneronly="true"`) || !strings.Contains(sb.String(), "disabled") {
+		t.Error("locked rd_field must render data-owneronly and disabled")
+	}
+	// Entity-less picker types fall back to text inputs.
+	fallback := fieldRender{Key: "tc", Label: "Channel", Type: "channel", Value: ""}
+	sb.Reset()
+	if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fallback); err != nil {
+		t.Fatalf("rd_field channel fallback: %v", err)
+	}
+	if !strings.Contains(sb.String(), `type="text"`) {
+		t.Error("entity-less channel field must fall back to a text input")
+	}
+	// Through the module settings page: fields render inside the form.
+	content := settingsPageData{
+		GuildID:       "1",
+		GuildName:     "G",
+		DashboardSelf: moduleConfigView{Name: "dashboard", Fields: fields},
+		ModulesView:   []moduleConfigView{{Name: "tickets", Fields: fields}},
+	}
+	d := mkData(lvlOwner)
+	d.Content = content
+	var page strings.Builder
+	if err := b.render(&page, "rd_modules", d); err != nil {
+		t.Fatalf("render rd_modules: %v", err)
+	}
+	if !strings.Contains(page.String(), "Dashboard (self-config)") {
+		t.Error("rd_modules page missing dashboard self-config section")
 	}
 }

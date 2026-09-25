@@ -116,6 +116,27 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{"tickets-error.html", "gtickets", "rd_tickets", map[string]any{
 			"GuildID": "", "Error": "tickets module is not loaded",
 		}, true},
+		{"modules.html", "modules", "rd_modules", settingsPageData{Manage: true, MgmtRows: []moduleView{
+			{Name: "cleanup", Loaded: true, Description: "Bulk message cleanup"},
+			{Name: "tickets", Loaded: true},
+			{Name: "hello", Loaded: false, Description: "Demo module"},
+		}}, false},
+		{"gmodules.html", "gmodules", "rd_modules", settingsPageData{
+			GuildID: "1", GuildName: "Gaming HQ",
+			Sections: []settingsSection{{Title: "Presence", Help: "Shown on this server's bot profile.", Fields: []fieldRender{
+				{Key: "presence_enabled", Label: "Custom presence", Type: "toggle", Value: "true"},
+				{Key: "presence_text", Label: "Activity text", Type: "text", Value: "with the fire", GuildScoped: true, GuildID: "1"},
+			}}},
+			DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{
+				{Key: "exec_mode", Label: "Command execution way", Type: "select", Value: "prefix", Options: []string{"prefix", "slash"}},
+			}},
+			ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{
+				{Key: "allow_dashboard_close", Label: "Allow closing from the dashboard", Type: "toggle", Value: "false", GuildScoped: true, GuildID: "1"},
+				{Key: "transcript_channel", Label: "Transcript channel", Type: "channel", Value: "c1", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
+				{Key: "welcome_message", Label: "Welcome message", Type: "textarea", Value: "hey {user}", GuildScoped: true, GuildID: "1"},
+				{Key: "max_open", Label: "Max open tickets", Type: "number", Value: "3", Min: "1", Max: "20", Step: "1", GuildScoped: true, GuildID: "1"},
+			}}},
+		}, true},
 	}
 
 	for _, p := range pages {

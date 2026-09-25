@@ -286,6 +286,52 @@
     });
   }
 
+  /* ---------- modules page: load/unload/reload ---------- */
+  document.querySelectorAll(".act[data-action]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var tr = btn.closest("tr");
+      var name = tr.dataset.module;
+      var action = btn.dataset.action;
+      btn.disabled = true;
+      api("POST", "/api/modules/" + encodeURIComponent(name) + "/" + action)
+        .then(function () {
+          toast(action + "ed " + name);
+          setTimeout(function () { location.reload(); }, 700);
+        })
+        .catch(function (e) {
+          toast(e.message, true);
+          btn.disabled = false;
+        });
+    });
+  });
+
+  /* ---------- module config save (WebConfigurable) ---------- */
+  document.querySelectorAll(".save-module").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var form = btn.closest("form");
+      if (!form) return;
+      var mod = form.dataset.module;
+      var tasks = collectFields(form);
+      btn.disabled = true;
+      var done = 0, failed = [];
+      var next = function (i) {
+        if (i >= tasks.length) {
+          btn.disabled = false;
+          if (failed.length === 0) {
+            toast(mod + " settings saved (" + done + ")" + (done < tasks.length ? " — " + (tasks.length - done) + " unchanged" : ""));
+          } else {
+            toast(mod + ": saved " + done + "/" + tasks.length + ", failed: " + failed.join(", "), true);
+          }
+          return;
+        }
+        api("POST", "/api/settings/module/" + encodeURIComponent(mod), tasks[i])
+          .then(function () { done++; next(i + 1); })
+          .catch(function () { failed.push(tasks[i].key); next(i + 1); });
+      };
+      next(0);
+    });
+  });
+
   /* ---------- tickets: close from list or transcript ---------- */
   document.querySelectorAll(".tk-close").forEach(function (btn) {
     btn.addEventListener("click", function () {

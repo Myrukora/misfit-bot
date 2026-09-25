@@ -53,6 +53,12 @@ type settingsPageData struct {
 	Sections      []settingsSection // core/global settings, grouped (nil for guild view)
 	DashboardSelf moduleConfigView
 	Modules       []moduleConfigView
+	// Redesign (rd_modules) additions: Manage switches the template to the
+	// owner-facing module management table fed by MgmtRows; ModulesView is
+	// the guild-view settings panels list (same shape as Modules).
+	Manage      bool
+	MgmtRows    []moduleView
+	ModulesView []moduleConfigView
 }
 
 // ── / (overview) ──────────────────────────────────────────────────────────
@@ -370,15 +376,15 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 		}
 		mv := m.buildModuleView(wc, name, us, level, guildID)
 		if len(mv.Fields) > 0 {
-			data.Modules = append(data.Modules, mv)
+			data.ModulesView = append(data.ModulesView, mv)
 		}
 	}
 	d := m.baseData(us)
-	d.Page = "guildmodules"
+	d.Page = "gmodules"
 	d.GuildID = guildID
 	d.GuildName = m.guildDisplayName(guildID, us)
 	d.Content = data
-	m.tmpl.render(w, "settings", d)
+	m.tmpl.render(w, "rd_modules", d)
 }
 
 // ── /guild/{id} ───────────────────────────────────────────────────────────
@@ -452,8 +458,9 @@ func (m *DashboardModule) handleModulesPage(w http.ResponseWriter, r *http.Reque
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
 	d := m.baseData(sessionOf(r))
-	d.Content = views
-	m.tmpl.render(w, "modules", d)
+	d.Page = "modules"
+	d.Content = settingsPageData{Manage: true, MgmtRows: views}
+	m.tmpl.render(w, "rd_modules", d)
 }
 
 // ── /settings?guild= ─────────────────────────────────────────────────────
