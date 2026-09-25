@@ -1186,6 +1186,41 @@ input[type="range"].cfg-field::-moz-range-thumb {
     cursor: pointer;
 }
 
+.login-brand img {
+    width: 150px;
+    height: auto;
+    border-radius: 12px;
+    margin: 0 auto 0px;
+    display: block;
+}
+
+/* First-run setup: same centered card, wider + left-aligned steps */
+.setup-card {
+    max-width: 640px;
+    text-align: left;
+    margin: 40px auto;
+}
+
+.setup-list {
+    margin: 16px 0 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    color: #d4d4d8;
+    font-size: 14px;
+    text-align: left;
+}
+
+.setup-list pre {
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 13px;
+}
+
 /* ================= TICKET TRANSCRIPT (standalone page) ================= */
 
 .transcript-page {

@@ -75,6 +75,10 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		// ── Redesign templates (rd_*) ──
 		{"rd_login", nil},
 		{"rd_login", nil}, // standalone variant also exercised via ShowSidebar=false below
+		{"rd_setup", map[string]string{
+			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111", "redirect_uri": "https://x.com/callback",
+			"listen": "127.0.0.1:8080", "prefix": "?",
+		}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Icon: "https://cdn/i.png"}, {ID: "2", Name: "Second"}}}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{}}},
 		{"rd_overview", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5, "gc_cycles": 2, "go_version": "go1.26.4"}, Modules: []string{"cleanup"}}},

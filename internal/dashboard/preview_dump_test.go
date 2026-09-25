@@ -42,6 +42,10 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		scoped  bool
 	}{
 		{"login.html", "", "rd_login", nil, false},
+		{"setup.html", "", "rd_setup", map[string]string{
+			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",
+			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080", "prefix": "?",
+		}, false},
 		{"servers.html", "servers", "rd_servers", map[string]any{"guilds": []guildPickerRow{
 			{ID: "1", Name: "Gaming HQ", Icon: ""},
 			{ID: "2", Name: "Art Server", Icon: ""},

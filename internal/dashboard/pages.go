@@ -90,7 +90,7 @@ func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 		"listen":       m.effectiveListen(),
 		"prefix":       m.bot.GetPrefix(),
 	}
-	m.tmpl.render(w, "setup", d)
+	m.tmpl.render(w, "rd_setup", d)
 }
 
 // ── /commands?guild=&raw= ──────────────────────────────────────────────────
