@@ -172,8 +172,6 @@ func pageTitle(page string) string {
 		return "Tickets"
 	case "gmodules":
 		return "Modules"
-	case "guild":
-		return "Server"
 	case "modules":
 		return "Modules"
 	case "settings":

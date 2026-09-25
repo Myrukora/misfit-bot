@@ -160,13 +160,16 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		guarded(w, r)
 		return
 	case "guild":
+		// Legacy pre-redesign per-server page: superseded by /g/<id>/…,
+		// kept only as a redirect so old links still land somewhere sensible.
 		if len(parts) < 2 {
 			http.NotFound(w, r)
 			return
 		}
-		id := parts[1]
 		if r.Method == "GET" {
-			m.requireGuild(id, func(w http.ResponseWriter, r *http.Request) { m.handleGuildPage(w, r, id) })(w, r)
+			m.requireGuild(parts[1], func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/g/"+parts[1]+"/commands", http.StatusSeeOther)
+			})(w, r)
 			return
 		}
 		methodNotAllowed(w)

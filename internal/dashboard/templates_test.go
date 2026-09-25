@@ -52,12 +52,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsContent["roles"] = []entityOpt{{ID: "r1", Name: "@everyone"}}
 	commandsContent["members"] = []entityOpt{{ID: "u1", Name: "sam"}}
 
-	guildContent := &guildDetail{
-		ID: "1", Name: "G", OwnerID: "2", MemberCount: 9,
-		Channels: []entityOpt{{ID: "c", Name: "general", Type: "Text"}},
-		Roles:    []roleOpt{{ID: "r", Name: "@everyone", Color: 0, Position: 0}}, BotPerms: "Administrator",
-	}
-
 	cases := []struct {
 		page    string
 		content any
@@ -70,7 +64,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"index", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5}, Modules: []string{}}},
 		{"commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
 		{"commands", commandsContent},
-		{"guild", guildContent},
 		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
 		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
 		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
@@ -303,7 +296,7 @@ func TestScopedSidebar(t *testing.T) {
 	if !strings.Contains(out, `guild-context-back`) {
 		t.Error("scoped sidebar missing back-to-servers link")
 	}
-	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`, `/guild/123`} {
+	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`} {
 		if !strings.Contains(out, link) {
 			t.Errorf("scoped sidebar missing %s link", link)
 		}
@@ -331,48 +324,6 @@ func TestScopedSidebar(t *testing.T) {
 	}
 	if !strings.Contains(out2, `href="/" class="nav-item`) {
 		t.Error("top-level page must keep the global Servers nav")
-	}
-}
-
-// TestGuildPageActiveNav pins the Server info nav state: on /guild/<id>
-// (Page "guild") the scoped sidebar's Server info link is active, and on
-// other scoped pages it is not.
-func TestGuildPageActiveNav(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	d := mkData(lvlOwner)
-	d.ShowSidebar = true
-	d.Page = "guild"
-	d.GuildID = "123"
-	d.GuildName = "My Server"
-	d.Content = &guildDetail{ID: "123", Name: "My Server", MemberCount: 5, OwnerID: "1", BotPerms: "ManageGuild"}
-	var sb strings.Builder
-	if err := b.render(&sb, "guild", d); err != nil {
-		t.Fatalf("render guild: %v", err)
-	}
-	out := sb.String()
-	if !strings.Contains(out, `href="/guild/123" class="nav-item active"`) {
-		t.Error("Server info link must be active on the guild page")
-	}
-	if !strings.Contains(out, `title="Server info" aria-current="page"`) {
-		t.Error("Server info link must carry aria-current on the guild page")
-	}
-
-	// On another scoped page the Server info link is not active.
-	d2 := mkData(lvlOwner)
-	d2.ShowSidebar = true
-	d2.Page = "commands"
-	d2.GuildID = "123"
-	d2.GuildName = "My Server"
-	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
-	var sb2 strings.Builder
-	if err := b.render(&sb2, "commands", d2); err != nil {
-		t.Fatalf("render commands (scoped): %v", err)
-	}
-	if strings.Contains(sb2.String(), `href="/guild/123" class="nav-item active"`) {
-		t.Error("Server info link must not be active on other scoped pages")
 	}
 }
 

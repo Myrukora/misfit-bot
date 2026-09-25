@@ -387,23 +387,6 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 	m.tmpl.render(w, "rd_modules", d)
 }
 
-// ── /guild/{id} ───────────────────────────────────────────────────────────
-
-func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request, id string) {
-	detail, err := m.buildGuildDetail(id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-	us := sessionOf(r)
-	d := m.baseData(us)
-	d.Page = "guild"
-	d.GuildID = id
-	d.GuildName = m.guildDisplayName(id, us)
-	d.Content = detail
-	m.tmpl.render(w, "guild", d)
-}
-
 // buildGuildDetail assembles a guild view from the cache. Shared by the page
 // and the /api/guild/{id} endpoint.
 func (m *DashboardModule) buildGuildDetail(id string) (*guildDetail, error) {
