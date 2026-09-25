@@ -1186,6 +1186,124 @@ input[type="range"].cfg-field::-moz-range-thumb {
     cursor: pointer;
 }
 
+/* ================= TICKET TRANSCRIPT (standalone page) ================= */
+
+.transcript-page {
+    background: #0d0d0d;
+    padding: 24px 12px;
+}
+
+.transcript-wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.msg-entry {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.msg-entry:last-child {
+    border-bottom: none;
+}
+
+.msg-avatar {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.msg-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.msg-head {
+    font-size: 14px;
+}
+
+.msg-time {
+    font-size: 0.85em;
+}
+
+.msg-body {
+    margin-top: 2px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #d4d4d8;
+}
+
+.msg-deleted {
+    text-decoration: line-through;
+    opacity: 0.55;
+}
+
+.msg-media {
+    max-width: min(420px, 100%);
+    border-radius: 8px;
+    margin-top: 8px;
+    display: block;
+    cursor: zoom-in;
+}
+
+.msg-media-wide {
+    max-width: min(480px, 100%);
+    cursor: default;
+}
+
+.msg-audio {
+    width: 100%;
+    max-width: 480px;
+    margin-top: 8px;
+    display: block;
+}
+
+.msg-attachment {
+    display: block;
+    margin-top: 4px;
+}
+
+.msg-sticker {
+    max-width: 160px;
+    margin-top: 6px;
+    display: block;
+    border-radius: 8px;
+}
+
+#lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 150;
+    cursor: zoom-out;
+    align-items: center;
+    justify-content: center;
+}
+
+#lightbox.open {
+    display: flex;
+}
+
+#lightbox img {
+    max-width: 95vw;
+    max-height: 95vh;
+    border-radius: 8px;
+}
+
 /* ================= DATA TABLES (tickets, modules) ================= */
 
 .tbl-wrap {

@@ -137,6 +137,23 @@ func TestPreviewDumpRedesign(t *testing.T) {
 				{Key: "max_open", Label: "Max open tickets", Type: "number", Value: "3", Min: "1", Max: "20", Step: "1", GuildScoped: true, GuildID: "1"},
 			}}},
 		}, true},
+		{"transcript.html", "transcript", "rd_transcript", struct {
+			Ticket   *modules.Ticket
+			GuildID  string
+			CloseURL string
+		}{
+			Ticket: &modules.Ticket{
+				ID: "support-0012", Type: "support", GuildID: "1", OpenerID: "111", ClaimerID: "9", Status: "open",
+				OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"333"},
+				Log: []modules.LogEntry{
+					{MsgID: "m1", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now().Add(-2 * time.Hour), Content: "My game **crashes**.",
+						Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/a.png", Kind: "image", Filename: "a.png"}}},
+					{MsgID: "m2", AuthorID: "9", AuthorName: "Sam", IsBot: false, Timestamp: time.Now().Add(-1 * time.Hour), Content: "Try a clean install.", Edited: true},
+					{MsgID: "m3", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now(), Content: "deleted msg", Deleted: true},
+				},
+			},
+			GuildID: "1",
+		}, false},
 	}
 
 	for _, p := range pages {

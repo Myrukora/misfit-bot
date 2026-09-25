@@ -341,7 +341,8 @@ func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	d := m.baseData(us)
-	d.Page = "tickets"
+	d.ShowSidebar = false // transcript is a standalone, printable page
+	d.Page = "transcript"
 	d.Level = level
 	d.Content = struct {
 		Ticket   any
@@ -349,5 +350,5 @@ func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Re
 		CloseURL string
 	}{Ticket: tk, GuildID: guildID,
 		CloseURL: "/api/tickets/" + url.PathEscape(guildID) + "/" + url.PathEscape(ticketID) + "/close"}
-	m.tmpl.render(w, "transcript", d)
+	m.tmpl.render(w, "rd_transcript", d)
 }

@@ -352,6 +352,27 @@
     });
   });
 
+  /* ---------- transcript page: image lightbox ---------- */
+  var lightbox = byId("lightbox");
+  if (lightbox && document.querySelector("img.zoomable")) {
+    var lightboxImg = byId("lightbox-img");
+    var closeLightbox = function () {
+      lightbox.classList.remove("open");
+      lightboxImg.removeAttribute("src");
+    };
+    document.querySelectorAll("img.zoomable").forEach(function (img) {
+      img.addEventListener("click", function () {
+        lightboxImg.src = img.src;
+        lightbox.classList.add("open");
+        lightbox.focus();
+      });
+    });
+    lightbox.addEventListener("click", closeLightbox);
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && lightbox.classList.contains("open")) closeLightbox();
+    });
+  }
+
   /* ---------- commands page: filter + tabs + run + gear ---------- */
   var cmdSearch = byId("cmd-search");
   if (cmdSearch) {

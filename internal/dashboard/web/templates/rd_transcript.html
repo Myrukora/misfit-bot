@@ -1,0 +1,69 @@
+{{define "rd_transcript"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{.CSRF}}">
+<title>{{.Bot}} — Ticket transcript</title>
+<link rel="stylesheet" href="/static/redesign/style.css">
+</head>
+<body class="transcript-page">
+  <main class="transcript-wrap">
+{{$t := .Content.Ticket}}
+    <section class="card">
+      <h2>Ticket <code>{{$t.ID}}</code></h2>
+      <p class="muted">Type: <strong>{{$t.Type}}</strong> · Opener: <code>{{$t.OpenerID}}</code>{{if $t.ClaimerID}} · Claimed by <code>{{$t.ClaimerID}}</code>{{end}} · Status: <strong>{{$t.Status}}</strong>{{if $t.Members}} · Members: {{range $m := $t.Members}}<code>{{$m}}</code> {{end}}{{end}}</p>
+      {{if eq $t.Status "open"}}
+      <button class="btn btn-small btn-danger tk-close" data-id="{{$t.ID}}" data-guild="{{$.Content.GuildID}}" data-closeurl="{{.Content.CloseURL}}">Close ticket</button>
+      {{else}}
+      <span class="tag">closed{{if not $t.ClosedAt.IsZero}} {{dateHuman $t.ClosedAt}}{{end}}</span>
+      {{end}}
+    </section>
+
+    <section class="card">
+      <h2>Conversation ({{len $t.Log}} entries)</h2>
+      {{if not $t.Log}}<p class="muted">No messages recorded.</p>{{end}}
+      {{$g := $.Content.GuildID}}
+      {{range $t.Log}}
+      <div class="msg-entry">
+        <div class="msg-avatar">{{if .AuthorName}}{{substrUpper .AuthorName 1}}{{else}}?{{end}}</div>
+        <div class="msg-main">
+          <div class="msg-head">
+            <strong{{if .Deleted}} class="msg-deleted"{{end}}>{{if .AuthorName}}{{.AuthorName}}{{else}}<code>{{.AuthorID}}</code>{{end}}</strong>
+            {{if .IsBot}}<span class="tag">BOT</span>{{end}}
+            · <span class="muted msg-time">{{dateHuman .Timestamp}}</span>
+            {{if .Edited}}<span class="muted msg-time">· edited</span>{{end}}
+            {{if .Deleted}}<span class="tag">deleted</span>{{end}}
+          </div>
+          {{if .Content}}<div class="msg-body{{if .Deleted}} msg-deleted{{end}}">{{.Content}}</div>{{end}}
+
+          {{range .Attachments}}
+            {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
+            {{if eq .Kind "image"}}
+              <a href="{{$src}}" target="_blank" rel="noopener"><img src="{{$src}}" alt="{{.Filename}}" loading="lazy" class="zoomable msg-media"></a>
+            {{else if eq .Kind "video"}}
+              <video controls preload="metadata" src="{{$src}}" class="msg-media msg-media-wide"></video>
+            {{else if eq .Kind "audio"}}
+              <audio controls preload="metadata" src="{{$src}}" class="msg-audio"></audio>
+            {{else}}
+              <a href="{{$src}}" target="_blank" rel="noopener" class="muted msg-attachment">📎 {{if .Filename}}{{.Filename}}{{else}}attachment{{end}}</a>
+            {{end}}
+          {{end}}
+
+          {{range .Stickers}}
+          <img src="{{.URL}}" alt="sticker {{.Filename}}" loading="lazy" class="msg-sticker">
+          {{end}}
+        </div>
+      </div>
+      {{end}}
+    </section>
+
+    <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
+      <img id="lightbox-img" alt="">
+    </div>
+    <p class="muted"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a></p>
+  </main>
+<script src="/static/redesign/app.js"></script>
+</body>
+</html>
+{{end}}

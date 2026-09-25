@@ -114,6 +114,14 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_modules", settingsPageData{Manage: true, MgmtRows: nil}},
 		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
 		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", Sections: []settingsSection{{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"}}}}, DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "s", Label: "S", Type: "secret", Value: ""}}}, ModulesView: nil}},
+		// Ticket transcript (redesign, standalone): open with close button.
+		{"rd_transcript", struct {
+			Ticket   *modules.Ticket
+			GuildID  string
+			CloseURL string
+		}{Ticket: &modules.Ticket{ID: "support-0001", Type: "support", OpenerID: "2", Status: "open",
+			Log: []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "opener", Content: "help"}},
+		}, GuildID: "1", CloseURL: "/api/tickets/1/support-0001/close"}},
 	}
 
 	for i, c := range cases {
@@ -563,5 +571,70 @@ func TestRedesignFieldEveryType(t *testing.T) {
 	}
 	if !strings.Contains(page.String(), "Dashboard (self-config)") {
 		t.Error("rd_modules page missing dashboard self-config section")
+	}
+}
+
+// TestRedesignTranscript pins the standalone transcript page: no sidebar
+// chrome, close affordance on open tickets, message log with attachments and
+// the lightbox container.
+func TestRedesignTranscript(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	tk := &modules.Ticket{
+		ID: "support-0007", Type: "support", GuildID: "1", OpenerID: "2", ClaimerID: "3", Status: "open",
+		OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"4"},
+		Log: []modules.LogEntry{
+			{MsgID: "m1", AuthorID: "2", AuthorName: "vixen", Content: "crashes",
+				Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/a.png", LocalPath: "files/a.png", Kind: "image", Filename: "a.png"}},
+				Stickers:    []modules.Media{{URL: "https://cdn.discordapp.com/s.png", Kind: "sticker", Filename: "s.png"}}},
+			{MsgID: "m2", AuthorID: "2", AuthorName: "vixen", Content: "gone", Deleted: true},
+		},
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = false
+	d.Page = "transcript"
+	d.Content = struct {
+		Ticket   *modules.Ticket
+		GuildID  string
+		CloseURL string
+	}{Ticket: tk, GuildID: "1", CloseURL: "/api/tickets/1/support-0007/close"}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_transcript", d); err != nil {
+		t.Fatalf("render rd_transcript: %v", err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`tk-close" data-id="support-0007" data-guild="1"`,
+		`/api/ticketfiles/1/support-0007/a.png`, // LocalPath mirroring on image attachments
+		`class="zoomable msg-media"`,
+		`id="lightbox"`,
+		`msg-deleted`, // deleted tombstone styling
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("transcript missing %q", want)
+		}
+	}
+	if strings.Contains(out, `class="sidebar"`) || strings.Contains(out, `class="app"`) {
+		t.Error("transcript must render standalone (no sidebar chrome)")
+	}
+	// The mirrored-file URL form only applies when LocalPath is set; CDN URLs
+	// must pass through untouched.
+	d2 := d
+	tk2 := *tk
+	tk2.Log = []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "v", Content: "x",
+		Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/b.png", Kind: "image", Filename: "b.png"}}}}
+	d2.Content = struct {
+		Ticket   *modules.Ticket
+		GuildID  string
+		CloseURL string
+	}{Ticket: &tk2, GuildID: "1", CloseURL: ""}
+	sb.Reset()
+	if err := b.render(&sb, "rd_transcript", d2); err != nil {
+		t.Fatalf("render rd_transcript (CDN): %v", err)
+	}
+	if !strings.Contains(sb.String(), `src="https://cdn.discordapp.com/b.png"`) {
+		t.Error("CDN attachment URL must be used as-is")
 	}
 }
