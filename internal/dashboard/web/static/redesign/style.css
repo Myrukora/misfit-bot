@@ -859,3 +859,328 @@ code {
     font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
     font-size: 13px;
 }
+
+/* ================= COMMANDS CATALOG ================= */
+
+/* Toolbar row above the grid: search + picker server + raw toggle */
+.toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.toolbar .field {
+    margin-top: 0;
+}
+
+.toolbar-search {
+    flex: 1;
+    min-width: 220px;
+}
+
+/* Per-module tabs (manageable viewers only) */
+.cmd-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cmd-tab {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #a1a1aa;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+
+.cmd-tab:hover {
+    color: white;
+}
+
+.cmd-tab.cmd-tab-active {
+    color: white;
+    border-bottom-color: white;
+    font-weight: 600;
+}
+
+/* Module group: one grid per module (tab-switchable) */
+.cmd-grid {
+    margin-top: 20px;
+}
+
+.grid-head h3 {
+    margin: 0 0 10px;
+}
+
+.cat {
+    margin-bottom: 14px;
+}
+
+.cat-name {
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+}
+
+/* One expandable command card */
+.cmd-card {
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.cmd-card summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    color: white;
+    font-weight: 600;
+    list-style: none;
+}
+
+.cmd-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.card-name small {
+    color: #a1a1aa;
+    font-weight: 400;
+}
+
+.usable {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
+.usable.yes {
+    color: #a1a1aa;
+}
+
+.usable.no {
+    color: #52525b;
+}
+
+.card-body {
+    padding: 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.card-body .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.lbl {
+    color: #a1a1aa;
+    flex-shrink: 0;
+}
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+/* ---------- Per-command config (gear) modal ---------- */
+
+.gear-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.gear-modal[hidden] {
+    display: none;
+}
+
+.gear-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.gear-panel {
+    position: relative;
+    width: min(560px, 100%);
+    max-height: 86vh;
+    overflow-y: auto;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+
+.gear-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gear-head h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.gear-close {
+    background: transparent;
+    border: none;
+    color: #a1a1aa;
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.gear-close:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.gear-body {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.gear-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.gear-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.gear-fields[hidden] {
+    display: none;
+}
+
+.gear-hint {
+    margin: 0;
+    font-size: 12px;
+}
+
+.gear-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 13px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Checkbox group (multi) shared by gear pickers and multi fields */
+.multi {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.multi-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #d4d4d8;
+    cursor: pointer;
+}
+
+/* ================= DATA TABLES (tickets, modules) ================= */
+
+.tbl-wrap {
+    margin-top: 16px;
+    overflow-x: auto;
+}
+
+.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.tbl th {
+    text-align: left;
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tbl td {
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #d4d4d8;
+    vertical-align: middle;
+}
+
+.tbl tr:last-child td {
+    border-bottom: none;
+}
+
+.tbl a {
+    color: white;
+    text-decoration: none;
+}
+
+.tbl a:hover {
+    text-decoration: underline;
+}
+
+.tag {
+    display: inline-block;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tag.ok {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.35);
+}

@@ -166,6 +166,12 @@ func pageTitle(page string) string {
 		return "Setup"
 	case "commands":
 		return "Commands"
+	case "gcommands":
+		return "Commands"
+	case "gtickets":
+		return "Tickets"
+	case "gmodules":
+		return "Modules"
 	case "guild":
 		return "Server"
 	case "modules":

@@ -289,6 +289,9 @@ func (m *DashboardModule) handleTicketsInGuild(w http.ResponseWriter, r *http.Re
 func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSession, level, guildID string, scoped bool) {
 	d := m.baseData(us)
 	d.Page = "tickets"
+	if scoped {
+		d.Page = "gtickets"
+	}
 	d.Level = level
 	if scoped {
 		d.GuildID = guildID
@@ -319,7 +322,7 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 		payload.Error = "tickets module is not loaded"
 	}
 	d.Content = payload
-	m.tmpl.render(w, "tickets", d)
+	m.tmpl.render(w, "rd_tickets", d)
 }
 
 func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Request, us *userSession, level string, guildID, ticketID string) {

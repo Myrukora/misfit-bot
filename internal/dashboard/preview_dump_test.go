@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misfit/bot/modules"
 )
@@ -35,19 +36,20 @@ func TestPreviewDumpRedesign(t *testing.T) {
 
 	pages := []struct {
 		name    string
-		page    string
+		page    string // renderData.Page (what the real handler sets)
+		tpl     string // template to render (rd_*)
 		content any
 		scoped  bool
 	}{
-		{"login.html", "rd_login", nil, false},
-		{"servers.html", "rd_servers", map[string]any{"guilds": []guildPickerRow{
+		{"login.html", "", "rd_login", nil, false},
+		{"servers.html", "servers", "rd_servers", map[string]any{"guilds": []guildPickerRow{
 			{ID: "1", Name: "Gaming HQ", Icon: ""},
 			{ID: "2", Name: "Art Server", Icon: ""},
 		}}, false},
-		{"overview.html", "rd_overview", metricsSnapshot{Runtime: map[string]any{
+		{"overview.html", "index", "rd_overview", metricsSnapshot{Runtime: map[string]any{
 			"alloc_mb": uint64(128), "goroutines": 14, "gc_cycles": 42, "go_version": "go1.26.4",
 		}, Modules: []string{"cleanup", "tickets", "imagefilter"}}, false},
-		{"config.html", "rd_admin", map[string]any{
+		{"config.html", "config", "rd_admin", map[string]any{
 			"sections": []settingsSection{{Title: "Bot", Help: "Identity", Fields: []fieldRender{
 				{Key: "prefix", Label: "Command prefix", Type: "text", Value: "!", Placeholder: "?"},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
@@ -55,21 +57,64 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			}}},
 			"variants": []string{"b32", "b16", "l14", "l14-336"}, "variant": "b32",
 		}, false},
-		{"permissions.html", "rd_permissions", map[string]any{
+		{"permissions.html", "permissions", "rd_permissions", map[string]any{
 			"elevated": []string{"111", "222"}, "owner_id": "9",
 			"names": map[string]string{"111": "Helper", "222": "Mod", "9": "Sam"},
 		}, false},
-		{"logs.html", "rd_logs", map[string]any{
+		{"logs.html", "logs", "rd_logs", map[string]any{
 			"path": "logs/bot.log", "note": "",
 			"lines": []string{`{"time":"2026-09-11T12:00:00Z","level":"INFO","msg":"bot started"}`, `{"time":"2026-09-11T12:01:00Z","level":"ERROR","msg":"rest failed"}`},
 		}, false},
-		{"imagefilter.html", "rd_imagefilter", map[string]any{
+		{"imagefilter.html", "imagefilter", "rd_imagefilter", map[string]any{
 			"admin": true, "guild": "1",
 			"config":   map[string]string{"enabled": "true", "threshold": "0.95", "punishment": "mute", "mute_duration": "600", "log_channel": "c1", "delete_on_none": "false"},
 			"images":   []string{"ref_a.png", "ref_b.png"},
 			"status":   modules.ImageFilterStatus{Warm: true, Variant: "b32", EnabledGuilds: 1},
 			"enabled":  true,
 			"channels": []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}},
+		}, true},
+		{"commands.html", "gcommands", "rd_commands", map[string]any{
+			"groups": []moduleGroup{
+				{Module: "core", Categories: []catGroup{{Name: "general", Commands: []cmdView{
+					{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usage: "ping", Usable: true, CanExec: true},
+					{Name: "ban", Description: "ban a member", Category: "moderation", ModuleOwner: "core", Kind: "prefix", Usage: "ban <user> [reason]", Usable: true, CanExec: true, RequiredPerm: "Ban Members"},
+					{Name: "owner-only-cmd", Description: "owner only", Category: "moderation", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, Usable: false},
+				}}}},
+				{Module: "cleanup", Categories: []catGroup{{Name: "cleanup", Commands: []cmdView{
+					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usage: "cleanup <n>", Usable: true, CanExec: true},
+				}}}},
+			},
+			"guild": "1", "selectedTab": "core", "count": 4, "mode": "prefix",
+			"canRaw": false, "canManage": true, "level": lvlOwner,
+			"guilds":   []guildOpt{{ID: "1", Name: "Gaming HQ"}},
+			"channels": []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}},
+			"roles":    []entityOpt{{ID: "r1", Name: "@everyone"}, {ID: "r2", Name: "Staff"}},
+		}, true},
+		{"tickets.html", "gtickets", "rd_tickets", map[string]any{
+			"GuildID": "1",
+			"Types": []struct{ Key, Label string }{
+				{Key: "support", Label: "Support"},
+				{Key: "report", Label: "Report a member"},
+			},
+			"Open": []struct {
+				ID, Type, OpenerID, ClaimerID string
+				OpenedAt                      time.Time
+			}{
+				{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour)},
+			},
+			"Closed": []struct {
+				ID, Type, OpenerID string
+				ClosedAt           time.Time
+			}{
+				{ID: "11", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour)},
+			},
+		}, true},
+		{"tickets-empty.html", "gtickets", "rd_tickets", map[string]any{
+			"GuildID": "1", "Types": []struct{ Key, Label string }{},
+			"Open": nil, "Closed": nil,
+		}, true},
+		{"tickets-error.html", "gtickets", "rd_tickets", map[string]any{
+			"GuildID": "", "Error": "tickets module is not loaded",
 		}, true},
 	}
 
@@ -82,8 +127,8 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}
 		d.Content = p.content
 		var sb strings.Builder
-		if err := b.render(&sb, p.page, d); err != nil {
-			t.Errorf("render %s: %v", p.page, err)
+		if err := b.render(&sb, p.tpl, d); err != nil {
+			t.Errorf("render %s: %v", p.tpl, err)
 			continue
 		}
 		if err := os.WriteFile(filepath.Join(out, p.name), []byte(sb.String()), 0o644); err != nil {

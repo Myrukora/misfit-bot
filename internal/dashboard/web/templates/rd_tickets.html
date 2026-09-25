@@ -1,0 +1,74 @@
+{{define "rd_tickets"}}{{template "rd_header" .}}
+        {{if .Content.Error}}
+        <section class="card"><p class="muted">{{.Content.Error}}</p></section>
+        {{else if .Content.GuildID}}
+        <section class="card">
+          <h2>Ticket types</h2>
+          {{if .Content.Types}}
+          <ul class="user-list">
+            {{range .Content.Types}}
+            <li class="user-row">
+              <div class="user-identity">
+                <span class="user-name">{{.Label}}</span>
+                <span class="user-id muted">{{.Key}}</span>
+              </div>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}
+          <p class="muted">No ticket types configured yet — run <code>tickets type add &lt;key&gt;</code> in Discord.</p>
+          {{end}}
+          <p class="muted" style="margin-top:12px">Manage panels with Discord commands (<code>tickets panel …</code>) — the dashboard mirrors their state here after your next visit.</p>
+        </section>
+
+        <section class="card">
+          <h2>Open tickets</h2>
+          {{if .Content.Open}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Claimed</th><th>Opened</th><th></th></tr></thead>
+              <tbody>
+                {{range .Content.Open}}
+                <tr data-guild="{{$.Content.GuildID}}">
+                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+                  <td>{{.Type}}</td>
+                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+                  <td>{{if .ClaimerID}}<code>{{.ClaimerID}}</code>{{else}}—{{end}}</td>
+                  <td title="{{.OpenedAt}}">{{dateHuman .OpenedAt}}</td>
+                  <td><button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$.Content.GuildID}}">Close</button></td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">No open tickets 🎉</p>
+          {{end}}
+        </section>
+
+        <section class="card">
+          <h2>Closed tickets (archive)</h2>
+          {{if .Content.Closed}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
+              <tbody>
+                {{range .Content.Closed}}
+                <tr>
+                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+                  <td>{{.Type}}</td>
+                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+                  <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">Nothing archived yet.</p>
+          {{end}}
+        </section>
+        {{else}}
+        <section class="card"><p class="muted">No manageable servers found.</p></section>
+        {{end}}
+{{template "rd_footer" .}}{{end}}

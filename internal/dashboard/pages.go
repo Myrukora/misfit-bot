@@ -134,7 +134,7 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	d.Content = content
-	m.tmpl.render(w, "commands", d)
+	m.tmpl.render(w, "rd_commands", d)
 }
 
 // manageableGuildList returns the guilds the user can manage as guildOpt rows,
@@ -322,7 +322,7 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 	level := m.resolveLevel(us)
 	views := m.filterCatalog(us, false, true, guildID)
 	d := m.baseData(us)
-	d.Page = "commands"
+	d.Page = "gcommands"
 	d.GuildID = guildID
 	d.GuildName = m.guildDisplayName(guildID, us)
 	content := map[string]any{
@@ -347,7 +347,7 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 		}
 	}
 	d.Content = content
-	m.tmpl.render(w, "commands", d)
+	m.tmpl.render(w, "rd_commands", d)
 }
 
 // renderGuildTickets renders the tickets list pinned to one guild (reuses the

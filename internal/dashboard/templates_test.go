@@ -3,6 +3,7 @@ package dashboard
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/misfit/bot/modules"
 )
@@ -105,6 +106,12 @@ func TestTemplatesParseAndRender(t *testing.T) {
 			"channels": []entityOpt{{ID: "c1", Name: "general"}},
 		}},
 		{"rd_imagefilter", map[string]any{"admin": false, "guild": "1", "config": map[string]string{}, "images": []string{}, "enabled": false}},
+		// Command catalog (redesign): empty + populated, global and scoped.
+		{"rd_commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
+		{"rd_commands", commandsContent},
+		// Tickets list (redesign): populated, empty and module-missing.
+		{"rd_tickets", map[string]any{"GuildID": "1", "Types": []struct{ Key, Label string }{{"support", "Support"}}, "Open": nil, "Closed": nil}},
+		{"rd_tickets", map[string]any{"GuildID": "", "Error": "tickets module is not loaded"}},
 	}
 
 	for i, c := range cases {
@@ -452,5 +459,85 @@ func TestCommandsRunAffordance(t *testing.T) {
 	}
 	if !strings.Contains(out, `data-guild="1"`) {
 		t.Error("Run affordance must carry the page's guild context")
+	}
+}
+
+// TestRedesignCommandsRunAffordance pins the same Run affordance contract on
+// the redesign commands template (rd_commands): usable commands get a Run
+// button carrying the page's guild; SuperOwnerOnly and locked ones never do.
+func TestRedesignCommandsRunAffordance(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	groups := []moduleGroup{{
+		Module: "core",
+		Categories: []catGroup{{Name: "general", Commands: []cmdView{
+			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, CanExec: true},
+			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
+			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
+		}}},
+	}}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = true
+	d.Page = "gcommands"
+	d.GuildID = "1"
+	d.GuildName = "My Server"
+	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 3, "canRaw": false, "canManage": true, "level": lvlOwner}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_commands", d); err != nil {
+		t.Fatalf("render rd_commands: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
+		t.Error("usable command missing Run affordance")
+	}
+	if strings.Contains(out, `run-cmd" data-name="secret"`) {
+		t.Error("SuperOwnerOnly command must never render a Run affordance")
+	}
+	if strings.Contains(out, `run-cmd" data-name="locked"`) {
+		t.Error("non-usable command must not render a Run affordance")
+	}
+	if !strings.Contains(out, `data-guild="1"`) {
+		t.Error("Run affordance must carry the page's guild context")
+	}
+}
+
+// TestRedesignTicketsCloseAffordance pins the Close button on open tickets of
+// the redesign tickets template: open tickets get a .tk-close carrying the
+// guild + ticket id; the archive never renders one.
+func TestRedesignTicketsCloseAffordance(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = true
+	d.Page = "gtickets"
+	d.GuildID = "1"
+	d.GuildName = "My Server"
+	now := time.Now()
+	d.Content = map[string]any{
+		"GuildID": "1",
+		"Types":   []struct{ Key, Label string }{{"support", "Support"}},
+		"Open": []struct {
+			ID, Type, OpenerID, ClaimerID string
+			OpenedAt                      time.Time
+		}{{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: now}},
+		"Closed": []struct {
+			ID, Type, OpenerID string
+			ClosedAt           time.Time
+		}{{ID: "11", Type: "report", OpenerID: "222", ClosedAt: now}},
+	}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_tickets", d); err != nil {
+		t.Fatalf("render rd_tickets: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `tk-close" data-id="12" data-guild="1"`) {
+		t.Error("open ticket missing Close affordance")
+	}
+	if strings.Count(out, "tk-close") != 1 {
+		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, "tk-close"))
 	}
 }
