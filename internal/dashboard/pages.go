@@ -52,10 +52,9 @@ type settingsPageData struct {
 	GuildName     string
 	Sections      []settingsSection // core/global settings, grouped (nil for guild view)
 	DashboardSelf moduleConfigView
-	Modules       []moduleConfigView
-	// Redesign (rd_modules) additions: Manage switches the template to the
+	// Redesign (rd_modules): Manage switches the template to the
 	// owner-facing module management table fed by MgmtRows; ModulesView is
-	// the guild-view settings panels list (same shape as Modules).
+	// the guild-view settings panels list.
 	Manage      bool
 	MgmtRows    []moduleView
 	ModulesView []moduleConfigView
@@ -444,77 +443,6 @@ func (m *DashboardModule) handleModulesPage(w http.ResponseWriter, r *http.Reque
 	d.Page = "modules"
 	d.Content = settingsPageData{Manage: true, MgmtRows: views}
 	m.tmpl.render(w, "rd_modules", d)
-}
-
-// ── /settings?guild= ─────────────────────────────────────────────────────
-
-func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	us := sessionOf(r)
-	if us == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	level := m.resolveLevel(us)
-	guildID := r.URL.Query().Get("guild")
-
-	// "all" is the explicit opt-out sentinel: the toolbar's "All servers"
-	// option navigates to ?guild=all, which means "no server selected"
-	// (raw-ID fields). Without any param, auto-select the first manageable
-	// server so the channel/role/user pickers have a context out of the box.
-	if guildID == "all" {
-		guildID = ""
-	} else if guildID == "" {
-		if mg := m.manageableGuildIDs(us); len(mg) > 0 {
-			guildID = mg[0]
-		}
-	}
-
-	if guildID != "" {
-		if !m.canManageGuild(us, guildID) {
-			http.Error(w, "403 Forbidden — you may not manage this guild", http.StatusForbidden)
-			return
-		}
-	} else if level != lvlOwner && level != lvlElevated {
-		// Regular (and even staff with no guild context) cannot see global config.
-		http.Error(w, "403 Forbidden", http.StatusForbidden)
-		return
-	}
-
-	data := settingsPageData{GuildID: guildID}
-	if guildID != "" {
-		if detail, err := m.buildGuildDetail(guildID); err == nil {
-			data.GuildName = detail.Name
-		}
-	}
-	// Core/global sections render for owner/elevated on every view; the
-	// selected server (if any) only powers the channel/role/user pickers.
-	if level == lvlOwner || level == lvlElevated {
-		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID, us)
-	}
-
-	// Dashboard self-config + module configs: global fields always (owner/
-	// elevated), guild-scoped fields merged in when a server is selected.
-	if wc, ok := m.webCfg("dashboard"); ok {
-		data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, guildID)
-	}
-
-	for _, name := range m.bot.GetLoadedModuleNames() {
-		if name == "dashboard" {
-			continue // handled separately above
-		}
-		wc, ok := m.webCfg(name)
-		if !ok {
-			continue
-		}
-		mv := m.buildModuleView(wc, name, us, level, guildID)
-		if len(mv.Fields) > 0 {
-			data.Modules = append(data.Modules, mv)
-		}
-	}
-
-	d := m.baseData(us)
-	d.Content = data
-	m.tmpl.render(w, "settings", d)
 }
 
 // ── core settings (schema-driven, grouped into sections) ────────────────

@@ -53,7 +53,7 @@ func TestResolveLogFilePath(t *testing.T) {
 }
 
 // TestTemplatesStandaloneLayout pins the login/setup standalone layout: no
-// sidebar/topbar (useless pre-auth), the card is centered by .app-standalone.
+// sidebar/topbar (useless pre-auth), and sidebar pages keep the chrome.
 func TestTemplatesStandaloneLayout(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -71,23 +71,25 @@ func TestTemplatesStandaloneLayout(t *testing.T) {
 		return sb.String()
 	}
 
-	login := render("login", false, nil)
+	login := render("rd_login", false, nil)
 	if strings.Contains(login, `class="sidebar"`) {
 		t.Error("login page renders the sidebar — remove it (pre-auth it is useless)")
 	}
 	if strings.Contains(login, `class="topbar"`) {
 		t.Error("login page renders the topbar — remove it")
 	}
-	if !strings.Contains(login, "app-standalone") {
-		t.Error("login page missing .app-standalone centering wrapper")
+	if !strings.Contains(login, `class="login-card"`) {
+		t.Error("login page missing the centered login card")
 	}
 
-	index := render("index", true, metricsSnapshot{Runtime: map[string]any{}, Modules: []string{}})
-	if !strings.Contains(index, `class="sidebar"`) {
-		t.Error("index page missing sidebar")
+	setup := render("rd_setup", false, map[string]string{"prefix": "?"})
+	if strings.Contains(setup, `class="sidebar"`) {
+		t.Error("setup page renders the sidebar — remove it (pre-auth it is useless)")
 	}
-	if strings.Contains(index, "app-standalone") {
-		t.Error("index page wrongly uses standalone layout")
+
+	overview := render("rd_overview", true, metricsSnapshot{Runtime: map[string]any{}, Modules: []string{}})
+	if !strings.Contains(overview, `class="sidebar"`) {
+		t.Error("overview page missing sidebar")
 	}
 }
 
@@ -107,7 +109,7 @@ func TestAdminRedirectsToRoot(t *testing.T) {
 	}
 }
 
-// TestCommandsRawSwitch pins the glass switch markup for the raw toggle.
+// TestCommandsRawSwitch pins the raw toggle on the redesign commands page.
 func TestCommandsRawSwitch(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -117,14 +119,14 @@ func TestCommandsRawSwitch(t *testing.T) {
 	d.ShowSidebar = true
 	d.Content = map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}
 	var sb strings.Builder
-	if err := b.render(&sb, "commands", d); err != nil {
-		t.Fatalf("render commands: %v", err)
+	if err := b.render(&sb, "rd_commands", d); err != nil {
+		t.Fatalf("render rd_commands: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `class="switch"`) || !strings.Contains(out, `id="cmd-raw"`) {
-		t.Error("raw toggle must be the glass .switch component with id cmd-raw")
+	if !strings.Contains(out, `class="toggle"`) || !strings.Contains(out, `id="cmd-raw"`) {
+		t.Error("raw toggle must be the redesign .toggle component with id cmd-raw")
 	}
-	if !strings.Contains(out, `class="track"`) || !strings.Contains(out, `class="knob"`) {
-		t.Error("switch missing track/knob")
+	if !strings.Contains(out, `class="toggle-track"`) {
+		t.Error("toggle missing track")
 	}
 }

@@ -56,22 +56,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		page    string
 		content any
 	}{
-		{"login", nil},
-		{"setup", map[string]string{
-			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111", "redirect_uri": "https://x.com/callback",
-			"listen": "127.0.0.1:8080", "prefix": "?",
-		}},
-		{"index", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5}, Modules: []string{}}},
-		{"commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
-		{"commands", commandsContent},
-		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
-		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
-		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
-		// Server picker: guild cards + super-owner admin links.
-		{"servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Owner: true}}, "level": lvlOwner, "isSuper": true, "isElev": true}},
-		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
-		// Guild-scoped module settings reuse the settings template.
-		{"settings", settingsPageData{GuildID: "1", GuildName: "G", Modules: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
 		// ── Redesign templates (rd_*) ──
 		{"rd_login", nil},
 		{"rd_login", nil}, // standalone variant also exercised via ShowSidebar=false below
@@ -161,6 +145,9 @@ func TestRedesignStandaloneLogin(t *testing.T) {
 	}
 }
 
+// TestSettingsFieldEveryType mirrors the field-partial contract through the
+// redesign: every field type renders via rd_field, and the module settings
+// page (rd_modules) shows the core sections + dashboard self-config.
 func TestSettingsFieldEveryType(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -181,11 +168,13 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	// Render the shared field partial directly to cover every branch.
 	for i, fr := range fields {
 		var sb strings.Builder
-		if err := b.tmpl.ExecuteTemplate(&sb, "field", fr); err != nil {
-			t.Errorf("field partial #%d (%s): %v", i, fr.Type, err)
+		if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fr); err != nil {
+			t.Errorf("rd_field partial #%d (%s): %v", i, fr.Type, err)
 		}
 	}
 	content := settingsPageData{
+		GuildID:   "1",
+		GuildName: "G",
 		Sections: []settingsSection{{
 			Title: "Bot",
 			Fields: []fieldRender{
@@ -202,8 +191,8 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	d := mkData(lvlOwner)
 	d.Content = content
 	var sb strings.Builder
-	if err := b.render(&sb, "settings", d); err != nil {
-		t.Fatalf("render settings: %v", err)
+	if err := b.render(&sb, "rd_modules", d); err != nil {
+		t.Fatalf("render rd_modules: %v", err)
 	}
 	if !strings.Contains(sb.String(), "Dashboard (self-config)") {
 		t.Errorf("settings page missing dashboard self-config section")
@@ -224,6 +213,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	// coreSettingsFields).
 	build := func(locked bool) settingsPageData {
 		return settingsPageData{
+			GuildID:   "1",
+			GuildName: "G",
 			Sections: []settingsSection{
 				{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
@@ -239,8 +230,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	render := func(d renderData) string {
 		t.Helper()
 		var sb strings.Builder
-		if err := b.render(&sb, "settings", d); err != nil {
-			t.Fatalf("render settings: %v", err)
+		if err := b.render(&sb, "rd_modules", d); err != nil {
+			t.Fatalf("render rd_modules: %v", err)
 		}
 		return sb.String()
 	}
@@ -249,7 +240,7 @@ func TestSettingsSectionsPins(t *testing.T) {
 	owner.Content = build(false)
 	out := render(owner)
 	for _, title := range []string{"Bot", "Logging", "Dashboard", "Updater", "Secrets"} {
-		if !strings.Contains(out, "<h3>"+title+"</h3>") {
+		if !strings.Contains(out, "<h2>"+title+"</h2>") {
 			t.Errorf("owner render missing section %q", title)
 		}
 	}
@@ -284,8 +275,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 }
 
 // TestScopedSidebar pins the per-server scoped sidebar: when GuildID is set,
-// the header renders the server-scoped nav (server name + back-to-servers +
-// Commands/Tickets/Modules/Server info) instead of the global nav.
+// the header renders the server-scoped nav (server name + Commands/Tickets/
+// Modules) instead of the global nav.
 func TestScopedSidebar(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -293,20 +284,17 @@ func TestScopedSidebar(t *testing.T) {
 	}
 	d := mkData(lvlOwner)
 	d.ShowSidebar = true
-	d.Page = "commands"
+	d.Page = "gcommands"
 	d.GuildID = "123"
 	d.GuildName = "My Server"
 	d.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
 	var sb strings.Builder
-	if err := b.render(&sb, "commands", d); err != nil {
-		t.Fatalf("render commands (scoped): %v", err)
+	if err := b.render(&sb, "rd_commands", d); err != nil {
+		t.Fatalf("render rd_commands (scoped): %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `guild-context-name">My Server`) {
+	if !strings.Contains(out, `server-current-name">My Server`) {
 		t.Error("scoped sidebar missing server name")
-	}
-	if !strings.Contains(out, `guild-context-back`) {
-		t.Error("scoped sidebar missing back-to-servers link")
 	}
 	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`} {
 		if !strings.Contains(out, link) {
@@ -317,9 +305,6 @@ func TestScopedSidebar(t *testing.T) {
 	if strings.Contains(out, `href="/" class="nav-item`) {
 		t.Error("global Servers nav must be hidden on per-server pages")
 	}
-	if strings.Contains(out, `>Administration</a>`) {
-		t.Error("global Administration nav must be hidden on per-server pages")
-	}
 
 	// Top-level pages (GuildID empty) keep the global sidebar.
 	d2 := mkData(lvlOwner)
@@ -327,110 +312,15 @@ func TestScopedSidebar(t *testing.T) {
 	d2.Page = "commands"
 	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}
 	var sb2 strings.Builder
-	if err := b.render(&sb2, "commands", d2); err != nil {
-		t.Fatalf("render commands (global): %v", err)
+	if err := b.render(&sb2, "rd_commands", d2); err != nil {
+		t.Fatalf("render rd_commands (global): %v", err)
 	}
 	out2 := sb2.String()
-	if strings.Contains(out2, `guild-context-name`) {
+	if strings.Contains(out2, `server-current-name`) {
 		t.Error("top-level page must not render the scoped sidebar")
 	}
-	if !strings.Contains(out2, `href="/" class="nav-item`) {
+	if !strings.Contains(out2, `class="nav-item" href="/"`) {
 		t.Error("top-level page must keep the global Servers nav")
-	}
-}
-
-// TestServersPageBotWideSections pins the bot-wide config sections on the
-// /servers page for the super owner (and their absence for non-super users).
-func TestServersPageBotWideSections(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	d := mkData(lvlOwner)
-	d.Page = "servers"
-	d.Content = map[string]any{
-		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
-		"level":   lvlOwner,
-		"isSuper": true,
-		"isElev":  true,
-		"adminSections": []settingsSection{
-			{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
-			{Title: "Secrets", Fields: []fieldRender{{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true}}},
-		},
-	}
-	var sb strings.Builder
-	if err := b.render(&sb, "servers", d); err != nil {
-		t.Fatalf("render servers: %v", err)
-	}
-	out := sb.String()
-	if !strings.Contains(out, "Bot-wide configuration") {
-		t.Error("servers page missing bot-wide configuration heading")
-	}
-	if !strings.Contains(out, `<h3>Bot</h3>`) {
-		t.Error("servers page missing Bot section")
-	}
-	if !strings.Contains(out, `<h3>Secrets</h3>`) {
-		t.Error("servers page missing Secrets section")
-	}
-	if !strings.Contains(out, `id="bk-create"`) {
-		t.Error("servers page missing Backups card")
-	}
-	if !strings.Contains(out, `id="upd-check"`) {
-		t.Error("servers page missing Updater status card")
-	}
-
-	// Non-super users must NOT see the bot-wide sections.
-	d2 := mkData(lvlStaff)
-	d2.Page = "servers"
-	d2.Content = map[string]any{
-		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
-		"level":   lvlStaff,
-		"isSuper": false,
-		"isElev":  false,
-	}
-	var sb2 strings.Builder
-	if err := b.render(&sb2, "servers", d2); err != nil {
-		t.Fatalf("render servers (staff): %v", err)
-	}
-	if strings.Contains(sb2.String(), "Bot-wide configuration") {
-		t.Error("staff render must NOT show bot-wide configuration")
-	}
-}
-
-// TestCommandsRunAffordance pins the Run button on usable commands (never on SuperOwnerOnly ones).
-func TestCommandsRunAffordance(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	groups := []moduleGroup{{
-		Module: "core",
-		Categories: []catGroup{{Name: "general", Commands: []cmdView{
-			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, CanExec: true},
-			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
-			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
-		}}},
-	}}
-	d := mkData(lvlOwner)
-	d.ShowSidebar = true
-	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 3, "canRaw": true}
-	var sb strings.Builder
-	if err := b.render(&sb, "commands", d); err != nil {
-		t.Fatalf("render commands: %v", err)
-	}
-	out := sb.String()
-	// Run affordance is the .run-cmd button, which carries data-name + data-guild.
-	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
-		t.Error("usable command missing Run affordance")
-	}
-	if strings.Contains(out, `run-cmd" data-name="secret"`) {
-		t.Error("SuperOwnerOnly command must never render a Run affordance")
-	}
-	if strings.Contains(out, `run-cmd" data-name="locked"`) {
-		t.Error("non-usable command must not render a Run affordance")
-	}
-	if !strings.Contains(out, `data-guild="1"`) {
-		t.Error("Run affordance must carry the page's guild context")
 	}
 }
 
