@@ -468,6 +468,76 @@ func TestRedesignFieldEveryType(t *testing.T) {
 	}
 }
 
+// TestRedesignImageFilterControls pins the two dashboard controls whose
+// rendering bug made the panel unusable/lie to the user:
+//   - the CLIP variant <select> must be populated and preselect the active
+//     variant (an empty select made "Switch variant" a silent no-op);
+//   - delete_on_none is a string in config, so it must compare against "true"
+//     (plain truthiness rendered the box checked whenever the setting was off).
+func TestRedesignImageFilterControls(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+
+	d := mkData(lvlOwner)
+	d.Page = "config"
+	d.Content = map[string]any{"sections": []settingsSection(nil), "variants": []string{"b32", "b16", "l14"}, "variant": "b16"}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_admin", d); err != nil {
+		t.Fatalf("render rd_admin: %v", err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`<option value="b32" >b32</option>`,
+		`<option value="b16" selected>b16</option>`,
+		`<option value="l14" >l14</option>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("clip variant select missing %q (body: %s)", want, out)
+		}
+	}
+
+	filterContent := func(deleteOnNone string) map[string]any {
+		return map[string]any{
+			"admin": true, "guild": "1", "enabled": true, "images": []string{},
+			"config": map[string]string{"delete_on_none": deleteOnNone, "mute_duration": "600"},
+		}
+	}
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"false", false},
+		{"true", true},
+		{"", false},
+	} {
+		fd := mkData(lvlOwner)
+		fd.Page = "imagefilter"
+		fd.Content = filterContent(tc.value)
+		sb.Reset()
+		if err := b.render(&sb, "rd_imagefilter", fd); err != nil {
+			t.Fatalf("render rd_imagefilter(%q): %v", tc.value, err)
+		}
+		checked := strings.Contains(sb.String(), `id="if-delete-on-none" checked`)
+		if checked != tc.want {
+			t.Errorf("delete_on_none=%q rendered checked=%v, want %v", tc.value, checked, tc.want)
+		}
+	}
+
+	// P2: the mute duration must accept any positive number of seconds.
+	fd := mkData(lvlOwner)
+	fd.Page = "imagefilter"
+	fd.Content = filterContent("false")
+	sb.Reset()
+	if err := b.render(&sb, "rd_imagefilter", fd); err != nil {
+		t.Fatalf("render rd_imagefilter: %v", err)
+	}
+	if !strings.Contains(sb.String(), `min="1" step="1"`) {
+		t.Error("mute duration input must accept any positive second (min=1)")
+	}
+}
+
 // TestRedesignTranscript pins the standalone transcript page: no sidebar
 // chrome, close affordance on open tickets, message log with attachments and
 // the lightbox container.

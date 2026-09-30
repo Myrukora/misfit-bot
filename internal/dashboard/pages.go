@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/internal/logutil"
 	"github.com/misfit/bot/modules"
 )
 
@@ -665,7 +666,7 @@ func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.R
 
 func (m *DashboardModule) handleLogsPage(w http.ResponseWriter, r *http.Request) {
 	path := m.logFilePath()
-	lines, err := tailLines(path, 200)
+	lines, err := logutil.TailLines(path, 200)
 	note := ""
 	if err != nil {
 		lines, note = nil, "no log file yet — is file logging enabled? (logging.enabled)"

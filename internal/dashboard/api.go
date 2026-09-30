@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -337,6 +338,8 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"updater_interval":       m.cfgValue(cfg, "updater", "check_interval"),
 		"updater_auto_pull":      m.cfgValue(cfg, "updater", "auto_pull"),
 		"updater_notify_channel": m.cfgValue(cfg, "updater", "notify_channel"),
+		"mcp_enabled":            m.cfgValue(cfg, "mcp", "enabled"),
+		"mcp_token":              redactedIfSet(m.cfgValue(cfg, "mcp", "token")),
 	}
 }
 
@@ -401,6 +404,31 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	owner := m.resolveLevel(sessionOf(r)) == lvlOwner
+	results := map[string]string{}
+	anyErr := false
+	for k, v := range body {
+		status, err := m.setCoreSetting(owner, k, v)
+		if err != nil {
+			results[k] = err.Error()
+			anyErr = true
+			continue
+		}
+		results[k] = status
+		if status == "unknown key" {
+			anyErr = true
+		}
+	}
+	if anyErr {
+		writeJSON(w, http.StatusUnprocessableEntity, results)
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+// setCoreSetting writes one core config key with the web page's allowlist
+// and live side-effects. owner=true skips the owner-only secret gate.
+func (m *DashboardModule) setCoreSetting(owner bool, key, value string) (string, error) {
 	allowed := map[string]bool{
 		"prefix": true, "owner_id": true,
 		"tos_url": true, "privacy_url": true, "status": true,
@@ -409,7 +437,8 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
 		"updater_token": true, "updater_interval": true, "updater_auto_pull": true,
 		"updater_notify_channel": true,
-		"token":                  true, "oauth_client_secret": true,
+		"mcp_enabled":            true,
+		"token":                  true, "oauth_client_secret": true, "mcp_token": true,
 	}
 	// Secrets and ownership are owner-only. Elevated users may still save their
 	// allowed keys in the same batch; owner-only keys are simply never written
@@ -418,54 +447,53 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 	// ownership to themselves and escalate.
 	ownerOnly := map[string]bool{
 		"token": true, "updater_token": true, "oauth_client_secret": true, "owner_id": true,
+		"mcp_token": true,
 	}
-	owner := m.resolveLevel(sessionOf(r)) == lvlOwner
-	results := map[string]string{}
-	anyErr := false
-	for k, v := range body {
-		if !allowed[k] {
-			results[k] = "unknown key"
-			anyErr = true
-			continue
-		}
-		if ownerOnly[k] && !owner {
-			results[k] = "skipped (owner only)"
-			continue
-		}
-		// Secrets come back redacted as "••••••••" and the UI leaves blank
-		// secrets untouched — never persist the redaction marker or an empty
-		// value as the real secret.
-		if (k == "token" || k == "updater_token" || k == "oauth_client_secret") &&
-			(v == "" || v == redactedIfSet(v)) {
-			results[k] = "unchanged"
-			continue
-		}
-		if err := m.bot.SetConfig(k, v); err != nil {
-			results[k] = err.Error()
-			anyErr = true
-			continue
-		}
-		results[k] = "ok"
-		// Live side-effects for dashboard-affecting keys: rebind the listener
-		// when the bind address / public URL change, rebuild the OAuth client
-		// when the shared client secret changes.
-		switch k {
-		case "dashboard_listen", "dashboard_public_url":
-			m.rebindSoon(k)
-		case "oauth_client_secret":
-			m.refreshOAuth()
-			m.sessions.clear() // invalidate existing sessions (secret changed)
-		case "status":
-			// Apply the new presence status live so it takes effect immediately
-			// rather than waiting for the next restart.
-			m.applyPresenceFromConfig()
-		}
+	if !allowed[key] {
+		return "unknown key", nil
 	}
-	if anyErr {
-		writeJSON(w, http.StatusUnprocessableEntity, results)
-		return
+	if ownerOnly[key] && !owner {
+		return "skipped (owner only)", nil
 	}
-	writeJSON(w, http.StatusOK, results)
+	// Secrets come back redacted as "••••••••" and the UI leaves blank
+	// secrets untouched — never persist the redaction marker or an empty
+	// value as the real secret.
+	if (key == "token" || key == "updater_token" || key == "oauth_client_secret" || key == "mcp_token") &&
+		(value == "" || value == redactedIfSet(value)) {
+		return "unchanged", nil
+	}
+	if err := m.bot.SetConfig(key, value); err != nil {
+		return "", err
+	}
+	// Live side-effects for dashboard-affecting keys: rebind the listener
+	// when the bind address / public URL change, rebuild the OAuth client
+	// when the shared client secret changes.
+	switch key {
+	case "dashboard_listen", "dashboard_public_url":
+		m.rebindSoon(key)
+	case "oauth_client_secret":
+		m.refreshOAuth()
+		m.sessions.clear() // invalidate existing sessions (secret changed)
+	case "status":
+		// Apply the new presence status live so it takes effect immediately
+		// rather than waiting for the next restart.
+		m.applyPresenceFromConfig()
+	}
+	return "ok", nil
+}
+
+// ApplyCoreSetting writes one core config key with full owner trust (the
+// MCP server authenticates clients by bearer token): all allowlisted keys
+// including secrets, same live side-effects as the web settings page.
+func (m *DashboardModule) ApplyCoreSetting(key, value string) error {
+	status, err := m.setCoreSetting(true, key, value)
+	if err != nil {
+		return err
+	}
+	if status == "unknown key" {
+		return fmt.Errorf("unknown config key: %s", key)
+	}
+	return nil
 }
 
 // applyPresenceFromConfig reads the persisted bot.status from config.yml and

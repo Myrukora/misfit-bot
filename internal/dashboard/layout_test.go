@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/misfit/bot/internal/logutil"
 )
 
 // TestResolveLogFilePath covers the daily-rotating log resolution: the logger
@@ -27,7 +29,7 @@ func TestResolveLogFilePath(t *testing.T) {
 	write("bot-2026-08-06.log", "")
 	write("bot-2026-08-05.log", "yesterday\nline2\n")
 
-	if got := resolveLogFilePath(dir, "bot"); got != filepath.Join(dir, "bot-2026-08-05.log") {
+	if got := logutil.ResolvePath(dir, "bot"); got != filepath.Join(dir, "bot-2026-08-05.log") {
 		t.Errorf("newest non-empty daily = %q, want bot-2026-08-05.log", got)
 	}
 
@@ -41,13 +43,13 @@ func TestResolveLogFilePath(t *testing.T) {
 	}
 	write2("bot-2026-08-01.log")
 	write2("bot-2026-08-02.log")
-	if got := resolveLogFilePath(dir2, "bot"); got != filepath.Join(dir2, "bot-2026-08-02.log") {
+	if got := logutil.ResolvePath(dir2, "bot"); got != filepath.Join(dir2, "bot-2026-08-02.log") {
 		t.Errorf("all-empty dailies = %q, want newest dated file", got)
 	}
 
 	// No daily files at all → legacy plain path.
 	dir3 := t.TempDir()
-	if got := resolveLogFilePath(dir3, "bot"); got != filepath.Join(dir3, "bot.log") {
+	if got := logutil.ResolvePath(dir3, "bot"); got != filepath.Join(dir3, "bot.log") {
 		t.Errorf("no dailies = %q, want legacy bot.log", got)
 	}
 }

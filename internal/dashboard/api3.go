@@ -100,8 +100,16 @@ func (m *DashboardModule) routeImageFilterAPI(w http.ResponseWriter, r *http.Req
 		}
 
 	// ── Guild-scoped: /api/guilds/<gid>/imagefilter[/...] ────────────────────
-	case parts[0] == "guild" && len(parts) >= 3 && parts[2] == "imagefilter":
+	case parts[0] == "guilds" && len(parts) >= 3 && parts[2] == "imagefilter":
 		gid := parts[1]
+		// Validate the guild id BEFORE any filesystem access: the module
+		// builds <dataDir>/spam_images/<gid>/ from it, so ".", "..", "null"
+		// (which Parse accepts as 0) or anything with a separator must be
+		// refused here rather than reaching the module.
+		if !validGuildID(gid) {
+			writeError(w, http.StatusBadRequest, "invalid guild id")
+			return
+		}
 		adm, ok := m.imageFilterAdmin()
 		if !ok {
 			writeError(w, http.StatusNotFound, "imagefilter module not loaded")
@@ -161,8 +169,10 @@ func (m *DashboardModule) routeImageFilterAPI(w http.ResponseWriter, r *http.Req
 			}
 			m.apiImageFilterAddImages(w, r, adm, gid)
 
-		case meth == "GET" && sub == "raw" && len(parts) == 5:
+		case meth == "GET" && sub == "raw" && len(parts) == 4:
 			// Gallery thumbnails: /api/guilds/<gid>/imagefilter/raw?name=<file>
+			// (len 4: guilds, gid, imagefilter, raw). The name travels in the
+			// query string, not as a path segment.
 			// Same-orientation guard as DELETE: staff managing this guild
 			// (checked above), name via filepath.Base.
 			name := filepath.Base(r.URL.Query().Get("name"))
@@ -285,8 +295,23 @@ func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http
 	}
 }
 
-// maxImageUploadBytes is the per-file read cap (mirrors the module's 50 MiB).
+// maxImageFilterBytes is the per-file read cap (mirrors the module's 50 MiB).
 const maxImageFilterBytes = 50 * 1024 * 1024
+
+// validGuildID mirrors the module's own directory-name rule: a Discord
+// snowflake is digits only and non-zero. "null" must be rejected explicitly
+// because snowflake.Parse maps it to (0, nil).
+func validGuildID(gid string) bool {
+	if gid == "" || gid == "0" {
+		return false
+	}
+	for _, r := range gid {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 // readAll reads the request body with a 1 MiB cap (config/enable JSON bodies).
 func readAll(r *http.Request) []byte {

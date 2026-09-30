@@ -38,7 +38,7 @@
             </div>
             <div class="field" id="if-mute-row" {{if ne (index .Content.config "punishment") "mute"}}hidden{{end}}>
               <label class="field-label">Timeout duration (seconds)</label>
-              <input class="field-input" type="number" id="if-mute-duration" min="10" step="10" value="{{index .Content.config "mute_duration"}}">
+              <input class="field-input" type="number" id="if-mute-duration" min="1" step="1" value="{{index .Content.config "mute_duration"}}">
             </div>
             <div class="field">
               <label class="field-label">Log channel</label>
@@ -52,7 +52,7 @@
             </div>
           </div>
           <label class="toggle">
-            <input type="checkbox" id="if-delete-on-none" {{if index .Content.config "delete_on_none"}}checked{{end}}>
+            <input type="checkbox" id="if-delete-on-none" {{if eq (index .Content.config "delete_on_none") "true"}}checked{{end}}>
             <span class="toggle-track"></span>
             <span class="toggle-label">Delete the message even when punishment is none</span>
           </label>

@@ -352,6 +352,105 @@
     });
   });
 
+  /* ---------- tickets: panels table (actions + question editor) ---------- */
+  var panelsCard = byId("tickets-panels");
+  if (panelsCard) {
+    var panelsGuild = panelsCard.dataset.guild || "";
+    var panelURL = function (name, action) {
+      return "/api/tickets/" + encodeURIComponent(panelsGuild) +
+        "/panels/" + encodeURIComponent(name) + "/" + action;
+    };
+    var panelMsg = byId("tickets-panels-msg");
+    var panelError = function (text) {
+      if (!panelMsg) { toast(text, true); return; }
+      panelMsg.textContent = text;
+      panelMsg.hidden = false;
+    };
+    var panelOK = function (text) {
+      if (panelMsg) { panelMsg.textContent = text; panelMsg.hidden = false; }
+      toast(text);
+      setTimeout(function () { location.reload(); }, 700);
+    };
+
+    document.querySelectorAll(".tk-panel-action").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.dataset.name, action = btn.dataset.action;
+        if (action === "resend" && !confirm("Post panel '" + name + "' again?")) return;
+        btn.disabled = true;
+        api("POST", panelURL(name, action), {})
+          .then(function () { panelOK("Panel " + name + " " + action + "ed"); })
+          .catch(function (e) { panelError(name + ": " + e.message); btn.disabled = false; });
+      });
+    });
+
+    /* Question editor: toggle, add/remove rows (max 5), save. */
+    var syncQAdd = function (editor) {
+      var add = editor.querySelector(".tk-qadd");
+      var rows = editor.querySelectorAll(".tk-qrow");
+      if (add) add.disabled = rows.length >= 5;
+      rows.forEach(function (row) {
+        var rm = row.querySelector(".tk-qremove");
+        if (rm) rm.disabled = rows.length <= 1;
+      });
+    };
+    var bindQRow = function (editor, row) {
+      var rm = row.querySelector(".tk-qremove");
+      if (!rm) return;
+      rm.addEventListener("click", function () {
+        row.remove();
+        syncQAdd(editor);
+      });
+    };
+    document.querySelectorAll(".tk-qeditor").forEach(function (editor) {
+      var toggleBtn = editor.closest("tr").previousElementSibling.querySelector(".tk-qtoggle");
+      editor.querySelectorAll(".tk-qrow").forEach(function (row) { bindQRow(editor, row); });
+      syncQAdd(editor);
+      if (toggleBtn) {
+        toggleBtn.addEventListener("click", function () {
+          editor.hidden = !editor.hidden;
+          if (!editor.hidden) {
+            var first = editor.querySelector(".tk-q-label");
+            if (first) first.focus();
+          }
+        });
+      }
+      var addBtn = editor.querySelector(".tk-qadd");
+      var tpl = byId("tk-qrow-tpl");
+      if (addBtn && tpl) {
+        addBtn.addEventListener("click", function () {
+          var rows = editor.querySelector(".tk-qrows");
+          if (!rows || rows.querySelectorAll(".tk-qrow").length >= 5) return;
+          var row = tpl.content.firstElementChild.cloneNode(true);
+          rows.appendChild(row);
+          bindQRow(editor, row);
+          syncQAdd(editor);
+        });
+      }
+      var saveBtn = editor.querySelector(".tk-qsave");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", function () {
+          var questions = [];
+          editor.querySelectorAll(".tk-qrow").forEach(function (row) {
+            var label = (row.querySelector(".tk-q-label") || {}).value || "";
+            label = label.trim();
+            if (!label) return;
+            questions.push({
+              label: label,
+              style: (row.querySelector(".tk-q-style") || {}).value || "short",
+              required: !!(row.querySelector(".tk-q-required") || {}).checked,
+              placeholder: ((row.querySelector(".tk-q-placeholder") || {}).value || "").trim(),
+              value: ((row.querySelector(".tk-q-value") || {}).value || "").trim()
+            });
+          });
+          saveBtn.disabled = true;
+          api("POST", panelURL(editor.dataset.name, "questions"), { questions: questions })
+            .then(function () { panelOK("Questions saved for " + editor.dataset.name); })
+            .catch(function (e) { panelError(editor.dataset.name + ": " + e.message); saveBtn.disabled = false; });
+        });
+      }
+    });
+  }
+
   /* ---------- transcript page: image lightbox ---------- */
   var lightbox = byId("lightbox");
   if (lightbox && document.querySelector("img.zoomable")) {

@@ -80,6 +80,7 @@ var tmplFuncs = template.FuncMap{
 	"dateHuman":    dateHuman,
 	"substrUpper":  substrUpper,
 	"fileBase":     fileBase,
+	"hasSuffix":    strings.HasSuffix,
 	"versionLabel": versionLabel,
 }
 

@@ -35,7 +35,9 @@
           <p class="muted">Bot-wide CLIP variant. Switching closes the loaded model, wipes cached embeddings and reloads if any server uses the filter.</p>
           <div class="field" style="max-width:320px">
             <label class="field-label">Variant</label>
-            <select class="field-input" id="clip-variant"></select>
+            <select class="field-input" id="clip-variant">
+              {{range .Content.variants}}<option value="{{.}}" {{if eq . $.Content.variant}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
           </div>
           <button class="btn btn-primary" id="clip-variant-save">Switch variant</button>
         </section>

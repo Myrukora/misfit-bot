@@ -16,7 +16,7 @@
       {{if eq $t.Status "open"}}
       <button class="btn btn-small btn-danger tk-close" data-id="{{$t.ID}}" data-guild="{{$.Content.GuildID}}" data-closeurl="{{.Content.CloseURL}}">Close ticket</button>
       {{else}}
-      <span class="tag">closed{{if not $t.ClosedAt.IsZero}} {{dateHuman $t.ClosedAt}}{{end}}</span>
+      <span class="tag">closed{{if eq $t.CloseReason "channel_deleted"}} · channel deleted{{end}}{{if not $t.ClosedAt.IsZero}} {{dateHuman $t.ClosedAt}}{{end}}</span>
       {{end}}
     </section>
 
@@ -25,6 +25,7 @@
       {{if not $t.Log}}<p class="muted">No messages recorded.</p>{{end}}
       {{$g := $.Content.GuildID}}
       {{range $t.Log}}
+      {{$entry := .}}
       <div class="msg-entry">
         <div class="msg-avatar">{{if .AuthorName}}{{substrUpper .AuthorName 1}}{{else}}?{{end}}</div>
         <div class="msg-main">
@@ -51,7 +52,29 @@
           {{end}}
 
           {{range .Stickers}}
-          <img src="{{.URL}}" alt="sticker {{.Filename}}" loading="lazy" class="msg-sticker">
+            {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
+            {{$fb := $src | fileBase}}
+            {{if or (hasSuffix $fb ".png") (hasSuffix $fb ".gif")}}
+              <a href="{{$src}}" target="_blank" rel="noopener"><img src="{{$src}}" alt="sticker {{.Filename}}" loading="lazy" class="msg-sticker"></a>
+            {{else}}
+              <a href="{{$src}}" target="_blank" rel="noopener" class="muted msg-attachment">🎫 {{if .Filename}}{{.Filename}}{{else}}sticker{{end}}</a>
+            {{end}}
+          {{end}}
+
+          {{range $emb := .Embeds}}
+            {{$esrc := $emb.URL}}{{if $emb.LocalPath}}{{$esrc = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID ($emb.LocalPath | fileBase)}}{{end}}
+            {{$dup := false}}{{if eq $emb.Kind "link"}}{{range $entry.Attachments}}{{if and .URL (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{range $entry.Stickers}}{{if and .URL (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{range $entry.Embeds}}{{if and .URL (ne .Kind "link") (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{end}}
+            {{if not $dup}}
+            {{if eq $emb.Kind "image"}}
+              <a href="{{$esrc}}" target="_blank" rel="noopener"><img src="{{$esrc}}" alt="{{$emb.Filename}}" loading="lazy" class="zoomable msg-media"></a>
+            {{else if eq $emb.Kind "video"}}
+              <video controls preload="metadata" src="{{$esrc}}" class="msg-media msg-media-wide"></video>
+            {{else if eq $emb.Kind "audio"}}
+              <audio controls preload="metadata" src="{{$esrc}}" class="msg-audio"></audio>
+            {{else}}
+              <a href="{{$esrc}}" target="_blank" rel="noopener" class="muted msg-attachment">🔗 {{if $emb.Filename}}{{$emb.Filename}}{{else}}link{{end}}</a>
+            {{end}}
+            {{end}}
           {{end}}
         </div>
       </div>
@@ -61,7 +84,7 @@
     <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
       <img id="lightbox-img" alt="">
     </div>
-    <p class="muted"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a></p>
+    <p class="muted"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a> <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a></p>
   </main>
 <script src="/static/redesign/app.js"></script>
 </body>

@@ -1,27 +1,31 @@
 package dashboard
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/misfit/bot/modules"
 )
 
-// tickets.go — dashboard ↔ tickets module integration (v2).
+// tickets.go — dashboard ↔ tickets module integration (v3).
 //
-// Provider resolution: the dashboard never imports the tickets plugin; it
-// resolves modules.TicketProvider through the manager by name.
+// Provider resolution: the dashboard never imports the tickets builtin; it
+// resolves modules.TicketProvider / modules.TicketAdmin through the manager by
+// name.
 //
 // Routes:
 //
 //	GET  /tickets                                  page: panels + open list
 //	GET  /tickets/<guild>/<ticket>                 transcript viewer
 //	GET  /api/tickets?guild=<id>&scope=open|closed JSON lists
-//	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend|remove
-//	POST /api/tickets/<guild>/<ticket>/close       same path as in-chat close
+//	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend
+//	POST /api/tickets/<guild>/panels/<name>/questions   replace the open-time form
+// POST /api/tickets/<guild>/<ticket>/close       same path as in-chat close
+// GET  /api/tickets/<guild>/<ticket>/transcript  regenerate + download
+//	GET  /api/ticketfiles/<guild>/<ticket>/<name>  mirrored attachment bytes
 
 func (m *DashboardModule) ticketProvider() (modules.TicketProvider, bool) {
 	if m.bot == nil {
@@ -39,6 +43,47 @@ func (m *DashboardModule) ticketProvider() (modules.TicketProvider, bool) {
 	}
 	tp, ok := mod.(modules.TicketProvider)
 	return tp, ok
+}
+
+// ticketAdmin resolves the OPTIONAL modules.TicketAdmin (panel questions
+// surface). A module that does not implement it simply has no panel surface.
+func (m *DashboardModule) ticketAdmin() (modules.TicketAdmin, bool) {
+	if m.bot == nil {
+		return nil, false
+	}
+	getter, ok := m.bot.GetModuleManager().(interface {
+		Get(string) (modules.Module, bool)
+	})
+	if !ok {
+		return nil, false
+	}
+	mod, ok := getter.Get("tickets")
+	if !ok {
+		return nil, false
+	}
+	adm, ok := mod.(modules.TicketAdmin)
+	return adm, ok
+}
+
+// ticketTranscript resolves the OPTIONAL modules.TicketTranscript (the
+// transcript download surface). A module that does not implement it has no
+// transcript download: the route answers 404.
+func (m *DashboardModule) ticketTranscript() (modules.TicketTranscript, bool) {
+	if m.bot == nil {
+		return nil, false
+	}
+	getter, ok := m.bot.GetModuleManager().(interface {
+		Get(string) (modules.Module, bool)
+	})
+	if !ok {
+		return nil, false
+	}
+	mod, ok := getter.Get("tickets")
+	if !ok {
+		return nil, false
+	}
+	tt, ok := mod.(modules.TicketTranscript)
+	return tt, ok
 }
 
 // ── API ──────────────────────────────────────────────────────────────────
@@ -80,22 +125,53 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 		}
 		types, _ := tp.ListTypes(guildID)
 		writeJSON(w, http.StatusOK, map[string]any{"tickets": tickets, "types": types})
-
-	// POST /api/tickets/<guild>/panels/<name>/<action>
-	case meth == "POST" && len(parts) == 5 && parts[2] == "panels":
-		guildID, name, action := parts[1], parts[3], parts[4]
-		// suspend/resume: staff (mod) may toggle; other actions need elevated.
-		canManage := levelGEQ(level, lvlStaff)
-		cfgWrites := levelGEQ(level, lvlElevated)
-		allowed := canManage
-		if action != "suspend" && action != "resume" {
-			allowed = cfgWrites
+	// POST /api/tickets/<guild>/panels/<name>/questions — replace the panel's
+	// open-time question form. MUST be matched BEFORE the panel-action case
+	// below (both are len(parts)==5 with parts[2]=="panels").
+	case meth == "POST" && len(parts) == 5 && parts[2] == "panels" && parts[4] == "questions":
+		guildID, name := parts[1], parts[3]
+		if !levelGEQ(level, lvlStaff) || !m.canManageGuild(us, guildID) {
+			writeError(w, http.StatusForbidden, "insufficient permissions")
+			return
 		}
-		if !m.ticketsPanelAction(w, r, guildID, name, action, allowed) {
+		if !m.checkCSRF(r) {
+			writeError(w, http.StatusForbidden, "invalid CSRF token")
+			return
+		}
+		if !m.allowed(guildID) {
+			writeError(w, http.StatusForbidden, "no access to this guild")
+			return
+		}
+		adm, ok := m.ticketAdmin()
+		if !ok {
+			writeError(w, http.StatusNotFound, "tickets module does not support panel questions")
+			return
+		}
+		var body struct {
+			Questions []modules.PanelQuestion `json:"questions"`
+		}
+		if err := json.Unmarshal(readAll(r), &body); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, "invalid question payload: "+err.Error())
+			return
+		}
+		if err := adm.SetPanelQuestions(guildID, name, body.Questions); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "panel": name})
+
+	// POST /api/tickets/<guild>/panels/<name>/<action> — suspend|resume|resend
+	// only (remove stays CLI-only); every one of them is a staff action.
+	case meth == "POST" && len(parts) == 5 && parts[2] == "panels" && parts[4] != "questions":
+		guildID, name, action := parts[1], parts[3], parts[4]
+		if action != "suspend" && action != "resume" && action != "resend" {
+			writeError(w, http.StatusBadRequest, "unsupported action")
+			return
+		}
+		if !m.ticketsPanelAction(w, r, guildID, name, action, levelGEQ(level, lvlStaff)) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "panel": name, "action": action})
-
 	// POST /api/tickets/<guild>/<ticket>/close
 	case meth == "POST" && len(parts) == 4 && parts[3] == "close":
 		guildID, ticketID := parts[1], parts[2]
@@ -117,6 +193,34 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "closed": ticketID})
+
+	// GET /api/tickets/<guild>/<ticket>/transcript — regenerate + download.
+	// GET is not mutating, so no CSRF; the route is already auth-gated.
+	case meth == "GET" && len(parts) == 4 && parts[3] == "transcript":
+		guildID, ticketID := parts[1], parts[2]
+		if !m.allowed(guildID) {
+			writeError(w, http.StatusForbidden, "no access to this guild")
+			return
+		}
+		if tk, err := tp.GetTicket(guildID, ticketID); err != nil || tk == nil {
+			writeError(w, http.StatusNotFound, "ticket not found")
+			return
+		}
+		tt, ok := m.ticketTranscript()
+		if !ok {
+			writeError(w, http.StatusNotFound, "tickets module does not support transcript download")
+			return
+		}
+		data, err := tt.RefreshTranscript(guildID, ticketID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="ticket-`+ticketID+`.html"`)
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		w.Write(data)
 
 	default:
 		writeError(w, http.StatusNotFound, "not found")
@@ -183,14 +287,16 @@ func (m *DashboardModule) ticketsDashCloseAllowed() bool {
 }
 
 // serveTicketFile serves mirrored attachment files for the transcript viewer:
-// GET /api/ticketfiles/<guild>/<ticket>/<name> — auth-gated, traversal-safe.
+// GET /api/ticketfiles/<guild>/<ticket>/<name> — auth-gated; path validation
+// (ticket id + file name, no traversal) lives in the module behind
+// TicketProvider.TicketFilePath, which also proves the file exists.
 func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request, guildID, ticketID, filename string) {
 	us, _, ok := m.sessionFromCookie(r)
 	if !ok || us == nil {
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	if !m.allowed(guildID) || !validTicketFilename(filename) {
+	if !m.allowed(guildID) {
 		http.Error(w, "403", http.StatusForbidden)
 		return
 	}
@@ -204,19 +310,9 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	getter, _ := m.bot.GetModuleManager().(interface {
-		Get(string) (modules.Module, bool)
-	})
-	mod, _ := getter.Get("tickets")
-	dataDirGetter, ok := mod.(interface{ DataDir() string })
-	if !ok {
+	full, err := tp.TicketFilePath(guildID, ticketID, filename)
+	if err != nil {
 		http.NotFound(w, r)
-		return
-	}
-	base := filepath.Join(dataDirGetter.DataDir(), "tickets", guildID, ticketID, "files")
-	full := filepath.Join(base, filename)
-	if !strings.HasPrefix(filepath.Clean(full), filepath.Clean(base)) {
-		http.Error(w, "403", http.StatusForbidden)
 		return
 	}
 	f, err := os.Open(full)
@@ -231,13 +327,6 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		return
 	}
 	http.ServeContent(w, r, filename, st.ModTime(), f)
-}
-
-func validTicketFilename(name string) bool {
-	if name == "" || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
-		return false
-	}
-	return true
 }
 
 // ── Page handlers ─────────────────────────────────────────────────────────
@@ -307,6 +396,7 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 		Open    any
 		Closed  any
 		Types   any
+		Panels  any
 		Error   string
 	}{GuildID: guildID}
 	if tp, ok := m.ticketProvider(); ok && guildID != "" {
@@ -317,10 +407,17 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 			payload.Open = open
 			payload.Closed, _ = tp.ListClosedTickets(guildID)
 			payload.Types, _ = tp.ListTypes(guildID)
+			if adm, ok := m.ticketAdmin(); ok {
+				if panels, err := adm.ListPanels(guildID); err == nil {
+					payload.Panels = panels
+				}
+			}
 		}
 	} else if !ok {
 		payload.Error = "tickets module is not loaded"
 	}
+	// The template reads the whole payload off .Content — without this the
+	// page renders nothing (rd_tickets' first action is .Content.Error).
 	d.Content = payload
 	m.tmpl.render(w, "rd_tickets", d)
 }

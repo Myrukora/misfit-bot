@@ -239,6 +239,17 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		}
 		methodNotAllowed(w)
 		return
+	case "mcp":
+		// MCP is bearer-token based: no session/CSRF needed. It inherits
+		// panic-recovery/logging/security-headers middleware automatically
+		// since route() is wrapped by them. The dashboard never imports the
+		// MCP package — the handler is injected via Deps.
+		if m.mcp != nil {
+			m.mcp.ServeHTTP(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+		return
 	case "api":
 		m.routeAPI(w, r, parts[1:])
 		return
