@@ -52,19 +52,26 @@ func (m *ImageFilterModule) gateMessage(e *events.GuildMessageCreate) {
 	if !m.mgr.warm() {
 		return // cold model: skip silently (dashboard shows the state)
 	}
-	// Any image/* attachment ⇒ enqueue the FIRST one for detection (the Python
-	// module punished on the first over-threshold attachment; one check per
-	// message is the same behavior at half the cost).
+	// Submit EVERY image attachment (Python parity: the retired module checked
+	// every attachment on the message and punished on the first one over the
+	// threshold). A message with several images is fully covered instead of
+	// stopping at the first one — a spam poster can put the bad image second.
+	// Identical URLs are submitted once.
+	seen := make(map[string]struct{}, len(e.Message.Attachments))
 	for _, att := range e.Message.Attachments {
-		if att.ContentType != nil && strings.HasPrefix(*att.ContentType, "image/") && att.ProxyURL != "" {
-			m.mgr.submit(job{
-				guildID:   guildID,
-				channelID: e.Message.ChannelID.String(),
-				messageID: e.Message.ID.String(),
-				authorID:  authorIDOf(e),
-				imageURL:  att.ProxyURL,
-			})
-			return
+		if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") || att.ProxyURL == "" {
+			continue
 		}
+		if _, dup := seen[att.ProxyURL]; dup {
+			continue
+		}
+		seen[att.ProxyURL] = struct{}{}
+		m.mgr.submit(job{
+			guildID:   guildID,
+			channelID: e.Message.ChannelID.String(),
+			messageID: e.Message.ID.String(),
+			authorID:  authorIDOf(e),
+			imageURL:  att.ProxyURL,
+		})
 	}
 }

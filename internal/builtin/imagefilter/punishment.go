@@ -76,12 +76,13 @@ func (m *ImageFilterModule) executePunishment(j job, score float64, settings Gui
 	}
 
 	if failure != nil {
-		m.logFailure(j, settings, score, failure)
+		m.logPunishment(j, settings, score, "❌ Image spam punishment failed",
+			fmt.Sprintf("**Punishment:** %s (FAILED)\n**Error:** `%v`", settings.Punishment, failure),
+			"failure log")
 		return
 	}
-	if settings.LogChannel != "" {
-		m.logDetection(j, settings, score, action)
-	}
+	m.logPunishment(j, settings, score, "🛑 Image spam detected",
+		fmt.Sprintf("**Action:** %s", action), "detection log")
 }
 
 // isImmune: guild owner always; otherwise the author is immune when their top
@@ -135,7 +136,7 @@ func (m *ImageFilterModule) topRolePosition(gid, uid snowflake.ID) int {
 		pos[r.ID] = int(r.Position)
 	}
 	member, err := m.ctx.Rest.GetMember(gid, uid)
-	if err != nil {
+	if err != nil || member == nil {
 		return -1
 	}
 	top := -1
@@ -147,38 +148,18 @@ func (m *ImageFilterModule) topRolePosition(gid, uid snowflake.ID) int {
 	return top
 }
 
-// logDetection posts the hit embed to the guild's configured log channel.
-func (m *ImageFilterModule) logDetection(j job, settings GuildConfig, score float64, action string) {
-	e := embed.New().
-		WithTitle("🛑 Image spam detected").
-		WithDescription(fmt.Sprintf(
-			"**User:** <@%s>\n**Action:** %s\n**Similarity Score:** `%.4f`\n**Channel:** <#%s>",
-			j.authorID, action, score, j.channelID)).
-		WithColor(embed.ColorError).
-		WithTimestamp(time.Now())
-	if j.imageURL != "" {
-		e = e.WithImage(j.imageURL)
-	}
-	e = e.WithFooterText("OpenAI CLIP Analysis (ONNX CPU)")
-	_, err := m.ctx.Rest.CreateMessage(parseSnowflake(settings.LogChannel), discord.MessageCreate{
-		Embeds: []discord.Embed{e},
-	})
-	if err != nil {
-		m.ctx.Logger.Error("imagefilter: failed to send detection log to %s: %v", settings.LogChannel, err)
-	}
-}
-
-// logFailure posts a punishment failure (permissions/hierarchy/REST) to the
-// log channel; never to the detection channel.
-func (m *ImageFilterModule) logFailure(j job, settings GuildConfig, score float64, failure error) {
+// logPunishment posts one punishment log embed (detection or failure) to the
+// guild's configured log channel; a no-op when no channel is configured.
+// kind only labels the log line (the old code had two near-identical senders).
+func (m *ImageFilterModule) logPunishment(j job, settings GuildConfig, score float64, title, detail, kind string) {
 	if settings.LogChannel == "" {
 		return
 	}
 	e := embed.New().
-		WithTitle("❌ Image spam punishment failed").
+		WithTitle(title).
 		WithDescription(fmt.Sprintf(
-			"**User:** <@%s>\n**Punishment:** %s (FAILED)\n**Similarity Score:** `%.4f`\n**Channel:** <#%s>\n**Error:** `%v`",
-			j.authorID, settings.Punishment, score, j.channelID, failure)).
+			"**User:** <@%s>\n%s\n**Similarity Score:** `%.4f`\n**Channel:** <#%s>",
+			j.authorID, detail, score, j.channelID)).
 		WithColor(embed.ColorError).
 		WithTimestamp(time.Now())
 	if j.imageURL != "" {
@@ -189,7 +170,7 @@ func (m *ImageFilterModule) logFailure(j job, settings GuildConfig, score float6
 		Embeds: []discord.Embed{e},
 	})
 	if err != nil {
-		m.ctx.Logger.Error("imagefilter: failed to send failure log to %s: %v", settings.LogChannel, err)
+		m.ctx.Logger.Error("imagefilter: failed to send %s to %s: %v", kind, settings.LogChannel, err)
 	}
 }
 

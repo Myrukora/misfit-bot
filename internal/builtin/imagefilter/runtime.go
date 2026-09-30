@@ -11,7 +11,8 @@ import (
 // Runtime initialization is process-global in onnxruntime_go. The dashboard
 // (and any future consumer) may trigger loads from different goroutines, so
 // it's done once, idempotently. The library lives in lib/onnxruntime (see
-// scripts/setup_onnx.sh); missing lib = clean error, never a panic.
+// scripts/setup_imagefilter.sh → scripts/setup_onnx.sh); missing lib = a clean
+// error, never a panic.
 var (
 	runtimeMu     sync.Mutex
 	runtimeInit   bool

@@ -182,7 +182,7 @@ func (m *ImageFilterModule) SetVariant(variant string) error {
 		return fmt.Errorf("unknown CLIP variant %q (available: %s)", variant, strings.Join(ClipVariants, ", "))
 	}
 	if !ModelFilePresent(mgr.dataDir, variant) {
-		return fmt.Errorf("model file for variant %q missing — run scripts/export_clip_onnx.py --variant %s", variant, variant)
+		return fmt.Errorf("model file for variant %q missing — run scripts/setup_imagefilter.sh (or export it manually)", variant)
 	}
 	return mgr.SetClipVariant(variant)
 }
@@ -196,17 +196,23 @@ func (m *ImageFilterModule) Variant() string {
 	return mgr.Variant()
 }
 
-// Status reports the model lifecycle for the dashboard panel.
+// Status reports the model lifecycle for the dashboard panel. The enabled
+// count comes from the CONFIG (the source of truth the dashboard also edits),
+// not from the model refcount — the refcount deliberately survives a failed
+// load, and a cold model must not report "0 enabled servers" while its config
+// lists enabled ones.
 func (m *ImageFilterModule) Status() modules.ImageFilterStatus {
 	mgr, ok := m.admin()
 	if !ok {
 		return modules.ImageFilterStatus{Available: append([]string(nil), ClipVariants...), Files: map[string]bool{}}
 	}
 	dataDir := mgr.dataDir
+	// Read config before taking mgr.mu: the lock order everywhere else is
+	// cfg.mu → mgr.mu, never the reverse.
+	enabled := len(mgr.cfg.EnabledGuilds())
 	mgr.mu.Lock()
 	warm := mgr.sess != nil
 	variant := mgr.sessVariant
-	enabled := mgr.refcount
 	mgr.mu.Unlock()
 
 	files := map[string]bool{}

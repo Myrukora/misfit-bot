@@ -1,11 +1,14 @@
 package imagefilter
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/misfit/bot/modules"
 )
@@ -146,7 +149,7 @@ func TestManagerWorkerDetection(t *testing.T) {
 	if !ok {
 		t.Fatal("submit failed")
 	}
-	m.drainForTest(1)
+	m.drainForTest(t, 1)
 
 	if n := punished.Load(); n != 1 {
 		t.Fatalf("punishments = %d, want 1 (score %v)", n, gotScore.Load())
@@ -175,7 +178,7 @@ func TestManagerNoRefsNoPunish(t *testing.T) {
 	m.fetchFn = func(string) ([]byte, error) { return smallPNG(t, 8, 8, rgbaOf(1, 2, 3)), nil }
 
 	m.submit(job{guildID: "g2", imageURL: "u"})
-	m.drainForTest(1)
+	m.drainForTest(t, 1)
 	if n := punished.Load(); n != 0 {
 		t.Errorf("no refs configured — must not punish, got %d", n)
 	}
@@ -189,7 +192,7 @@ func TestManagerDisabledGuildDropsJob(t *testing.T) {
 	var fetches atomic.Int32
 	m.fetchFn = func(string) ([]byte, error) { fetches.Add(1); return nil, fmt.Errorf("no fetch should happen") }
 	m.submit(job{guildID: "disabled-guild", imageURL: "u"})
-	m.drainForTest(1)
+	m.drainForTest(t, 1)
 	if n := fetches.Load(); n != 0 {
 		t.Errorf("disabled guild job must drop before fetch, got %d fetches", n)
 	}
@@ -211,11 +214,11 @@ func TestManagerPanicRecovered(t *testing.T) {
 	}
 	m.fetchFn = func(string) ([]byte, error) { panic("boom — a hostile image must not kill the bot") }
 	m.submit(job{guildID: "g3", imageURL: "u"})
-	m.drainForTest(1)
+	m.drainForTest(t, 1)
 	// Worker still alive: a second job processes fine.
 	m.fetchFn = func(string) ([]byte, error) { return smallPNG(t, 8, 8, rgbaOf(9, 9, 9)), nil }
 	m.submit(job{guildID: "g3", imageURL: "u2"})
-	m.drainForTest(1)
+	m.drainForTest(t, 2) // cumulative: the first job already bumped the counter
 }
 
 func TestManagerConcurrentEnableDisable(t *testing.T) {
@@ -242,11 +245,94 @@ func TestManagerConcurrentEnableDisable(t *testing.T) {
 	}
 }
 
-// drainForTest waits until every job submitted so far has been processed
-// (completed-job counter, not queue length — the worker dequeues before
-// running, so queue length reads zero mid-job).
-func (m *manager) drainForTest(submitted int) {
-	target := int64(submitted)
-	for m.processed.Load() < target {
+// TestManagerEnableReportsLoadError is the B2 regression: a failed model load
+// used to be logged and swallowed, so the dashboard's enable call reported
+// success while the guild stayed cold with no visible reason. The error must
+// reach the caller.
+func TestManagerEnableReportsLoadError(t *testing.T) {
+	if err := initRuntime(); err != nil {
+		t.Skipf("onnxruntime not available: %v", err)
+	}
+	m, cfg, _, _ := newTestManager(t)
+	m.startWorker()
+	defer m.stopWorker()
+
+	wantErr := errors.New("boom: model file missing")
+	m.loadFn = func(dataDir, variant string) (embedder, error) { return nil, wantErr }
+
+	err := m.SetGuildEnabled("g-load-fail", true)
+	if err == nil {
+		t.Fatal("SetGuildEnabled swallowed the model load error")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Errorf("err = %v, want it to wrap %v", err, wantErr)
+	}
+	if m.warm() {
+		t.Error("model must not be warm after a failed load")
+	}
+	// The persisted enable flag is NOT rolled back: it mirrors what the user
+	// asked for, and the guild simply stays cold until a load succeeds.
+	if !cfg.GuildSettings("g-load-fail").Enabled {
+		t.Error("enable flag should stay persisted after a failed load")
+	}
+
+	// Recovery: once the loader works again, enabling another guild warms the
+	// model even though refcount was already > 0 with a nil session.
+	m.loadFn = func(dataDir, variant string) (embedder, error) { return &fakeEmbedder{inputSize: 224, dim: 8}, nil }
+	if err := m.SetGuildEnabled("g-load-ok", true); err != nil {
+		t.Fatalf("recovery enable: %v", err)
+	}
+	if !m.warm() {
+		t.Error("model should be warm after a successful load following the failure")
+	}
+}
+
+// TestManagerSubmitDuringWorkerRestart is the C3 race regression: submit must
+// never send on a channel stopWorker just closed. Runs 8 hammering goroutines
+// against 50 stop/start cycles — pre-fix, one of them panics with "send on
+// closed channel" (killing the test binary) and -race reports the read/write
+// race on m.jobs.
+func TestManagerSubmitDuringWorkerRestart(t *testing.T) {
+	m, _, _, _ := newTestManager(t)
+	m.startWorker()
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				m.submit(job{guildID: "g-race", imageURL: "https://cdn.discordapp.com/x.png"})
+			}
+		}()
+	}
+	for i := 0; i < 50; i++ {
+		m.stopWorker()
+		m.startWorker()
+	}
+	close(stop)
+	wg.Wait()
+	m.stopWorker()
+}
+
+// drainForTest waits until at least `completed` jobs have run. `completed` is
+// CUMULATIVE (the processed counter is monotonic), so a second drain after one
+// job must pass 2 — passing 1 again would return immediately and silently.
+// Deadline-bounded, so a stalled worker fails the test instead of hanging it.
+func (m *manager) drainForTest(t *testing.T, completed int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for m.processed.Load() < int64(completed) {
+		if time.Now().After(deadline) {
+			t.Fatalf("worker stalled: processed %d, want %d", m.processed.Load(), completed)
+		}
+		runtime.Gosched()
+		time.Sleep(time.Millisecond)
 	}
 }

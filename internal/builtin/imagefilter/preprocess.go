@@ -12,20 +12,14 @@ import (
 	"golang.org/x/image/draw"
 )
 
-// CLIP ViT preprocessing constants (openai/clip-* processor defaults — the
-// same values the Python module's CLIPProcessor applied).
-const (
-	ClipInputSize = 224 // shortest-side resize + center crop target (l14-336 uses 336; handled by callers via variant size)
-)
-
+// CLIP ViT normalization constants (openai/clip-* processor defaults — the
+// same values the Python module's CLIPProcessor applied). The resize target
+// comes per-model from variantSpecs (clip.go); the 224 default is not baked in
+// here.
 var (
 	clipMean = [3]float32{0.48145466, 0.4578275, 0.40821073}
 	clipStd  = [3]float32{0.26862954, 0.26130258, 0.27577711}
 )
-
-// maxDecodePixels caps decoded image size (decompression-bomb guard, matching
-// the Python module's MAX_IMAGE_PIXELS = 25MP).
-const maxDecodePixels = 25 * 1024 * 1024
 
 // Preprocess turns image bytes into the CLIP model input tensor:
 // [1, 3, size, size] float32 NCHW, normalized with CLIP mean/std.
@@ -43,8 +37,8 @@ func Preprocess(data []byte, size int) ([]float32, error) {
 	if cfg.Width <= 0 || cfg.Height <= 0 {
 		return nil, fmt.Errorf("zero-sized image")
 	}
-	if cfg.Width*cfg.Height > maxDecodePixels {
-		return nil, fmt.Errorf("image too large: %dx%d (>25MP)", cfg.Width, cfg.Height)
+	if err := checkPixelBudget(cfg.Width, cfg.Height); err != nil {
+		return nil, err
 	}
 
 	src, _, err := image.Decode(bytes.NewReader(data))
@@ -95,11 +89,4 @@ func preprocessImage(src image.Image, size int) ([]float32, error) {
 		}
 	}
 	return out, nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

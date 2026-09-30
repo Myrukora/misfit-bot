@@ -96,8 +96,9 @@ func TestConfigValidate(t *testing.T) {
 		{"threshold zero", func(c *GuildConfig) { c.Threshold = 0 }, true},
 		{"threshold >1", func(c *GuildConfig) { c.Threshold = 1.5 }, true},
 		{"bad punishment", func(c *GuildConfig) { c.Punishment = "nuke" }, true},
-		{"mute short", func(c *GuildConfig) { c.Punishment = PunishMute; c.MuteDuration = 5 }, true},
+		{"mute zero duration", func(c *GuildConfig) { c.Punishment = PunishMute; c.MuteDuration = 0 }, true},
 		{"mute ok", func(c *GuildConfig) { c.Punishment = PunishMute; c.MuteDuration = 600 }, false},
+		{"mute short ok", func(c *GuildConfig) { c.Punishment = PunishMute; c.MuteDuration = 5 }, false},
 		{"negative mute with none", func(c *GuildConfig) { c.MuteDuration = -1 }, true},
 	}
 	for _, tc := range cases {

@@ -132,14 +132,19 @@ func (m *manager) workerLoop() {
 }
 
 // submit enqueues a detection without ever blocking the gateway goroutine.
-// Returns the job's sequence number (processed counter watermark) so callers
-// can wait for completion in tests.
+// The send happens UNDER m.mu, the same mutex stopWorker holds while it closes
+// the channel: reading m.jobs outside the lock could hand us a channel that
+// gets closed between the read and the send, and a send on a closed channel
+// panics (workerLoop's per-job recover would then swallow the drop silently).
+// Returns false when the worker is stopped or the queue is full.
 func (m *manager) submit(j job) bool {
 	m.mu.Lock()
-	ch := m.jobs
-	m.mu.Unlock()
+	defer m.mu.Unlock()
+	if !m.workerRun {
+		return false
+	}
 	select {
-	case ch <- j:
+	case m.jobs <- j:
 		return true
 	default:
 		m.log.Warn("imagefilter: queue full, dropping detection for guild %s", j.guildID)
@@ -186,12 +191,14 @@ func (m *manager) SetGuildEnabled(guildID string, enabled bool) error {
 	if err != nil || !changed {
 		return err
 	}
-	m.adjust(enabled)
-	return nil
+	return m.adjust(enabled)
 }
 
 // adjust moves the refcount and loads/unloads the model at the boundaries.
-func (m *manager) adjust(up bool) {
+// The refcount always mirrors the config's enabled-guild count; a failed load
+// is reported to the caller (the dashboard surfaces it) while the persisted
+// enable flag stays as the user set it — the guild simply stays cold.
+func (m *manager) adjust(up bool) error {
 	m.mu.Lock()
 	if up {
 		m.refcount++
@@ -228,10 +235,10 @@ func (m *manager) adjust(up bool) {
 		m.refs = map[string][]refEmbed{}
 		m.refsMu.Unlock()
 		m.log.Info("imagefilter: model unloaded (no enabled servers) — RAM freed")
-		return
+		return nil
 	}
 	m.mu.Unlock()
-	_ = loadErr
+	return loadErr
 }
 
 // SetClipVariant switches the bot-wide model: close the warm session, wipe
@@ -268,7 +275,10 @@ func (m *manager) SetClipVariant(variant string) error {
 		}
 		sess, err := m.loadFn(m.dataDir, variant)
 		if err != nil {
-			m.refcount = 0 // stay cold; dashboard shows the error
+			// Stay cold with refcount untouched: the refcount mirrors the
+			// config's enabled guilds, and the dashboard reads the enabled set
+			// from config (Status), so zeroing it here would only desync the
+			// two and skip the load on the next enable.
 			m.mu.Unlock()
 			return err
 		}

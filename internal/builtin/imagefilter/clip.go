@@ -44,7 +44,8 @@ func modelPath(dataDir, variant string) string {
 // ModelFilePresent reports whether the variant's ONNX file exists (dashboard
 // status surface: a selected variant without its file is a config problem).
 // dataDir may be absolute (prod) or relative (tests) — resolved against repo
-// root by walking up from CWD when the direct path doesn't exist.
+// root by walking up from CWD when the direct path doesn't exist. The walk is
+// memoized: the dashboard calls this once per variant per status render.
 func ModelFilePresent(dataDir, variant string) bool {
 	if _, ok := variantSpecs[variant]; !ok {
 		return false
@@ -53,28 +54,36 @@ func ModelFilePresent(dataDir, variant string) bool {
 	if _, err := os.Stat(path); err == nil {
 		return true
 	}
-	// Walk up (tests run from the package dir; dataDir is repo-relative).
-	if !filepath.IsAbs(dataDir) {
-		dir, err := os.Getwd()
-		if err != nil {
-			return false
-		}
-		for {
-			if _, err := os.Stat(filepath.Join(dir, path)); err == nil {
-				return true
-			}
-			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-				return false
-			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				return false
-			}
-			dir = parent
-		}
+	if filepath.IsAbs(dataDir) {
+		return false
 	}
-	return false
+	root, ok := repoRootOnce()
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(root, path))
+	return err == nil
 }
+
+// repoRootOnce memoizes the upward walk to the module root (the directory
+// holding go.mod); the CWD cannot change under a running process in practice,
+// and the walk is only needed in dev when dataDir is repo-relative.
+var repoRootOnce = sync.OnceValues(func() (string, bool) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", false
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+	}
+})
 
 // loadClip builds a session for the given variant. The ONNX Runtime
 // environment must already be initialized (see initRuntime).
@@ -85,8 +94,8 @@ func loadClip(dataDir, variant string) (*clipSession, error) {
 	}
 	path := modelPath(dataDir, variant)
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("model file for variant %q missing (run scripts/export_clip_onnx.py --variant %s): %w",
-			variant, variant, err)
+		return nil, fmt.Errorf("model file for variant %q missing (run scripts/setup_imagefilter.sh): %w",
+			variant, err)
 	}
 	s, err := ort.NewDynamicAdvancedSession(
 		path,

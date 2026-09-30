@@ -58,8 +58,10 @@ func (c *GuildConfig) Validate() error {
 	default:
 		return fmt.Errorf("punishment must be one of none|mute|kick|ban, got %q", c.Punishment)
 	}
-	if c.Punishment == PunishMute && c.MuteDuration < 10 {
-		return fmt.Errorf("mute_duration must be at least 10 seconds, got %d", c.MuteDuration)
+	// A mute needs a usable duration; there is no reason to require 10s
+	// specifically (the timeout API accepts any positive duration).
+	if c.Punishment == PunishMute && c.MuteDuration <= 0 {
+		return fmt.Errorf("mute_duration must be a positive number of seconds, got %d", c.MuteDuration)
 	}
 	if c.MuteDuration < 0 {
 		return fmt.Errorf("mute_duration must be >= 0, got %d", c.MuteDuration)
@@ -175,7 +177,8 @@ func (c *config) GuildSettings(guildID string) GuildConfig {
 		if validPunishment(g.Punishment) {
 			out.Punishment = g.Punishment
 		}
-		if g.MuteDuration >= 10 {
+		// 0 means "unset" (merge the default); any positive stored value wins.
+		if g.MuteDuration > 0 {
 			out.MuteDuration = g.MuteDuration
 		}
 		out.LogChannel = g.LogChannel

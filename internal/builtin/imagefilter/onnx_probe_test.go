@@ -4,19 +4,17 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	ort "github.com/yalue/onnxruntime_go"
 )
 
 // The probe (and later the real session) needs the ONNX Runtime C library and
-// an exported CLIP ONNX model. Neither is committed: the lib comes from
-// scripts/setup_onnx.sh, the model from scripts/export_clip_onnx.py. When
-// either is missing we skip so `go test ./...` stays green on machines without
-// them.
+// an exported CLIP ONNX model. Neither is committed: both come from
+// scripts/setup_imagefilter.sh (which wraps scripts/setup_onnx.sh + the export
+// script). When either is missing we skip so `go test ./...` stays green on
+// machines without them.
 const (
-	ortLibRelPath   = "lib/onnxruntime/lib/libonnxruntime.so"
 	defaultModelRel = "modules/imagefilter/models/clip-vision-b32.onnx"
 )
 
@@ -39,44 +37,16 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
-var (
-	ortOnce sync.Once
-	ortErr  error
-)
-
-// requireORT initializes the ONNX Runtime environment once per test binary or
-// skips the calling test when the C library or model is not available.
-func requireORT(t *testing.T) (libPath, modelPath string) {
-	t.Helper()
-	root := repoRoot(t)
-	libPath = filepath.Join(root, ortLibRelPath)
-	modelPath = filepath.Join(root, defaultModelRel)
-	if _, err := os.Stat(libPath); err != nil {
-		t.Skipf("onnxruntime lib not present (run scripts/setup_onnx.sh): %v", err)
-	}
-	if _, err := os.Stat(modelPath); err != nil {
-		t.Skipf("CLIP ONNX model not present (run scripts/export_clip_onnx.py): %v", err)
-	}
-	ortOnce.Do(func() {
-		ort.SetSharedLibraryPath(libPath)
-		ortErr = ort.InitializeEnvironment()
-	})
-	if ortErr != nil {
-		t.Fatalf("InitializeEnvironment: %v", ortErr)
-	}
-	return libPath, modelPath
-}
-
 // TestONNXProbe loads the exported CLIP vision model and runs a dummy
 // [1,3,224,224] tensor through it, asserting the 768-d pooler_output shape the
 // whole filter is built around (see the A0 port sheet in the plan).
 func TestONNXProbe(t *testing.T) {
 	if err := initRuntime(); err != nil {
-		t.Skipf("onnxruntime not available (run scripts/setup_onnx.sh): %v", err)
+		t.Skipf("onnxruntime not available (run scripts/setup_imagefilter.sh): %v", err)
 	}
 	modelPath := filepath.Join(repoRoot(t), defaultModelRel)
 	if _, err := os.Stat(modelPath); err != nil {
-		t.Skipf("CLIP ONNX model not present (run scripts/export_clip_onnx.py): %v", err)
+		t.Skipf("CLIP ONNX model not present (run scripts/setup_imagefilter.sh): %v", err)
 	}
 
 	session, err := ort.NewDynamicAdvancedSession(
