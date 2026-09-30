@@ -42,8 +42,9 @@ type renderData struct {
 	// sidebars render its tab (the page itself still guards staff access).
 	ShowImageFilter bool
 	// ModuleNav carries the per-module sidebar sections (Task 10): loaded
-	// modules that implement WebTabser (extra tabs) and/or WebConfigurable
-	// (implicit Settings entry). Empty for standalone pages.
+	// modules that declare WebTabs get a sidebar group with one link per tab.
+	// Global module settings live on /config, not in the sidebar. Empty for
+	// standalone pages.
 	ModuleNav []moduleNavItem
 	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
 	// header.html renders the server-scoped sidebar (server name + back-to-servers
@@ -54,12 +55,11 @@ type renderData struct {
 }
 
 // moduleNavItem is one per-module sidebar group: the module's display name
-// plus its links (Settings when WebConfigurable, plus each declared WebTab).
+// plus its declared WebTab links.
 type moduleNavItem struct {
-	Name     string       // module name (display)
-	Settings string       // settings URL when the module is WebConfigurable, else ""
-	Tabs     []navTabItem // declared extra tabs
-	Active   bool         // true when the current page belongs to this module
+	Name   string       // module name (display)
+	Tabs   []navTabItem // declared extra tabs
+	Active bool         // true when the current page belongs to this module
 }
 
 // navTabItem is one extra tab link inside a module's sidebar group.

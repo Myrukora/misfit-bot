@@ -71,7 +71,7 @@
           <span class="nav-label">Logs</span>
         </a>
         {{end}}
-        {{range .ModuleNav}}{{if or .Settings .Tabs}}<div class="nav-module"><div class="nav-module-name">{{.Name}}</div>{{if .Settings}}<a href="{{.Settings}}" class="nav-sub">Settings</a>{{end}}{{range .Tabs}}<a href="{{.URL}}" class="nav-sub{{if .Active}} active{{end}}">{{.Name}}</a>{{end}}</div>{{end}}{{end}}
+        {{range .ModuleNav}}{{if .Tabs}}<div class="nav-module"><div class="nav-module-name">{{.Name}}</div>{{range .Tabs}}<a href="{{.URL}}" class="nav-sub{{if .Active}} active{{end}}">{{.Name}}</a>{{end}}</div>{{end}}{{end}}
       {{end}}
       </nav>
     </aside>

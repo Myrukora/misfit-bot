@@ -1,11 +1,11 @@
 {{define "rd_admin"}}{{template "rd_header" .}}
         <!-- ===== Core configuration (superowner) ===== -->
         {{with .Content}}
-        {{if .Sections}}
+        {{if .sections}}
         <section class="card">
           <h2>Core configuration</h2>
           <p class="muted">Bot-wide settings — the same surface as [p]set. Channel/role/user pickers populate from the selected server.</p>
-          {{range .Sections}}
+          {{range .sections}}
           <div class="config-section">
             <h3>{{.Title}}</h3>
             {{if .Help}}<p class="muted" style="font-size:13px;margin:2px 0 8px">{{.Help}}</p>{{end}}
@@ -14,6 +14,18 @@
           </div>
           {{end}}
         </section>
+
+        <!-- ===== Module global settings (owner) ===== -->
+        {{range .moduleViews}}
+        <section class="card">
+          <h2>{{.Name}} — global settings</h2>
+          <p class="muted">Bot-wide {{.Name}} settings — apply to every server.</p>
+          <form class="module-cfg" data-module="{{.Name}}" data-guild="">
+            {{range .Fields}}{{template "rd_field" .}}{{end}}
+            <button type="button" class="btn btn-primary save-module">Save changes</button>
+          </form>
+        </section>
+        {{end}}
 
         <!-- ===== Updater status (owner) ===== -->
         <section class="card">

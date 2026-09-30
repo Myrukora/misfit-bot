@@ -70,11 +70,11 @@ func TestFieldDataGuildPins(t *testing.T) {
 }
 
 // TestBuildModuleViewGlobalOwner pins that global fields render for
-// owner/elevated WITHOUT a guild selected (the settings page must keep the
-// dashboard self-config visible even when the guild selector is on a server).
+// owner/elevated WITHOUT a guild selected (the /config page renders the
+// global views with an empty guild context).
 func TestBuildModuleViewGlobalOwner(t *testing.T) {
 	m := &DashboardModule{}
-	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlOwner, "")
+	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlOwner, "", true)
 	if len(mv.Fields) != 1 {
 		t.Fatalf("owner + no guild: fields = %d, want 1 (global only)", len(mv.Fields))
 	}
@@ -90,29 +90,26 @@ func TestBuildModuleViewGlobalOwner(t *testing.T) {
 // staff/regular viewers (mirrors moduleConfigRead's owner/elevated gate).
 func TestBuildModuleViewStaffNoGlobal(t *testing.T) {
 	m := &DashboardModule{}
-	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlStaff, "")
+	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlStaff, "", true)
 	if len(mv.Fields) != 0 {
 		t.Fatalf("staff + no guild: fields = %d, want 0 (global is owner/elevated only)", len(mv.Fields))
 	}
 }
 
-// TestBuildModuleViewMergesGuildScoped pins that a guild-scoped field renders
-// with the selected guild as its per-field context when a server is chosen.
-func TestBuildModuleViewMergesGuildScoped(t *testing.T) {
+// TestBuildModuleViewGuildScopedOnly pins that the per-server modules page
+// renders ONLY the guild-scoped fields (with the selected guild as their
+// per-field context) — global fields live on /config, never here.
+func TestBuildModuleViewGuildScopedOnly(t *testing.T) {
 	m := &DashboardModule{}
-	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlOwner, "123456789")
-	got := map[string]fieldRender{}
-	for _, f := range mv.Fields {
-		got[f.Key] = f
+	mv := m.buildModuleView(mockWebConfig{}, "mock", nil, lvlOwner, "123456789", false)
+	if len(mv.Fields) != 1 {
+		t.Fatalf("guild view: fields = %d, want 1 (guild-scoped only)", len(mv.Fields))
 	}
-	if _, ok := got["global_key"]; !ok {
-		t.Error("global field missing from merged view (must stay visible with a guild selected)")
+	f := mv.Fields[0]
+	if f.Key != "guild_key" {
+		t.Fatalf("field = %q, want guild_key (global fields must not render here)", f.Key)
 	}
-	gf, ok := got["guild_key"]
-	if !ok {
-		t.Fatal("guild-scoped field missing from merged view")
-	}
-	if gf.GuildID != "123456789" {
-		t.Fatalf("guild-scoped field GuildID = %q, want the selected guild", gf.GuildID)
+	if f.GuildID != "123456789" {
+		t.Fatalf("guild-scoped field GuildID = %q, want the selected guild", f.GuildID)
 	}
 }

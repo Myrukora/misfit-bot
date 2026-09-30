@@ -32,41 +32,8 @@
           {{end}}
         </section>
 {{else}}
-        <!-- ===== Guild view: module settings panels ===== -->
-        {{if .Sections}}
-        {{range .Sections}}
-        <section class="card">
-          <h2>{{.Title}}</h2>
-          {{if .Help}}<p class="muted">{{.Help}}</p>{{end}}
-          {{range .Fields}}{{template "rd_field" .}}{{end}}
-          <button type="button" class="btn btn-primary save-section">Save {{.Title}}</button>
-        </section>
-        {{end}}
-        {{end}}
-
-        {{if and .Sections $.IsOwner}}
-        <section class="card">
-          <h2>Updater</h2>
-          <p class="muted">Live updater state; actions mirror the owner-only [p]update commands.</p>
-          <div class="updater-status" id="updater-status">Loading…</div>
-          <div class="add-row">
-            <button type="button" class="btn btn-small" id="upd-check">Check now</button>
-            <button type="button" class="btn btn-small" id="upd-apply">Update now</button>
-            <button type="button" class="btn btn-small" id="upd-test">Send test embeds</button>
-          </div>
-        </section>
-        {{end}}
-
-        {{if .DashboardSelf.Fields}}
-        <section class="card">
-          <h2>Dashboard (self-config)</h2>
-          <form class="module-cfg" data-module="{{.DashboardSelf.Name}}" data-guild="{{.GuildID}}">
-            {{range .DashboardSelf.Fields}}{{template "rd_field" .}}{{end}}
-            <button type="button" class="btn btn-primary save-module">Save changes</button>
-          </form>
-        </section>
-        {{end}}
-
+        <!-- ===== Guild view: module settings panels (guild-scoped fields only;
+             global settings live on /config) ===== -->
         {{range .ModulesView}}
         <section class="card">
           <h2>{{.Name}}</h2>
@@ -77,7 +44,7 @@
         </section>
         {{end}}
 
-        {{if not (or .Sections .DashboardSelf.Fields .ModulesView)}}
+        {{if not .ModulesView}}
         <section class="card"><p class="muted">No configurable settings here.</p></section>
         {{end}}
 {{end}}

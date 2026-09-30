@@ -49,13 +49,12 @@ type settingsSection struct {
 }
 
 type settingsPageData struct {
-	GuildID       string
-	GuildName     string
-	Sections      []settingsSection // core/global settings, grouped (nil for guild view)
-	DashboardSelf moduleConfigView
+	GuildID   string
+	GuildName string
 	// Redesign (rd_modules): Manage switches the template to the
 	// owner-facing module management table fed by MgmtRows; ModulesView is
-	// the guild-view settings panels list.
+	// the guild-view settings panels list (guild-scoped fields only —
+	// global settings live on /config).
 	Manage      bool
 	MgmtRows    []moduleView
 	ModulesView []moduleConfigView
@@ -258,11 +257,40 @@ func (m *DashboardModule) handleConfigPage(w http.ResponseWriter, r *http.Reques
 	d.Page = "config"
 	variants := m.imageFilterVariants()
 	d.Content = map[string]any{
-		"sections": m.coreSettingsFields(true, "", us),
-		"variants": variants,
-		"variant":  m.imageFilterVariant(),
+		"sections":    m.coreSettingsFields(true, "", us),
+		"variants":    variants,
+		"variant":     m.imageFilterVariant(),
+		"moduleViews": m.globalModuleViews(us),
 	}
 	m.tmpl.render(w, "rd_admin", d)
+}
+
+// globalModuleViews renders every WebConfigurable module's global fields —
+// the dashboard's own self-config included — for the owner-only /config page.
+// Global settings live here, not on the per-server modules page.
+func (m *DashboardModule) globalModuleViews(us *userSession) []moduleConfigView {
+	if m.bot == nil {
+		return nil
+	}
+	var out []moduleConfigView
+	if wc, ok := m.webCfg("dashboard"); ok {
+		if mv := m.buildModuleView(wc, "dashboard", us, lvlOwner, "", true); len(mv.Fields) > 0 {
+			out = append(out, mv)
+		}
+	}
+	for _, name := range m.bot.GetLoadedModuleNames() {
+		if name == "dashboard" {
+			continue
+		}
+		wc, ok := m.webCfg(name)
+		if !ok {
+			continue
+		}
+		if mv := m.buildModuleView(wc, name, us, lvlOwner, "", true); len(mv.Fields) > 0 {
+			out = append(out, mv)
+		}
+	}
+	return out
 }
 
 // imageFilterVariants lists selectable CLIP variants (empty when the module
@@ -374,7 +402,7 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 		if !ok {
 			continue
 		}
-		mv := m.buildModuleView(wc, name, us, level, guildID)
+		mv := m.buildModuleView(wc, name, us, level, guildID, false)
 		if len(mv.Fields) > 0 {
 			data.ModulesView = append(data.ModulesView, mv)
 		}
@@ -515,28 +543,33 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 }
 
 // buildModuleView produces the filtered, redacted field renders for a module.
-// Global fields always render for owner/elevated (per-field GuildID = "");
-// guild-scoped fields render when a server is selected. This keeps every
-// configurable field visible on one page regardless of the picker context.
-func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name string, us *userSession, level, guildID string) moduleConfigView {
+// global=true renders the module's global fields (owner/elevated only,
+// per-field GuildID = "") for the owner-only /config page; global=false
+// renders only the guild-scoped fields for the given guild (the per-server
+// modules page). Global settings live in /config — the per-server page never
+// renders them.
+func (m *DashboardModule) buildModuleView(wc modules.WebConfigurable, name string, us *userSession, level, guildID string, global bool) moduleConfigView {
 	mv := moduleConfigView{Name: name}
-	// Global fields: owner/elevated only (mirrors moduleConfigRead's gate).
-	if level == lvlOwner || level == lvlElevated {
-		gvals, err := m.moduleConfigRead(wc, us, "", level)
-		if err != nil {
-			m.logger.Warn("dashboard: read global config of module %s failed: %v", name, err)
-			gvals = map[string]string{}
-		}
-		for _, f := range wc.WebConfigSchema() {
-			if f.GuildScoped {
-				continue
+	if global {
+		// Global fields: owner/elevated only (mirrors moduleConfigRead's gate).
+		if level == lvlOwner || level == lvlElevated {
+			gvals, err := m.moduleConfigRead(wc, us, "", level)
+			if err != nil {
+				m.logger.Warn("dashboard: read global config of module %s failed: %v", name, err)
+				gvals = map[string]string{}
 			}
-			fr := m.buildFieldRender(f, gvals[f.Key], "")
-			// Global picker types populate from the selected server as a
-			// lookup context only — the submitted GuildID stays empty.
-			m.populateEntities(&fr, guildID, us)
-			mv.Fields = append(mv.Fields, fr)
+			for _, f := range wc.WebConfigSchema() {
+				if f.GuildScoped {
+					continue
+				}
+				fr := m.buildFieldRender(f, gvals[f.Key], "")
+				// Global picker types populate from the selected server as a
+				// lookup context only — the submitted GuildID stays empty.
+				m.populateEntities(&fr, guildID, us)
+				mv.Fields = append(mv.Fields, fr)
+			}
 		}
+		return mv
 	}
 	// Guild-scoped fields: rendered with the selected server as context.
 	if guildID != "" {

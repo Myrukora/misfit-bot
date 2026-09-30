@@ -127,13 +127,6 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}}, false},
 		{"gmodules.html", "gmodules", "rd_modules", settingsPageData{
 			GuildID: "1", GuildName: "Gaming HQ",
-			Sections: []settingsSection{{Title: "Presence", Help: "Shown on this server's bot profile.", Fields: []fieldRender{
-				{Key: "presence_enabled", Label: "Custom presence", Type: "toggle", Value: "true"},
-				{Key: "presence_text", Label: "Activity text", Type: "text", Value: "with the fire", GuildScoped: true, GuildID: "1"},
-			}}},
-			DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{
-				{Key: "exec_mode", Label: "Command execution way", Type: "select", Value: "prefix", Options: []string{"prefix", "slash"}},
-			}},
 			ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{
 				{Key: "allow_dashboard_close", Label: "Allow closing from the dashboard", Type: "toggle", Value: "false", GuildScoped: true, GuildID: "1"},
 				{Key: "transcript_channel", Label: "Transcript channel", Type: "channel", Value: "c1", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},

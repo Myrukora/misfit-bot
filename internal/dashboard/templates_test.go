@@ -101,7 +101,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		}}},
 		{"rd_modules", settingsPageData{Manage: true, MgmtRows: nil}},
 		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
-		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", Sections: []settingsSection{{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"}}}}, DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "s", Label: "S", Type: "secret", Value: ""}}}, ModulesView: nil}},
+		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G"}},
 		// Ticket transcript (redesign, standalone): open with close button.
 		{"rd_transcript", struct {
 			Ticket   *modules.Ticket
@@ -146,8 +146,8 @@ func TestRedesignStandaloneLogin(t *testing.T) {
 }
 
 // TestSettingsFieldEveryType mirrors the field-partial contract through the
-// redesign: every field type renders via rd_field, and the module settings
-// page (rd_modules) shows the core sections + dashboard self-config.
+// redesign: every field type renders via rd_field, and the guild modules
+// page (rd_modules) renders the module settings panels.
 func TestSettingsFieldEveryType(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -175,18 +175,7 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	content := settingsPageData{
 		GuildID:   "1",
 		GuildName: "G",
-		Sections: []settingsSection{{
-			Title: "Bot",
-			Fields: []fieldRender{
-				{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"},
-				{Key: "owner_id", Label: "Owner ID", Type: "text", Value: "9"},
-				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
-				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
-				{Key: "tos_url", Label: "Terms of Service URL", Type: "text", Value: ""},
-				{Key: "privacy_url", Label: "Privacy Policy URL", Type: "text", Value: ""},
-			},
-		}},
-		DashboardSelf: moduleConfigView{Name: "dashboard", Fields: fields},
+		ModulesView: []moduleConfigView{{Name: "dashboard", Fields: fields}},
 	}
 	d := mkData(lvlOwner)
 	d.Content = content
@@ -194,15 +183,15 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	if err := b.render(&sb, "rd_modules", d); err != nil {
 		t.Fatalf("render rd_modules: %v", err)
 	}
-	if !strings.Contains(sb.String(), "Dashboard (self-config)") {
-		t.Errorf("settings page missing dashboard self-config section")
+	if !strings.Contains(sb.String(), `data-module="dashboard"`) {
+		t.Errorf("settings page missing the module panel form")
 	}
 }
 
-// TestSettingsSectionsPins covers the settings page restructure: five core
-// sections render with their titles; secret fields are enabled for the owner
-// and locked (disabled + data-owneronly) for elevated viewers; the updater
-// status panel renders only for the owner.
+// TestSettingsSectionsPins covers the /config page (rd_admin): five core
+// sections render with their titles; secret fields are enabled for the
+// owner and locked (disabled + data-owneronly) for elevated viewers; the
+// updater status panel renders (the page itself is owner-gated upstream).
 func TestSettingsSectionsPins(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -211,11 +200,9 @@ func TestSettingsSectionsPins(t *testing.T) {
 	// locked=true renders secrets locked (the elevated view); the owner
 	// render passes false (OwnerOnly && !owner is computed server-side in
 	// coreSettingsFields).
-	build := func(locked bool) settingsPageData {
-		return settingsPageData{
-			GuildID:   "1",
-			GuildName: "G",
-			Sections: []settingsSection{
+	build := func(locked bool) map[string]any {
+		return map[string]any{
+			"sections": []settingsSection{
 				{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
 				{Title: "Dashboard", Fields: []fieldRender{{Key: "dashboard_listen", Label: "Listen address", Type: "text", Value: ""}}},
@@ -230,8 +217,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	render := func(d renderData) string {
 		t.Helper()
 		var sb strings.Builder
-		if err := b.render(&sb, "rd_modules", d); err != nil {
-			t.Fatalf("render rd_modules: %v", err)
+		if err := b.render(&sb, "rd_admin", d); err != nil {
+			t.Fatalf("render rd_admin: %v", err)
 		}
 		return sb.String()
 	}
@@ -240,7 +227,7 @@ func TestSettingsSectionsPins(t *testing.T) {
 	owner.Content = build(false)
 	out := render(owner)
 	for _, title := range []string{"Bot", "Logging", "Dashboard", "Updater", "Secrets"} {
-		if !strings.Contains(out, "<h2>"+title+"</h2>") {
+		if !strings.Contains(out, "<h3>"+title+"</h3>") {
 			t.Errorf("owner render missing section %q", title)
 		}
 	}
@@ -266,11 +253,33 @@ func TestSettingsSectionsPins(t *testing.T) {
 	if !strings.Contains(eOut, `disabled`) {
 		t.Error("elevated render must disable owner-only inputs")
 	}
-	if strings.Contains(eOut, "updater-status") {
-		t.Error("elevated render must NOT include the updater panel (owner only)")
+}
+
+// TestGlobalSidebarModuleGroups pins the global sidebar's per-module groups:
+// a module with declared WebTabs renders one link per tab, and NO Settings
+// sublink — global module settings live on /config, not in the sidebar.
+func TestGlobalSidebarModuleGroups(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
 	}
-	if strings.Contains(eOut, `id="upd-apply"`) {
-		t.Error("elevated render must not show updater action buttons")
+	d := mkData(lvlOwner)
+	d.ModuleNav = []moduleNavItem{
+		{Name: "tickets", Tabs: []navTabItem{{Name: "Tickets", URL: "/tickets"}}},
+	}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_header", d); err != nil {
+		t.Fatalf("render rd_header: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `nav-module-name">tickets`) {
+		t.Error("sidebar missing the tickets module group")
+	}
+	if !strings.Contains(out, `nav-sub">Tickets`) {
+		t.Error("sidebar missing the Tickets tab link")
+	}
+	if strings.Contains(out, ">Settings</a>") {
+		t.Error("sidebar must not render a Settings sublink (global settings live on /config)")
 	}
 }
 
@@ -452,10 +461,9 @@ func TestRedesignFieldEveryType(t *testing.T) {
 	}
 	// Through the module settings page: fields render inside the form.
 	content := settingsPageData{
-		GuildID:       "1",
-		GuildName:     "G",
-		DashboardSelf: moduleConfigView{Name: "dashboard", Fields: fields},
-		ModulesView:   []moduleConfigView{{Name: "tickets", Fields: fields}},
+		GuildID:     "1",
+		GuildName:   "G",
+		ModulesView: []moduleConfigView{{Name: "tickets", Fields: fields}},
 	}
 	d := mkData(lvlOwner)
 	d.Content = content
@@ -463,8 +471,8 @@ func TestRedesignFieldEveryType(t *testing.T) {
 	if err := b.render(&page, "rd_modules", d); err != nil {
 		t.Fatalf("render rd_modules: %v", err)
 	}
-	if !strings.Contains(page.String(), "Dashboard (self-config)") {
-		t.Error("rd_modules page missing dashboard self-config section")
+	if !strings.Contains(page.String(), `data-module="tickets"`) {
+		t.Error("rd_modules page missing the module settings form")
 	}
 }
 

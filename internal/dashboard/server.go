@@ -296,10 +296,9 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 }
 
 // moduleNav assembles the per-module sidebar groups for the current session:
-// one group per loaded module that implements WebTabser (extra tabs) or
-// WebConfigurable (implicit Settings link). Visibility mirrors the tickets
-// page: extra tabs render for any authed user; the Settings link only for
-// viewers who can reach module config (staff+ sees guild-scoped fields).
+// one group per loaded module that declares WebTabs (extra tabs). Global
+// module settings live on /config and per-server settings on the
+// server-scoped Modules tab — neither appears in the global sidebar.
 func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 	if m.bot == nil {
 		return nil
@@ -308,7 +307,6 @@ func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 	if !ok {
 		return nil
 	}
-	level := m.resolveLevel(us)
 	var out []moduleNavItem
 	for _, name := range m.bot.GetLoadedModuleNames() {
 		if name == "dashboard" {
@@ -319,19 +317,6 @@ func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 			continue
 		}
 		item := moduleNavItem{Name: name}
-		// Settings link: only when the module opted into WebConfigurable
-		// (same HasWebConfig filter as webCfg) AND the viewer can reach the
-		// settings page (staff+; regular users have no settings).
-		if _, isWC := m.webCfg(name); isWC {
-			if levelGEQ(level, lvlStaff) || level == lvlOwner || level == lvlElevated {
-				// Settings are per-server now: deep-link to the first guild
-				// the viewer can manage (empty → /g/<id>/modules is 404-safe
-				// upstream, the link is simply not shown).
-				if gids := m.manageableGuildIDs(us); len(gids) > 0 {
-					item.Settings = "/g/" + gids[0] + "/modules"
-				}
-			}
-		}
 		if wt, isWT := modules.IsWebTabser(mod); isWT {
 			for _, tab := range wt.WebTabs() {
 				if tab.Slug == "" {
@@ -340,10 +325,9 @@ func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 				item.Tabs = append(item.Tabs, navTabItem{Name: tab.Name, URL: tab.Slug})
 			}
 		}
-		if item.Settings == "" && len(item.Tabs) == 0 {
+		if len(item.Tabs) == 0 {
 			continue // nothing to show for this module
 		}
-		// Active state: current page path belongs to one of this module's tabs.
 		out = append(out, item)
 	}
 	// Sort groups by module name for stable nav order.
