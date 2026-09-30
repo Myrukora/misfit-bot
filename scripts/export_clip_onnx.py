@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Export a CLIP vision tower (pooler_output head) to ONNX for the Go
-image_spam_filter builtin.
+imagefilter builtin.
 
-Exports ONLY the vision tower — the Python module embeds images via
+Exports ONLY the vision tower — the Go runtime embeds images via
 `model.vision_model(pixel_values).pooler_output` (CLS token, L2-normalized
 afterwards), so the text encoder and tokenizers are never needed at runtime.
 
@@ -16,17 +16,19 @@ The bot's default is b32. Other variants are exported on demand — if the owner
 selects a variant in the dashboard whose .onnx file is missing, the filter
 reports it rather than silently falling back.
 
-Usage (run with the image_spam_filter venv python — needs torch+transformers;
-`verify` additionally needs onnxruntime):
-    python3 scripts/export_clip_onnx.py export [--variant b32] [--model-dir DIR]
-    python3 scripts/export_clip_onnx.py verify [--variant b32] [--model-dir DIR] [--onnx PATH]
+Usage (needs torch+transformers; `verify` additionally needs onnxruntime):
+    python3 scripts/export_clip_onnx.py export [--variant b32] [--out-dir DIR] [--weights-dir DIR]
+    python3 scripts/export_clip_onnx.py verify [--variant b32] [--out-dir DIR] [--weights-dir DIR] [--onnx PATH]
 
-`export` writes clip-vision-<variant>.onnx into --model-dir (default:
-modules/imagefilter/models/; gitignored). `verify` runs the same image through
-torch and onnxruntime and asserts agreement (cosine ~1.0 and matching output
-dims). torch+transformers come from any Python env (e.g. pip install torch
-transformers onnxruntime onnxscript); the old module's venv was retired with
-the Python image_spam_filter (its backup lives in .hermes/backups/).
+`export` writes clip-vision-<variant>.onnx into --out-dir, which defaults to
+<repo>/modules/imagefilter/models/ — the exact flat directory the Go builtin
+reads (`clip.go: modelPath`). That tree is gitignored; only the .onnx artifact
+lands there. The HF torch weights are NOT downloaded into the repo: they come
+from the standard Hugging Face cache (or --weights-dir when given).
+
+A ready-made environment (venv + deps + libonnxruntime.so + the b32 model) is
+produced by scripts/setup_imagefilter.sh; run this script by hand only for a
+non-default variant, with any Python env that has torch+transformers+onnxscript.
 """
 
 import argparse
@@ -41,31 +43,49 @@ VARIANTS = {
     "l14-336": ("openai/clip-vit-large-patch14-336", 1024, 336),
 }
 
-DEFAULT_MODEL_ROOT = "modules/imagefilter/models"  # where the Go builtin reads models from
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Where the Go builtin reads models from — flat, one file per variant
+# (`clip-vision-<variant>.onnx`); see internal/builtin/imagefilter/clip.go.
+DEFAULT_OUT_DIR = os.path.join(_REPO_ROOT, "modules", "imagefilter", "models")
+
+# Files a CLIP repo needs for CLIPModel.from_pretrained + CLIPProcessor.
+# Some repos ship `model.safetensors`, others the legacy `pytorch_model.bin`.
+WEIGHT_PATTERNS = ["*.json", "*.txt", "*.bin", "*.safetensors"]
 
 
-def variant_dir(variant, model_dir):
-    """Weights dir for a variant. Default layout: modules/imagefilter/models
-    holds the exported .onnx files (gitignored); the HF torch weights cache
-    stays in the HF cache dir — only the ONNX artifact lands in the repo tree."""
-    if model_dir:
-        return model_dir
-    return DEFAULT_MODEL_ROOT
+def out_path(variant, out_dir):
+    """Path of the exported ONNX artifact for a variant.
+
+    The layout is FLAT: every variant's file sits directly in the same models
+    dir, keyed by filename — that is what the Go runtime opens.
+    """
+    return os.path.join(out_dir or DEFAULT_OUT_DIR, f"clip-vision-{variant}.onnx")
 
 
-def out_path(variant, model_dir):
-    return os.path.join(variant_dir(variant, model_dir), f"clip-vision-{variant}.onnx")
+def weights_path(variant, weights_dir):
+    """Ensure the HF weights for a variant are available and return their path.
+
+    Without --weights-dir this uses the shared Hugging Face cache (nothing is
+    written into the repository tree); with it, the files are materialised in
+    that directory instead.
+    """
+    from huggingface_hub import snapshot_download
+
+    kwargs = {"allow_patterns": WEIGHT_PATTERNS}
+    if weights_dir:
+        kwargs["local_dir"] = weights_dir
+    return snapshot_download(VARIANTS[variant][0], **kwargs)
 
 
-def load_wrapper(model_dir):
+def load_wrapper(weights):
     import torch
     from transformers import CLIPModel
 
-    model = CLIPModel.from_pretrained(model_dir)
+    model = CLIPModel.from_pretrained(weights)
     model.eval()
 
     class VisionPooler(torch.nn.Module):
-        """vision_model → pooler_output (the exact tensor the Python module uses)."""
+        """vision_model → pooler_output (the exact tensor the Go runtime uses)."""
 
         def __init__(self, m):
             super().__init__()
@@ -82,22 +102,17 @@ def cmd_export(args):
 
     if args.variant not in VARIANTS:
         sys.exit(f"unknown variant {args.variant!r}; choose from: {', '.join(VARIANTS)}")
-    model_dir = variant_dir(args.variant, args.model_dir)
-    out = out_path(args.variant, args.model_dir)
+    out = out_path(args.variant, args.out_dir)
     px = VARIANTS[args.variant][2]
 
-    if not os.path.isdir(model_dir):
-        # One-time weight download for variants not seen before.
-        from huggingface_hub import snapshot_download
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
 
-        snapshot_download(
-            VARIANTS[args.variant][0],
-            local_dir=model_dir,
-            allow_patterns=["*.json", "*.txt", "*.bin"],
-        )
+    # One-time weight fetch (shared HF cache unless --weights-dir was given).
+    weights = weights_path(args.variant, args.weights_dir)
+    print(f"weights: {weights}")
 
     torch.manual_seed(0)
-    _, _, wrapper = load_wrapper(model_dir)
+    _, _, wrapper = load_wrapper(weights)
     dummy = torch.randn(1, 3, px, px)
     torch.onnx.export(
         wrapper,
@@ -124,15 +139,16 @@ def cmd_verify(args):
     if args.variant not in VARIANTS:
         sys.exit(f"unknown variant {args.variant!r}; choose from: {', '.join(VARIANTS)}")
     _, expect_dim, _ = VARIANTS[args.variant]
-    model_dir = variant_dir(args.variant, args.model_dir)
-    onnx_file = args.onnx or out_path(args.variant, args.model_dir)
+    onnx_file = args.onnx or out_path(args.variant, args.out_dir)
     if not os.path.isfile(onnx_file):
         sys.exit(f"missing ONNX file: {onnx_file} (run `export` first)")
     import onnxruntime as ort
 
+    weights = weights_path(args.variant, args.weights_dir)
+
     torch.manual_seed(0)
-    _, model, _ = load_wrapper(model_dir)
-    processor = CLIPProcessor.from_pretrained(model_dir)
+    _, model, _ = load_wrapper(weights)
+    processor = CLIPProcessor.from_pretrained(weights)
 
     # Two visually distinct synthetic images: solid red vs solid blue. Real-photo
     # exactness doesn't matter — we compare torch vs onnx on the SAME input.
@@ -166,15 +182,26 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def add_common(sp):
+        sp.add_argument("--variant", default="b32", help=f"CLIP variant: {', '.join(VARIANTS)} (default: b32)")
+        sp.add_argument(
+            "--out-dir",
+            default=None,
+            help="dir for the exported .onnx (default: modules/imagefilter/models)",
+        )
+        sp.add_argument(
+            "--weights-dir",
+            default=None,
+            help="dir to materialise HF weights in (default: the shared HF cache)",
+        )
+
     pe = sub.add_parser("export", help="export vision tower to ONNX")
-    pe.add_argument("--variant", default="b32", help=f"CLIP variant: {', '.join(VARIANTS)} (default: b32)")
-    pe.add_argument("--model-dir", default=None, help="weights dir (default: models/<hf-name> under the python module)")
+    add_common(pe)
     pe.set_defaults(func=cmd_export)
 
     pv = sub.add_parser("verify", help="verify ONNX matches torch numerically")
-    pv.add_argument("--variant", default="b32", help=f"CLIP variant: {', '.join(VARIANTS)} (default: b32)")
-    pv.add_argument("--model-dir", default=None)
-    pv.add_argument("--onnx", default=None)
+    add_common(pv)
+    pv.add_argument("--onnx", default=None, help="explicit .onnx to check (default: <out-dir>/clip-vision-<variant>.onnx)")
     pv.set_defaults(func=cmd_verify)
 
     args = p.parse_args()

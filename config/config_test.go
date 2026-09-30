@@ -421,3 +421,65 @@ func TestEnabledModulesRoundTrip(t *testing.T) {
 		t.Error("cleanup should be enabled-by-default (key removed — absent = enabled)")
 	}
 }
+
+// TestMCPKeysRoundTrip guards the mcp_* keys: Set must accept mcp_enabled
+// (strict bool) and mcp_token (free-form, trimmed), persist them, and Load
+// must read them back.
+func TestMCPKeysRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	if err := cfg.Set("mcp_enabled", "false"); err != nil {
+		t.Fatalf("set mcp_enabled: %v", err)
+	}
+	if err := cfg.Set("mcp_token", "  secret-token  "); err != nil {
+		t.Fatalf("set mcp_token: %v", err)
+	}
+
+	got, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got.MCP.Enabled {
+		t.Error("mcp_enabled not persisted as false")
+	}
+	if got.MCP.Token != "secret-token" {
+		t.Errorf("mcp_token = %q, want trimmed \"secret-token\"", got.MCP.Token)
+	}
+}
+
+// TestMCPEnabledValidation guards the mcp_enabled key: accepted truthy/falsy
+// spellings enable/disable the MCP server, ambiguous values are rejected.
+func TestMCPEnabledValidation(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	if err := cfg.Set("mcp_enabled", "true"); err != nil {
+		t.Errorf("valid boolean rejected: %v", err)
+	}
+	if err := cfg.Set("mcp_enabled", "off"); err != nil {
+		t.Errorf("valid boolean rejected: %v", err)
+	}
+	if err := cfg.Set("mcp_enabled", "maybe"); err == nil {
+		t.Error("Set(mcp_enabled, \"maybe\") accepted; want error")
+	}
+}
+
+// TestMCPLoadDefaults verifies that a config.yml with no `mcp:` section comes
+// up enabled with an empty token (the token is generated on first start).
+func TestMCPLoadDefaults(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    prefix: '!'\n"), 0644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	cfg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if !cfg.MCP.Enabled {
+		t.Error("mcp should be enabled by default when the section is missing")
+	}
+	if cfg.MCP.Token != "" {
+		t.Errorf("mcp token should be empty by default, got %q", cfg.MCP.Token)
+	}
+}
