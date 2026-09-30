@@ -54,8 +54,8 @@ func TestFieldDataGuildPins(t *testing.T) {
 	}
 	render := func(fr fieldRender) string {
 		var sb strings.Builder
-		if err := b.tmpl.ExecuteTemplate(&sb, "field", fr); err != nil {
-			t.Fatalf("field partial: %v", err)
+		if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fr); err != nil {
+			t.Fatalf("rd_field partial: %v", err)
 		}
 		return sb.String()
 	}

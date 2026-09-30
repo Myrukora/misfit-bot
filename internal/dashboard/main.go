@@ -34,6 +34,7 @@ type DashboardModule struct {
 	stateCtl oauth2.StateController // reused across oauth2.Client rebuilds so in-flight logins survive secret changes
 	sessions *sessionStore
 	tmpl     *templateBundle
+	mcp      http.Handler // optional MCP server handler mounted at /mcp (bearer-token auth)
 
 	srv       *http.Server
 	running   bool
@@ -69,6 +70,7 @@ type Deps struct {
 	BotName string
 	DataDir string
 	Logger  modules.Logger
+	MCP     http.Handler // optional MCP server handler mounted at /mcp
 }
 
 // New constructs the dashboard subsystem. It does NOT start the HTTP server —
@@ -80,6 +82,7 @@ func New(deps Deps) *DashboardModule {
 		botName:  deps.BotName,
 		dataDir:  deps.DataDir,
 		logger:   deps.Logger,
+		mcp:      deps.MCP,
 		sessions: newSessionStore(),
 	}
 	if c, ok := deps.Bot.GetClient().(*bot.Client); ok {

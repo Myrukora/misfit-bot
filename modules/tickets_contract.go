@@ -29,6 +29,12 @@ type TicketProvider interface {
 	CloseTicket(guildID, ticketID, byUserID string) error
 	// ListTypes returns configured ticket types (dashboard editors).
 	ListTypes(guildID string) ([]TypeSummary, error)
+	// TicketFilePath returns the absolute path of one mirrored media file of a
+	// ticket, after validating the ticket ID and the file name (no separators,
+	// no "..", must resolve inside the ticket's files directory). Used by the
+	// dashboard's /api/ticketfiles handler; returns an error when the guild,
+	// ticket, name or file is invalid/absent.
+	TicketFilePath(guildID, ticketID, name string) (string, error)
 }
 
 // Ticket is one support ticket: metadata plus the full conversation log.
@@ -52,6 +58,7 @@ type Ticket struct {
 	Status         string     `json:"status"`                    // "open" | "closed"
 	Members        []string   `json:"members,omitempty"`         // extra members added via [p]add
 	TranscriptPath string     `json:"transcript_path,omitempty"` // relative to DataDir; set after close
+	CloseReason    string     `json:"close_reason,omitempty"`    // "user" | "channel_deleted"
 	Log            []LogEntry `json:"log"`
 }
 
@@ -73,6 +80,7 @@ type LogEntry struct {
 	Timestamp   time.Time `json:"ts"`
 	Content     string    `json:"content"`
 	Attachments []Media   `json:"attachments,omitempty"`
+	Embeds      []Media   `json:"embeds,omitempty"` // message embeds: GIF picker results, link previews
 	Stickers    []Media   `json:"stickers,omitempty"`
 	Edited      bool      `json:"edited,omitempty"`
 	Deleted     bool      `json:"deleted,omitempty"`
@@ -85,7 +93,7 @@ type Media struct {
 	URL         string `json:"url"`
 	LocalPath   string `json:"local_path,omitempty"` // relative to DataDir after close-mirror
 	ProxyURL    string `json:"proxy_url,omitempty"`
-	Kind        string `json:"kind"` // "image" | "video" | "audio" | "sticker" | "file"
+	Kind        string `json:"kind"` // "image" | "video" | "audio" | "sticker" | "file" | "link"
 	ContentType string `json:"content_type,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	Size        int    `json:"size,omitempty"`
@@ -122,4 +130,63 @@ type GroupSummary struct {
 	Key     string `json:"key"`
 	Label   string `json:"label"`
 	Enabled bool   `json:"enabled"`
+}
+
+// TicketAdmin is the OPTIONAL interface the tickets module implements for the
+// dashboard's per-guild panel surface: listing panels with their open-time
+// question forms and replacing those forms. Every other panel/type mutation is
+// performed by the [p]tickets / /tickets commands (web-exec), not here.
+//
+// The dashboard resolves the admin at request time (same pattern as
+// TicketProvider / ImageFilterAdmin):
+//
+//	if mod, ok := manager.Get("tickets"); ok {
+//	    if adm, ok := mod.(TicketAdmin); ok { ... }
+//	}
+//
+// A module that does not implement it simply has no panel surface: the
+// questions route answers 404 and the page renders no panels table.
+type TicketAdmin interface {
+	ListPanels(guildID string) ([]PanelSummary, error)
+	// SetPanelQuestions replaces the panel's questions (nil/empty = instant open).
+	// Validates; the error is shown verbatim in the browser.
+	SetPanelQuestions(guildID, panel string, questions []PanelQuestion) error
+}
+
+// PanelSummary is one posted panel as the dashboard renders it.
+type PanelSummary struct {
+	Name        string          `json:"name"`
+	TypeKey     string          `json:"type"`
+	ChannelID   string          `json:"channel_id"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	ModalTitle  string          `json:"modal_title,omitempty"`
+	Suspended   bool            `json:"suspended"`
+	Questions   []PanelQuestion `json:"questions"`
+}
+
+// PanelQuestion is one field of the open-time modal.
+type PanelQuestion struct {
+	Label       string `json:"label"`                 // 1..45 chars
+	Placeholder string `json:"placeholder,omitempty"` // <=100 chars
+	Style       string `json:"style"`                 // "short" | "paragraph"
+	Required    bool   `json:"required"`
+	Value       string `json:"value,omitempty"` // prefill, <=4000 chars
+}
+
+// TicketTranscript is the OPTIONAL interface a ticket module implements so
+// the dashboard can regenerate a ticket's HTML transcript from the stored
+// log on demand. The on-disk transcript is a CACHE of the stored log: it is
+// written at close time and rebuilt whenever it is requested, so a message
+// or edit that lands after the close tail can never leave a stale artifact.
+//
+// Resolution mirrors TicketProvider/TicketAdmin (manager.Get("tickets") +
+// type assertion). A module that does not implement it has no transcript
+// download: the route answers 404.
+type TicketTranscript interface {
+	// RefreshTranscript rebuilds the ticket's HTML transcript from its
+	// CURRENT stored log, rewrites <DataDir>/tickets/<guildID>/<ticketID>.html,
+	// and returns the rendered bytes. It errors when the module is not
+	// loaded, an ID is invalid, or the ticket does not exist.
+	RefreshTranscript(guildID, ticketID string) ([]byte, error)
 }

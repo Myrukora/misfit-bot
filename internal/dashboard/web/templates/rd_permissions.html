@@ -1,0 +1,46 @@
+{{define "rd_permissions"}}{{template "rd_header" .}}
+        <!-- ===== Owner (read-only) ===== -->
+        <section class="card">
+          <h2>Owner</h2>
+          <p class="muted">The bot owner. Bypasses every permission check.</p>
+          <ul class="user-list">
+            <li class="user-row">
+              <div class="user-identity">
+                <span class="user-name">{{index .Content.names .Content.owner_id}}</span>
+                <span class="user-id muted">{{.Content.owner_id}}</span>
+              </div>
+              <span class="user-badge">Owner</span>
+            </li>
+          </ul>
+        </section>
+
+        <!-- ===== Elevated users ===== -->
+        <section class="card">
+          <h2>Elevated users</h2>
+          <p class="muted">Users granted owner-like access. They bypass permission checks.</p>
+          {{if .Content.elevated}}
+          <ul class="user-list">
+            {{range .Content.elevated}}
+            <li class="user-row" data-user="{{.}}">
+              <div class="user-identity">
+                <span class="user-name">{{index $.Content.names .}}</span>
+                <span class="user-id muted">{{.}}</span>
+              </div>
+              <button class="btn btn-small btn-danger" data-remove-elevated="{{.}}">Remove</button>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}
+          <p class="muted">No elevated users.</p>
+          {{end}}
+
+          <!-- Add elevated -->
+          <div class="add-row">
+            <div class="field">
+              <label class="field-label">Add by user ID</label>
+              <input class="field-input" type="text" id="add-elevated-id" placeholder="Discord user ID">
+            </div>
+            <button class="btn btn-primary" id="add-elevated">Add</button>
+          </div>
+        </section>
+{{template "rd_footer" .}}{{end}}

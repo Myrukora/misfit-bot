@@ -1,0 +1,150 @@
+{{define "rd_tickets"}}{{template "rd_header" .}}
+        {{if .Content.Error}}
+        <section class="card"><p class="muted">{{.Content.Error}}</p></section>
+        {{else if .Content.GuildID}}
+        <section class="card">
+          <h2>Ticket types</h2>
+          {{if .Content.Types}}
+          <ul class="user-list">
+            {{range .Content.Types}}
+            <li class="user-row">
+              <div class="user-identity">
+                <span class="user-name">{{.Label}}</span>
+                <span class="user-id muted">{{.Key}}</span>
+              </div>
+            </li>
+            {{end}}
+          </ul>
+          {{else}}
+          <p class="muted">No ticket types configured yet — run <code>tickets type add &lt;key&gt;</code> in Discord.</p>
+          {{end}}
+          <p class="muted" style="margin-top:12px">Panel questions are edited here; everything else is configured with <code>/tickets</code> or <code>[p]tickets</code>.</p>
+        </section>
+
+        {{if .Content.Panels}}
+        <section class="card" id="tickets-panels" data-guild="{{.Content.GuildID}}">
+          <h2>Panels</h2>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Panel</th><th>Type</th><th>Channel</th><th>Questions</th><th>Actions</th></tr></thead>
+              <tbody>
+                {{range .Content.Panels}}
+                <tr>
+                  <td><code>{{.Name}}</code>{{if .Suspended}} <span class="tag">suspended</span>{{end}}</td>
+                  <td>{{if .TypeKey}}{{.TypeKey}}{{else}}—{{end}}</td>
+                  <td>{{if .ChannelID}}<code>&lt;#{{.ChannelID}}&gt;</code>{{else}}—{{end}}</td>
+                  <td>{{if .Questions}}{{len .Questions}}{{else}}—{{end}}</td>
+                  <td>
+                    {{if .Suspended}}
+                    <button class="btn btn-small tk-panel-action" data-action="resume" data-name="{{.Name}}">Resume</button>
+                    {{else}}
+                    <button class="btn btn-small tk-panel-action" data-action="suspend" data-name="{{.Name}}">Suspend</button>
+                    {{end}}
+                    <button class="btn btn-small tk-panel-action" data-action="resend" data-name="{{.Name}}">Resend</button>
+                    <button class="btn btn-small tk-qtoggle" data-name="{{.Name}}">Questions</button>
+                  </td>
+                </tr>
+                <tr class="tk-qeditor-row">
+                  <td colspan="5">
+                    <div class="tk-qeditor" data-name="{{.Name}}" hidden>
+                      <div class="tk-qrows">
+                        {{range .Questions}}
+                        <div class="tk-qrow">
+                          <input class="field-input tk-q-label" placeholder="Question label" maxlength="45" value="{{.Label}}">
+                          <select class="field-input tk-q-style">
+                            <option value="short"{{if eq .Style "short"}} selected{{end}}>short</option>
+                            <option value="paragraph"{{if eq .Style "paragraph"}} selected{{end}}>paragraph</option>
+                          </select>
+                          <label class="tk-q-req"><input type="checkbox" class="tk-q-required"{{if .Required}} checked{{end}}> required</label>
+                          <input class="field-input tk-q-placeholder" placeholder="Placeholder (optional)" maxlength="100" value="{{.Placeholder}}">
+                          <input class="field-input tk-q-value" placeholder="Prefill value (optional)" maxlength="4000" value="{{.Value}}">
+                          <button type="button" class="btn btn-small tk-qremove">Remove</button>
+                        </div>
+                        {{end}}
+                      </div>
+                      <div class="card-actions" style="margin-top:10px">
+                        <button type="button" class="btn btn-small tk-qadd">Add question</button>
+                        <button type="button" class="btn btn-small btn-primary tk-qsave">Save questions</button>
+                      </div>
+                      <p class="muted" style="margin-top:8px">Up to 5 questions. No questions means the panel opens the ticket immediately.</p>
+                    </div>
+                  </td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          <p class="muted" id="tickets-panels-msg" hidden></p>
+        </section>
+        {{else}}
+        <section class="card" id="tickets-panels">
+          <h2>Panels</h2>
+          <p class="muted">No panels posted yet — create one with <code>/tickets panel create</code>.</p>
+        </section>
+        {{end}}
+
+        <template id="tk-qrow-tpl">
+          <div class="tk-qrow">
+            <input class="field-input tk-q-label" placeholder="Question label" maxlength="45">
+            <select class="field-input tk-q-style">
+              <option value="short">short</option>
+              <option value="paragraph">paragraph</option>
+            </select>
+            <label class="tk-q-req"><input type="checkbox" class="tk-q-required"> required</label>
+            <input class="field-input tk-q-placeholder" placeholder="Placeholder (optional)" maxlength="100">
+            <input class="field-input tk-q-value" placeholder="Prefill value (optional)" maxlength="4000">
+            <button type="button" class="btn btn-small tk-qremove">Remove</button>
+          </div>
+        </template>
+
+        <section class="card">
+          <h2>Open tickets</h2>
+          {{if .Content.Open}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Claimed</th><th>Opened</th><th></th></tr></thead>
+              <tbody>
+                {{range .Content.Open}}
+                <tr data-guild="{{$.Content.GuildID}}">
+                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+                  <td>{{.Type}}</td>
+                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+                  <td>{{if .ClaimerID}}<code>{{.ClaimerID}}</code>{{else}}—{{end}}</td>
+                  <td title="{{.OpenedAt}}">{{dateHuman .OpenedAt}}</td>
+                  <td><button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$.Content.GuildID}}">Close</button></td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">No open tickets 🎉</p>
+          {{end}}
+        </section>
+
+        <section class="card">
+          <h2>Closed tickets (archive)</h2>
+          {{if .Content.Closed}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
+              <tbody>
+                {{range .Content.Closed}}
+                <tr>
+                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+                  <td>{{.Type}}</td>
+                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+                  <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">Nothing archived yet.</p>
+          {{end}}
+        </section>
+        {{else}}
+        <section class="card"><p class="muted">No manageable servers found.</p></section>
+        {{end}}
+{{template "rd_footer" .}}{{end}}

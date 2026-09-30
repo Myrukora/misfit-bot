@@ -18,6 +18,7 @@ type Config struct {
 	OAuth     OAuthConfig         `yaml:"oauth"`
 	Dashboard DashboardCoreConfig `yaml:"dashboard"`
 	Updater   UpdaterConfig       `yaml:"updater"`
+	MCP       MCPConfig           `yaml:"mcp"`
 }
 
 // OAuthConfig holds the Discord application's OAuth2 client secret. Unlike
@@ -74,6 +75,12 @@ type BotConfig struct {
 	// applied on every (re)start via SetPresence so the bot comes up with the
 	// owner's chosen status instead of always online.
 	Status string `yaml:"status"`
+	// BotAllowlist is a list of bot user IDs whose prefix commands are
+	// processed despite the standard "ignore all bots" rule. Intended for
+	// QA/testing observer bots (single explicit IDs — never a blanket
+	// bots-in-general exemption, so bot↔bot echo loops stay impossible).
+	// Empty = default behavior (all bots ignored).
+	BotAllowlist []string `yaml:"bot_allowlist,omitempty"`
 }
 
 type ModulesConfig struct {
@@ -108,6 +115,14 @@ type UpdaterConfig struct {
 	NotifyChannel string `yaml:"notify_channel"` // Discord channel ID for PR/commit embeds; empty = notifications skipped
 }
 
+// MCPConfig controls the built-in MCP server mounted at /mcp on the
+// dashboard listener. The token authenticates bearer-token clients;
+// empty = generated on first start and saved back to config.yml.
+type MCPConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Token   string `yaml:"token"`
+}
+
 var DefaultConfig = &Config{
 	Bot: BotConfig{
 		Prefix:  "[p]",
@@ -130,6 +145,15 @@ var DefaultConfig = &Config{
 		Branch:        "main",
 		CheckInterval: 300,
 		AutoPull:      true,
+	},
+	// MCP: enabled by default — a conscious choice. Exposure is bounded by the
+	// auto-generated bearer token (generated on first start when empty) and
+	// the dashboard listener binding 127.0.0.1:8080 by default (LAN-only
+	// unless the owner rebinds). Load() starts from DefaultConfig then
+	// overlays YAML, so a missing `mcp:` section on an existing install comes
+	// up enabled (same precedent as `updater:`).
+	MCP: MCPConfig{
+		Enabled: true,
 	},
 }
 
@@ -311,6 +335,14 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid updater_notify_channel: %v", err)
 		}
 		c.Updater.NotifyChannel = v
+	case "mcp_enabled":
+		v, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid mcp_enabled: %v", err)
+		}
+		c.MCP.Enabled = v
+	case "mcp_token":
+		c.MCP.Token = strings.TrimSpace(value)
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}

@@ -135,7 +135,15 @@ type Manager struct {
 
 	// listTags enumerates the tag refs on origin. Overridable in tests; the
 	// default shells out to git ls-remote.
-	listTags       func(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error)
+	listTags func(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error)
+
+	// setupArtifacts re-provisions the optional runtime artifacts a feature
+	// module needs but git does not carry (ONNX Runtime lib + the CLIP model
+	// for internal/builtin/imagefilter). Overridable in tests; the default runs
+	// scripts/setup_imagefilter.sh, which is a no-op once the artifacts exist.
+	// Failures are logged and swallowed — see Apply.
+	setupArtifacts func(ctx context.Context) error
+
 	applyMu        sync.Mutex  // serializes Apply (and its build steps)
 	applyRequested atomic.Bool // set when a new binary is installed and a restart is pending
 	onApplied      func()      // invoked after a successful Apply (main wires it to the restart channel)
@@ -156,6 +164,7 @@ func New(dir string, logger Logger, getCfg func() *config.UpdaterConfig) *Manage
 	}
 	m.send = m.sendEmbed
 	m.listTags = m.listRemoteTags
+	m.setupArtifacts = m.runArtifactSetup
 	return m
 }
 
@@ -507,6 +516,13 @@ func (m *Manager) Apply(ctx context.Context) error {
 		branch = "main"
 	}
 
+	// 0. Verify the checkout is on the tracked branch before touching anything.
+	if out, err := m.gitOutput(ctx, "rev-parse", "--abbrev-ref", "HEAD"); err != nil {
+		return fmt.Errorf("git rev-parse --abbrev-ref HEAD: %v (%s)", err, strings.TrimSpace(out))
+	} else if err := checkCheckedOutBranch(strings.TrimSpace(out), branch); err != nil {
+		return err
+	}
+
 	// 1. Fetch + fast-forward merge.
 	fetchArgs := append(m.gitAuthArgs(cfg), "fetch", "origin", branch)
 	if out, err := m.gitOutput(ctx, fetchArgs...); err != nil {
@@ -545,6 +561,18 @@ func (m *Manager) Apply(ctx context.Context) error {
 	}
 	if err := os.Rename(newPath, botPath); err != nil {
 		return fmt.Errorf("install new binary: %w", err)
+	}
+
+	// 4. Re-provision gitignored runtime artifacts (ONNX Runtime library + the
+	//    CLIP model for the imagefilter builtin). These never arrive via git
+	//    and a fresh clone has none, so an updated binary would silently run
+	//    its optional filter cold. This runs after the swap because it is the
+	//    slow, network-heavy step (no-op once the artifacts exist) and must
+	//    never hold up or invalidate the update: a failure is logged and the
+	//    restart proceeds — the filter just stays cold with the reason on the
+	//    dashboard.
+	if m.setupArtifacts != nil {
+		m.installArtifacts(ctx)
 	}
 
 	m.Logger.Info("Update applied: %s installed — restarting with the new build", botPath)
@@ -735,10 +763,6 @@ func (m *Manager) reachableTags(ctx context.Context, refs []tagRef, upstream str
 	return names
 }
 
-// parseTagRefs turns `git ls-remote --tags` output ("<sha>\trefs/tags/v1.2.3")
-// into tag names. Peeled entries for annotated tags ("<name>^{}") collapse onto
-// their base tag, and everything else (SHAs, stray lines) is dropped.
-
 // recordLatestVersion caches the newest release tag seen on the tracked branch
 // so [p]info and the dashboard can report it without shelling out to git.
 func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
@@ -867,6 +891,35 @@ func authHeader(token string) string {
 	return "AUTHORIZATION: basic " + base64.StdEncoding.EncodeToString([]byte(auth))
 }
 
+// installArtifacts runs the artifact provisioner and swallows its error. The
+// image filter is an optional feature: a cold filter is a dashboard warning,
+// not a failed update, so this must never propagate into Apply's error path.
+func (m *Manager) installArtifacts(ctx context.Context) {
+	if err := m.setupArtifacts(ctx); err != nil {
+		m.Logger.Warn("Updater: runtime artifact setup failed (image filter stays cold): %v", err)
+	}
+}
+
+// runArtifactSetup is the default setupArtifacts implementation: it runs the
+// shared scripts/setup_imagefilter.sh inside the bot directory. That script is
+// idempotent and fast when the artifacts are already present, does all its
+// heavy work at most once per machine, and — in its default (non-strict) mode —
+// exits 0 with a clear warning instead of failing when an artifact cannot be
+// built. Output is captured so a failure is reported with its reason.
+func (m *Manager) runArtifactSetup(ctx context.Context) error {
+	script := filepath.Join(m.Dir, "scripts", "setup_imagefilter.sh")
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("artifact setup script not found at %s: %w", script, err)
+	}
+	cmd := exec.CommandContext(ctx, "bash", script)
+	cmd.Dir = m.Dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 // gitOutput runs git with the bot directory as the working tree.
 func (m *Manager) gitOutput(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
@@ -883,4 +936,21 @@ func (m *Manager) setError(err error) {
 		return
 	}
 	m.lastError = err.Error()
+}
+
+// checkCheckedOutBranch verifies the git checkout is on the configured branch
+// before Apply merges. A mismatch would silently fast-forward a feature branch
+// or fail with a confusing git error, so Apply refuses early with a clear
+// remediation message.
+func checkCheckedOutBranch(current, tracked string) error {
+	if tracked == "" {
+		tracked = "main"
+	}
+	if current == "HEAD" {
+		return fmt.Errorf("git HEAD is detached (expected branch %q); switch to the tracked branch first: git checkout %s", tracked, tracked)
+	}
+	if current != tracked {
+		return fmt.Errorf("git checkout is on %q but the updater tracks %q; switch branches first: git checkout %s", current, tracked, tracked)
+	}
+	return nil
 }

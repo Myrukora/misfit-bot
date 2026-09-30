@@ -124,7 +124,9 @@ func (m *TicketsModule) overwritesFor(guildID, openerID string, g TypeConfig, me
 
 // openTicket creates the private channel, posts ping + welcome embed and
 // persists the ticket. Sequence is RESERVED before any API work (v1 lesson).
-func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, panelName string) (*modules.Ticket, error) {
+// answers (from the open-time modal) are posted as a follow-up message and
+// recorded in the ticket log.
+func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, panelName string, answers []answer) (*modules.Ticket, error) {
 	seq := m.store.reserveSeq(guildID, g.Key)
 	release := func() { m.store.releaseSeq(guildID, g.Key, seq) }
 
@@ -169,10 +171,40 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 	if _, err := m.ctx.Rest.CreateMessage(ch.ID(), create); err != nil {
 		m.ctx.Logger.Error("Tickets: welcome post failed in %s: %v", ticket.ChannelID, err)
 	}
+
+	// Open-time answers: post as a follow-up and record in the ticket log.
+	if len(answers) > 0 {
+		content := buildAnswersContent(opener.EffectiveName(), answers)
+		resp, err := m.ctx.Rest.CreateMessage(ch.ID(), discord.MessageCreate{
+			Content:         content,
+			AllowedMentions: &discord.AllowedMentions{Parse: []discord.AllowedMentionType{}},
+		})
+		if err == nil {
+			ticket.Log = append(ticket.Log, modules.LogEntry{
+				MsgID:      resp.ID.String(),
+				AuthorID:   opener.ID.String(),
+				AuthorName: m.ctx.Bot.GetName(),
+				IsBot:      true,
+				Timestamp:  time.Now().UTC(),
+				Content:    content,
+			})
+		} else {
+			m.ctx.Logger.Warn("Tickets: answers post failed in %s: %v", ticket.ChannelID, err)
+		}
+	}
 	if err := m.store.save(ticket); err != nil {
 		release()
+		// The channel already exists but has no ticket record: leaving it
+		// behind orphans a channel whose topic points at a nonexistent ticket.
+		if delErr := m.ctx.Rest.DeleteChannel(ch.ID()); delErr != nil {
+			m.ctx.Logger.Warn("Tickets: failed to delete orphaned channel %s: %v", ticket.ChannelID, delErr)
+		}
 		return nil, fmt.Errorf("failed to persist ticket: %w", err)
 	}
+
+	// Log-channel "opened" event.
+	title, desc := openLogEmbed(ticket, g, panelName)
+	m.postLogEvent(guildID, title, desc, 0x57F287)
 	return ticket, nil
 }
 

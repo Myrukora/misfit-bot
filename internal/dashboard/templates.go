@@ -38,6 +38,9 @@ type renderData struct {
 	IsRegular   bool
 	ShowSidebar bool // false = standalone page (login/setup): no sidebar/topbar
 	Raw         bool
+	// ShowImageFilter: the imagefilter module is loaded — server-scoped
+	// sidebars render its tab (the page itself still guards staff access).
+	ShowImageFilter bool
 	// ModuleNav carries the per-module sidebar sections (Task 10): loaded
 	// modules that implement WebTabser (extra tabs) and/or WebConfigurable
 	// (implicit Settings entry). Empty for standalone pages.
@@ -77,6 +80,7 @@ var tmplFuncs = template.FuncMap{
 	"dateHuman":    dateHuman,
 	"substrUpper":  substrUpper,
 	"fileBase":     fileBase,
+	"hasSuffix":    strings.HasSuffix,
 	"versionLabel": versionLabel,
 }
 
@@ -163,8 +167,12 @@ func pageTitle(page string) string {
 		return "Setup"
 	case "commands":
 		return "Commands"
-	case "guild":
-		return "Server"
+	case "gcommands":
+		return "Commands"
+	case "gtickets":
+		return "Tickets"
+	case "gmodules":
+		return "Modules"
 	case "modules":
 		return "Modules"
 	case "settings":
@@ -177,6 +185,10 @@ func pageTitle(page string) string {
 		return "Permissions"
 	case "logs":
 		return "Logs"
+	case "config":
+		return "Configuration"
+	case "imagefilter":
+		return "Image Filter"
 	}
 	if page == "" {
 		return "Dashboard"

@@ -1,0 +1,85 @@
+{{define "rd_modules"}}{{template "rd_header" .}}
+{{with .Content}}
+{{if .Manage}}
+        <!-- ===== Owner view: module management (load/unload/reload) ===== -->
+        <section class="card">
+          <h2>Modules</h2>
+          <p class="muted">Load, unload and reload hot-swappable modules.</p>
+          {{if .MgmtRows}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Module</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+              {{range .MgmtRows}}
+              <tr data-module="{{.Name}}">
+                <td><strong>{{.Name}}</strong>{{if .Description}}<br><small class="muted">{{.Description}}</small>{{end}}</td>
+                <td>{{if .Loaded}}<span class="tag ok">loaded</span>{{else}}<span class="tag">available</span>{{end}}</td>
+                <td>
+                  {{if .Loaded}}
+                  <button type="button" class="btn btn-small act" data-action="reload">reload</button>
+                  <button type="button" class="btn btn-small btn-danger act" data-action="unload">unload</button>
+                  {{else}}
+                  <button type="button" class="btn btn-small act" data-action="load">load</button>
+                  {{end}}
+                </td>
+              </tr>
+              {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">No modules available.</p>
+          {{end}}
+        </section>
+{{else}}
+        <!-- ===== Guild view: module settings panels ===== -->
+        {{if .Sections}}
+        {{range .Sections}}
+        <section class="card">
+          <h2>{{.Title}}</h2>
+          {{if .Help}}<p class="muted">{{.Help}}</p>{{end}}
+          {{range .Fields}}{{template "rd_field" .}}{{end}}
+          <button type="button" class="btn btn-primary save-section">Save {{.Title}}</button>
+        </section>
+        {{end}}
+        {{end}}
+
+        {{if and .Sections $.IsOwner}}
+        <section class="card">
+          <h2>Updater</h2>
+          <p class="muted">Live updater state; actions mirror the owner-only [p]update commands.</p>
+          <div class="updater-status" id="updater-status">Loading…</div>
+          <div class="add-row">
+            <button type="button" class="btn btn-small" id="upd-check">Check now</button>
+            <button type="button" class="btn btn-small" id="upd-apply">Update now</button>
+            <button type="button" class="btn btn-small" id="upd-test">Send test embeds</button>
+          </div>
+        </section>
+        {{end}}
+
+        {{if .DashboardSelf.Fields}}
+        <section class="card">
+          <h2>Dashboard (self-config)</h2>
+          <form class="module-cfg" data-module="{{.DashboardSelf.Name}}" data-guild="{{.GuildID}}">
+            {{range .DashboardSelf.Fields}}{{template "rd_field" .}}{{end}}
+            <button type="button" class="btn btn-primary save-module">Save changes</button>
+          </form>
+        </section>
+        {{end}}
+
+        {{range .ModulesView}}
+        <section class="card">
+          <h2>{{.Name}}</h2>
+          <form class="module-cfg" data-module="{{.Name}}" data-guild="{{$.GuildID}}">
+            {{range .Fields}}{{template "rd_field" .}}{{end}}
+            <button type="button" class="btn btn-primary save-module">Save changes</button>
+          </form>
+        </section>
+        {{end}}
+
+        {{if not (or .Sections .DashboardSelf.Fields .ModulesView)}}
+        <section class="card"><p class="muted">No configurable settings here.</p></section>
+        {{end}}
+{{end}}
+{{end}}
+{{template "rd_footer" .}}{{end}}

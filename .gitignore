@@ -27,6 +27,11 @@ config_pre_restore_*.yml
 .pi/
 .tmp/
 
+# Atomic-write siblings of the state files above (command_overrides.json.tmp,
+# updater_state.json.tmp) plus module-side *.tmp staging: the temp file a writer
+# creates between write and rename.
+*.tmp
+
 # Module runtime data (configs, saves, logs) inside module folders.
 # A module with other data filenames can add its own .gitignore in its folder.
 modules/Go/*/config*.yml
@@ -41,6 +46,18 @@ modules/Lua/*/config*.yml
 modules/Lua/*/config.json
 modules/Lua/*/data/
 modules/Lua/*/logs/
+# Tickets compiled-in builtin runtime data (source lives in internal/builtin/tickets/)
+modules/tickets/
+# Imagefilter compiled-in builtin runtime data (source lives in internal/builtin/imagefilter/)
+modules/imagefilter/
+# Legacy Go plugin data dirs (pre-cutover runtime state)
+modules/Go/*/guilds/
+modules/Go/*/tickets/
+modules/Go/*/spam_images/
+modules/Go/*/config.json
+# Retired Python module runtime data (image_spam_filter source removed in 0.2.0)
+modules/Python/image_spam_filter/
+
 # Python SDK IPC sockets / runtime droppings
 modules/Python/*/*.sock
 modules/Python/*/*.pid
@@ -72,6 +89,12 @@ __pycache__/
 # Editor directories and files
 .idea
 .vscode
+
+# Agent-local tooling state (never repo content). .claude/settings.local.json was
+# previously excluded only by a machine-wide ~/.config/git/ignore, which does not
+# travel with the repo — a fresh clone/CI would have committed it.
+.claude/
+.omp/
 *.suo
 *.ntvs*
 *.njsproj
@@ -95,3 +118,13 @@ scratch/
 
 # Leftover git worktrees from dev sessions
 .worktrees/
+
+# Dashboard redesign drafts (local only)
+/redesign/
+
+# ONNX Runtime C library + include tree (scripts/setup_imagefilter.sh, local only).
+# The whole lib/ tree is local-only: no source-level file lives under it.
+lib/
+
+# imagefilter builtin model files (regenerable via scripts/setup_imagefilter.sh)
+modules/imagefilter/models/

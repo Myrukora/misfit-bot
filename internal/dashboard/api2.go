@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/config"
+	"github.com/misfit/bot/internal/logutil"
 	"github.com/misfit/bot/modules"
 	"github.com/misfit/bot/updater"
 	"gopkg.in/yaml.v3"
@@ -393,7 +393,7 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	lines, err := tailLines(path, n)
+	lines, err := logutil.TailLines(path, n)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -408,25 +408,7 @@ func (m *DashboardModule) apiLogs(w http.ResponseWriter, r *http.Request) {
 // never tails a stale file or an empty file created at rotation.
 func (m *DashboardModule) logFilePath() string {
 	dir, base := m.logFileBase()
-	return resolveLogFilePath(dir, base)
-}
-
-// resolveLogFilePath picks the newest non-empty daily log file for a
-// directory + basename pair, falling back to the legacy <base>.log file.
-// Pure and testable: the glob is relative to dir, so callers may point it at
-// any directory.
-func resolveLogFilePath(dir, base string) string {
-	matches, err := filepath.Glob(filepath.Join(dir, base+"-*.log"))
-	if err == nil && len(matches) > 0 {
-		sort.Strings(matches) // ISO date suffixes sort chronologically
-		for i := len(matches) - 1; i >= 0; i-- {
-			if st, err := os.Stat(matches[i]); err == nil && st.Size() > 0 {
-				return matches[i]
-			}
-		}
-		return matches[len(matches)-1]
-	}
-	return filepath.Join(dir, base+".log")
+	return logutil.ResolvePath(dir, base)
 }
 
 // logFileBase resolves logging.file_path from config.yml into a directory and
@@ -449,28 +431,6 @@ func (m *DashboardModule) logFileBase() (string, string) {
 		fp = filepath.Join(m.bot.GetConfigDir(), fp)
 	}
 	return filepath.Dir(fp), strings.TrimSuffix(filepath.Base(fp), ".log")
-}
-
-// tailLines returns the last n lines of a file efficiently.
-func tailLines(path string, n int) ([]string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 1024*1024), 8*1024*1024)
-	ring := make([]string, 0, n)
-	for sc.Scan() {
-		ring = append(ring, sc.Text())
-		if len(ring) > n {
-			ring = ring[len(ring)-n:]
-		}
-	}
-	if err := sc.Err(); err != nil {
-		return nil, err
-	}
-	return ring, nil
 }
 
 // ── /api/exec — universal command execution ─────────────────────────────
@@ -821,6 +781,13 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			return
 		}
 	case "guilds":
+		// Guild-scoped module subtrees (e.g. /api/guilds/<gid>/imagefilter…)
+		// live in their own dispatcher; must be checked before the GET-only
+		// listing below, so POST/DELETE reach it too.
+		if len(parts) >= 3 && parts[2] == "imagefilter" {
+			m.routeImageFilterAPI(w, r, meth, parts)
+			return
+		}
 		if meth == "GET" {
 			m.apiGuilds(w, r)
 			return
@@ -893,6 +860,11 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "tickets":
 		m.routeTicketsAPI(w, r, meth, parts)
+		return
+	case "imagefilter":
+		// Image filter: bot-wide owner endpoints + guild-scoped config/images
+		// (guards + CSRF enforced inside routeImageFilterAPI).
+		m.routeImageFilterAPI(w, r, meth, parts)
 		return
 	case "ticketfiles":
 		// /api/ticketfiles/<guild>/<ticket>/<filename> — mirrored attachments.

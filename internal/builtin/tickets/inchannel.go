@@ -136,7 +136,7 @@ func (m *TicketsModule) isHelper(ctx *commands.Context, tk *modules.Ticket, user
 	if m.ctx.Bot.IsOwner(userID) || m.ctx.Bot.IsElevated(userID) {
 		return true
 	}
-	g, ok := m.typeOf(tk.EffectiveType())
+	g, ok := m.typeOf(tk.GuildID, tk.EffectiveType())
 	if !ok {
 		return false
 	}
@@ -151,7 +151,7 @@ func (m *TicketsModule) isHelper(ctx *commands.Context, tk *modules.Ticket, user
 }
 
 func isHelperByType(m *TicketsModule, tk *modules.Ticket, userID string) bool {
-	g, ok := m.typeOf(tk.EffectiveType())
+	g, ok := m.typeOf(tk.GuildID, tk.EffectiveType())
 	if !ok {
 		return false
 	}
@@ -190,20 +190,27 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 			if !m.isHelper(ctx, tk, userID) {
 				return ctx.Respond(embed.Error("❌ Error", "Only helpers can claim tickets."))
 			}
-			m.mu.Lock()
-			if tk.ClaimerID != "" {
-				claimed := tk.ClaimerID
-				m.mu.Unlock()
-				return ctx.Respond(embed.Warning("⚠️ Already claimed", "Claimed by <@"+claimed+">."))
+			claimed, changed, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
+				if cur.Status != "open" || cur.ClaimerID != "" {
+					return false
+				}
+				cur.ClaimerID = userID
+				cur.ClaimedAt = timeNowUTC()
+				return true
+			})
+			if err != nil || claimed == nil {
+				return ctx.Respond(embed.Error("❌ Error", "Failed to claim: ticket no longer exists."))
 			}
-			tk.ClaimerID = userID
-			tk.ClaimedAt = timeNowUTC()
-			m.mu.Unlock()
-			g, _ := m.typeOf(tk.EffectiveType())
-			if tk.MessageID != "" {
-				m.editTicketButtons(tk, g, "Claimed by "+ctx.Author.EffectiveName())
+			if !changed {
+				if claimed.ClaimerID != "" {
+					return ctx.Respond(embed.Warning("⚠️ Already claimed", "Claimed by <@"+claimed.ClaimerID+">."))
+				}
+				return ctx.Respond(embed.Error("❌ Error", "This command only works inside an **open** ticket channel."))
 			}
-			_ = m.store.save(tk)
+			g, _ := m.typeOf(claimed.GuildID, claimed.EffectiveType())
+			if claimed.MessageID != "" {
+				m.editTicketButtons(claimed, g, "Claimed by "+ctx.Author.EffectiveName())
+			}
 			return ctx.Respond(embed.Success("✋ Claimed", "<@"+userID+"> is handling this ticket."))
 		},
 	}
@@ -245,35 +252,48 @@ func (m *TicketsModule) addRemoveMember(ctx *commands.Context, add bool) error {
 		return ctx.Respond(embed.Error("❌ Error", "The ticket owner can't be removed."))
 	}
 
-	m.mu.Lock()
-	idx := -1
-	for i, id := range tk.Members {
-		if id == target {
-			idx = i
-			break
+	// Compare-and-set under the store lock: the current stored Members slice is
+	// re-checked there, so two concurrent add/remove calls cannot both pass.
+	outcome := ""
+	updated, changed, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
+		idx := -1
+		for i, id := range cur.Members {
+			if id == target {
+				idx = i
+				break
+			}
 		}
+		if add && idx >= 0 {
+			outcome = "already"
+			return false
+		}
+		if !add && idx < 0 {
+			outcome = "missing"
+			return false
+		}
+		if add {
+			cur.Members = append(cur.Members, target)
+		} else {
+			cur.Members = append(cur.Members[:idx], cur.Members[idx+1:]...)
+		}
+		return true
+	})
+	if err != nil || updated == nil {
+		return ctx.Respond(embed.Error("❌ Error", "This command only works inside a ticket channel."))
 	}
-	if add && idx >= 0 {
-		m.mu.Unlock()
-		return ctx.Respond(embed.Warning("⚠️", "<@"+target+"> is already in this ticket."))
+	if !changed {
+		if outcome == "already" {
+			return ctx.Respond(embed.Warning("⚠️", "<@"+target+"> is already in this ticket."))
+		}
+		if outcome == "missing" {
+			return ctx.Respond(embed.Warning("⚠️", "<@"+target+"> is not in this ticket."))
+		}
+		return ctx.Respond(embed.Error("❌ Error", "This command only works inside a ticket channel."))
 	}
-	if !add && idx < 0 {
-		m.mu.Unlock()
-		return ctx.Respond(embed.Warning("⚠️", "<@"+target+"> is not in this ticket."))
-	}
-	if add {
-		tk.Members = append(tk.Members, target)
-	} else {
-		tk.Members = append(tk.Members[:idx], tk.Members[idx+1:]...)
-	}
-	err := m.store.save(tk)
-	m.mu.Unlock()
-	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", err.Error()))
-	}
+	tk = updated
 
 	// Live overwrite update on the channel.
-	g, _ := m.typeOf(tk.EffectiveType())
+	g, _ := m.typeOf(tk.GuildID, tk.EffectiveType())
 	verb := "added to"
 	if !add {
 		verb = "removed from"

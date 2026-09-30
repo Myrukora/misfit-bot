@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,8 +18,10 @@ import (
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/builtin/cleanup"
+	"github.com/misfit/bot/internal/builtin/imagefilter"
 	"github.com/misfit/bot/internal/builtin/tickets"
 	"github.com/misfit/bot/internal/dashboard"
+	"github.com/misfit/bot/internal/mcpserver"
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/logger"
 	"github.com/misfit/bot/modules"
@@ -76,9 +80,9 @@ func isErrorResponse(embeds []discord.Embed) bool {
 
 // migrateFromPluginEra performs the one-time cleanup after the Go-plugin →
 // compiled-in-core migration: removes any stale modules/Go/<name>/<name>.so
-// files (the code now lives in internal/) and logs the promotion. It leaves
-// the data folders (config.yml, tickets/, etc.) in place — those are the
-// builtins' data home.
+// files left by non-builtin plugins. The builtins' data dirs are adopted to
+// modules/<name>/ (their data home) by AdoptLegacyBuiltinData, which drops
+// their .so files; this sweep covers what that adoption did not.
 func migrateFromPluginEra() {
 	modulesDir := filepath.Join(Dir, Cfg.Modules.Path, "Go")
 	entries, err := os.ReadDir(modulesDir)
@@ -100,6 +104,21 @@ func migrateFromPluginEra() {
 	if Log != nil {
 		Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
 	}
+}
+
+// mcpLogPaths resolves logging.file_path from the loaded config into a
+// directory and a file basename (e.g. "logs/bot.log" → "logs", "bot"),
+// defaulting to <Dir>/logs/bot.log. Mirrors the dashboard's logFileBase so
+// the MCP get_logs tool tails the same file the dashboard log page does.
+func mcpLogPaths() (string, string) {
+	fp := Cfg.Logging.FilePath
+	if fp == "" {
+		fp = "logs/bot.log"
+	}
+	if !filepath.IsAbs(fp) {
+		fp = filepath.Join(Dir, fp)
+	}
+	return filepath.Dir(fp), strings.TrimSuffix(filepath.Base(fp), ".log")
 }
 
 func saveLoadedModules() {
@@ -304,6 +323,7 @@ func run() bool {
 			OnMessageReactionAdd:            onMessageReactionAdd,
 			OnMessageReactionRemove:         onMessageReactionRemove,
 			OnGuildVoiceStateUpdate:         onGuildVoiceStateUpdate,
+			OnGuildChannelDelete:            onGuildChannelDelete,
 			OnComponentInteraction:          onComponentInteraction,
 			OnModalSubmit:                   onModalSubmit,
 			OnApplicationCommandInteraction: onSlashCommand,
@@ -342,6 +362,14 @@ func run() bool {
 
 	loadCoreModules(ba)
 
+	// Adopt plugin-era builtin data dirs (modules/Go/<name>/ → modules/<name>/)
+	// so a 0.1.0 → 0.2.0 update does not silently lose state. Must run before
+	// the builtins' OnLoad (tickets' migrateToV3 only finds the legacy config
+	// if it is already at the new DataDir).
+	for _, name := range []string{"cleanup", "tickets", "imagefilter"} {
+		modules.AdoptLegacyBuiltinData(filepath.Join(Dir, Cfg.Modules.Path), name, Log)
+	}
+
 	// Register the compiled-in feature modules (cleanup, tickets) gated by
 	// enabled_modules in config (missing key = enabled) BEFORE slash commands
 	// are registered, so builtin slash commands (/cleanup, /tickets) are
@@ -356,7 +384,7 @@ func run() bool {
 		Rest:         Client.Rest,
 		Bot:          ba,
 		VoiceManager: vm,
-	}, cleanup.New, tickets.New); err != nil {
+	}, cleanup.New, tickets.New, imagefilter.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()
@@ -364,6 +392,30 @@ func run() bool {
 	// One-time migration: remove stale plugin-era .so files now that the
 	// dashboard + feature modules are compiled into the binary.
 	migrateFromPluginEra()
+
+	// MCP server: a bearer-token-gated Model Context Protocol endpoint that
+	// exposes the bot's commands + config to an agent. Always constructed; the
+	// per-request auth middleware is the live kill switch (mcp.enabled +
+	// mcp.token are read fresh from config.yml on every request).
+	mcpLogDir, mcpLogBase := mcpLogPaths()
+	if Cfg.MCP.Token == "" {
+		tok := make([]byte, 32)
+		if _, err := rand.Read(tok); err != nil {
+			Log.Error("MCP: failed to generate token: %v", err)
+		} else if err := ba.SetConfig("mcp_token", hex.EncodeToString(tok)); err != nil {
+			Log.Error("MCP: failed to persist generated token: %v", err)
+		} else {
+			Log.Info("MCP: generated bearer token, stored in config.yml (mcp.token)")
+		}
+	}
+	mcpSrv := mcpserver.New(mcpserver.Deps{
+		Bot:       ba,
+		Rest:      Client.Rest,
+		ConfigDir: Dir,
+		LogDir:    mcpLogDir,
+		LogBase:   mcpLogBase,
+		Logger:    Log,
+	})
 
 	// Start the dashboard as core infrastructure, right after the gateway is
 	// up (OAuth guild checks need the client cache). It is always on — never
@@ -375,7 +427,9 @@ func run() bool {
 		BotName: Cfg.Bot.Name,
 		DataDir: filepath.Join(Dir, Cfg.Modules.Path, "Go", "dashboard"),
 		Logger:  Log,
+		MCP:     mcpSrv.Handler(),
 	})
+	mcpSrv.SetApplyCoreSetting(dash.ApplyCoreSetting)
 	dash.Start()
 
 	// Apply the persisted presence status (online/idle/dnd/invisible) once the
@@ -555,13 +609,23 @@ func onGuildVoiceStateUpdate(event *events.GuildVoiceStateUpdate) {
 	})
 }
 
+func onGuildChannelDelete(event *events.GuildChannelDelete) {
+	safeDispatchFor(event, "onGuildChannelDelete", func(h *modules.EventHooks) []func(*events.GuildChannelDelete) {
+		return h.GetGuildChannelDeleteHandlers()
+	})
+}
+
 func onComponentInteraction(event *events.ComponentInteractionCreate) {
-	// Defer the interaction update to acknowledge it (3s timeout).
-	// If deferral fails, the interaction may have already been responded to,
-	// so skip dispatching to avoid double-response errors.
-	if err := event.DeferUpdateMessage(); err != nil {
-		Log.Warn("Failed to defer component interaction, skipping dispatch: %v", err)
-		return
+	// Defer the interaction update to acknowledge it (3s timeout) — UNLESS a
+	// loaded module claims the interaction (RawComponentHandler), in which
+	// case the module picks its own response type (e.g. a modal) and must
+	// answer it itself. If deferral fails, the interaction may have already
+	// been responded to, so skip dispatching to avoid double-response errors.
+	if ModMgr == nil || !ModMgr.NeedsRawComponent(event) {
+		if err := event.DeferUpdateMessage(); err != nil {
+			Log.Warn("Failed to defer component interaction, skipping dispatch: %v", err)
+			return
+		}
 	}
 	safeDispatchFor(event, "onComponentInteraction", func(h *modules.EventHooks) []func(*events.ComponentInteractionCreate) {
 		return h.GetComponentInteractionHandlers()
@@ -583,16 +647,6 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 	user := event.User()
 
-	var args []string
-	if slashData, ok := event.Data.(discord.SlashCommandInteractionData); ok {
-		if slashData.SubCommandName != nil {
-			args = append(args, *slashData.SubCommandName)
-		}
-		for _, opt := range slashData.All() {
-			args = append(args, opt.String())
-		}
-	}
-
 	var scmd *commands.SlashCommand
 	for i, cmd := range commands.CoreSlashCommands {
 		if cmd.Name == cmdName {
@@ -611,6 +665,14 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 	if scmd == nil {
 		return
+	}
+
+	// Build the positional arg vector from the declared option order (never
+	// the interaction's map iteration order) so the command's Execute sees
+	// exactly what a prefix user typing the same command would produce.
+	var args []string
+	if slashData, ok := event.Data.(discord.SlashCommandInteractionData); ok {
+		args = commands.SlashArgs(*scmd, slashData)
 	}
 
 	// Defer the interaction FIRST: slash commands may do slow REST work
@@ -710,8 +772,19 @@ func onMessageCreate(event *events.MessageCreate) {
 	handleMessage(&event.Message.Author, event.Message.ID.String(), event.Message.ChannelID.String(), guildID, event.Message.Content)
 }
 
+// botAllowlisted reports whether a bot user is explicitly allowed to run
+// prefix commands via config.yml's bot.bot_allowlist (QA observer bots).
+func botAllowlisted(userID string) bool {
+	for _, id := range Cfg.Bot.BotAllowlist {
+		if id == userID {
+			return true
+		}
+	}
+	return false
+}
+
 func handleMessage(author *discord.User, msgID string, channelID string, guildID string, content string) {
-	if author.Bot {
+	if author.Bot && !botAllowlisted(author.ID.String()) {
 		return
 	}
 

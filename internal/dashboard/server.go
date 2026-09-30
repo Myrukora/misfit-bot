@@ -72,7 +72,7 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -111,15 +111,18 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		}
 		methodNotAllowed(w)
 		return
-	case "admin":
-		// Super-owner only: bot-wide administration (identity, logging,
-		// dashboard infra, updater, secrets, backups). resolveLevel returns
-		// lvlOwner only for config owner_id — exactly the "super owner".
+	case "config":
+		// Super-owner only: bot-wide core configuration (redesign moved it
+		// off the server picker to its own page).
 		if r.Method == "GET" {
-			m.requireOwner(m.handleAdminPage)(w, r)
+			m.requireOwner(m.handleConfigPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)
+		return
+	case "admin":
+		// Legacy: the admin panel moved to /config in the redesign.
+		http.Redirect(w, r, "/config", http.StatusSeeOther)
 		return
 	case "commands":
 		if r.Method == "GET" {
@@ -148,18 +151,25 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, "/g/"+gid+"/commands", http.StatusSeeOther)
 				return
 			}
+			if parts[2] == "imagefilter" {
+				m.handleGuildImageFilterPage(w, r, gid)
+				return
+			}
 			m.handleGuildScopedPage(w, r, gid, parts[2])
 		})
 		guarded(w, r)
 		return
 	case "guild":
+		// Legacy pre-redesign per-server page: superseded by /g/<id>/…,
+		// kept only as a redirect so old links still land somewhere sensible.
 		if len(parts) < 2 {
 			http.NotFound(w, r)
 			return
 		}
-		id := parts[1]
 		if r.Method == "GET" {
-			m.requireGuild(id, func(w http.ResponseWriter, r *http.Request) { m.handleGuildPage(w, r, id) })(w, r)
+			m.requireGuild(parts[1], func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, "/g/"+parts[1]+"/commands", http.StatusSeeOther)
+			})(w, r)
 			return
 		}
 		methodNotAllowed(w)
@@ -189,7 +199,7 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		methodNotAllowed(w)
 		return
 	case "configuration":
-		// Superseded by /admin (super owner) and per-server module pages;
+		// Superseded by /config (super owner) and per-server module pages;
 		// kept as a redirect so old links still land somewhere sensible.
 		if r.Method == "GET" {
 			m.requireAuthed(func(w http.ResponseWriter, r *http.Request) {
@@ -197,7 +207,7 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 				level := m.resolveLevel(us)
 				switch {
 				case level == lvlOwner:
-					http.Redirect(w, r, "/admin", http.StatusSeeOther)
+					http.Redirect(w, r, "/config", http.StatusSeeOther)
 				case len(r.URL.Query().Get("guild")) > 0 && m.canManageGuild(us, r.URL.Query().Get("guild")):
 					http.Redirect(w, r, "/g/"+r.URL.Query().Get("guild")+"/modules", http.StatusSeeOther)
 				default:
@@ -228,6 +238,17 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		methodNotAllowed(w)
+		return
+	case "mcp":
+		// MCP is bearer-token based: no session/CSRF needed. It inherits
+		// panic-recovery/logging/security-headers middleware automatically
+		// since route() is wrapped by them. The dashboard never imports the
+		// MCP package — the handler is injected via Deps.
+		if m.mcp != nil {
+			m.mcp.ServeHTTP(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
 		return
 	case "api":
 		m.routeAPI(w, r, parts[1:])
@@ -265,6 +286,8 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		// Owner/elevated see core/global config nav. Staff still see guild nav.
 		d.ShowConfig = level == lvlOwner || level == lvlElevated
 		d.ShowStaff = level == lvlOwner || level == lvlElevated || level == lvlStaff
+		_, ifOK := m.imageFilterAdmin()
+		d.ShowImageFilter = ifOK
 		// Per-module sidebar sections (Task 10): every loaded module that
 		// declares WebTabs and/or is WebConfigurable gets a sidebar group.
 		d.ModuleNav = m.moduleNav(us)
@@ -301,7 +324,12 @@ func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
 		// settings page (staff+; regular users have no settings).
 		if _, isWC := m.webCfg(name); isWC {
 			if levelGEQ(level, lvlStaff) || level == lvlOwner || level == lvlElevated {
-				item.Settings = "/configuration#" + name
+				// Settings are per-server now: deep-link to the first guild
+				// the viewer can manage (empty → /g/<id>/modules is 404-safe
+				// upstream, the link is simply not shown).
+				if gids := m.manageableGuildIDs(us); len(gids) > 0 {
+					item.Settings = "/g/" + gids[0] + "/modules"
+				}
 			}
 		}
 		if wt, isWT := modules.IsWebTabser(mod); isWT {

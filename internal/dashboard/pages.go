@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/internal/logutil"
 	"github.com/misfit/bot/modules"
 )
 
@@ -52,15 +53,21 @@ type settingsPageData struct {
 	GuildName     string
 	Sections      []settingsSection // core/global settings, grouped (nil for guild view)
 	DashboardSelf moduleConfigView
-	Modules       []moduleConfigView
+	// Redesign (rd_modules): Manage switches the template to the
+	// owner-facing module management table fed by MgmtRows; ModulesView is
+	// the guild-view settings panels list.
+	Manage      bool
+	MgmtRows    []moduleView
+	ModulesView []moduleConfigView
 }
 
 // ── / (overview) ──────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleIndex(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
+	d.Page = "index"
 	d.Content = m.metrics()
-	m.tmpl.render(w, "index", d)
+	m.tmpl.render(w, "rd_overview", d)
 }
 
 // ── /login ─────────────────────────────────────────────────────────────────
@@ -68,7 +75,7 @@ func (m *DashboardModule) handleIndex(w http.ResponseWriter, r *http.Request) {
 func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 	d := m.baseData(sessionOf(r))
 	d.ShowSidebar = false // login is a standalone, centered card — no nav
-	m.tmpl.render(w, "login", d)
+	m.tmpl.render(w, "rd_login", d)
 }
 
 // renderSetup shows the OAuth bootstrap instructions page.
@@ -83,7 +90,7 @@ func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 		"listen":       m.effectiveListen(),
 		"prefix":       m.bot.GetPrefix(),
 	}
-	m.tmpl.render(w, "setup", d)
+	m.tmpl.render(w, "rd_setup", d)
 }
 
 // ── /commands?guild=&raw= ──────────────────────────────────────────────────
@@ -133,7 +140,7 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	d.Content = content
-	m.tmpl.render(w, "commands", d)
+	m.tmpl.render(w, "rd_commands", d)
 }
 
 // manageableGuildList returns the guilds the user can manage as guildOpt rows,
@@ -226,18 +233,54 @@ func (m *DashboardModule) handleServersPage(w http.ResponseWriter, r *http.Reque
 	d := m.baseData(us)
 	d.Page = "servers"
 	content := map[string]any{
-		"guilds":  rows,
-		"level":   level,
-		"isSuper": level == lvlOwner,
-		"isElev":  level == lvlOwner || level == lvlElevated,
-	}
-	// Bot-wide config sections render ON the picker page for the super owner
-	// (the bot-wide admin panel moved here; /admin now redirects to /).
-	if level == lvlOwner {
-		content["adminSections"] = m.coreSettingsFields(true, "", us)
+		"guilds": rows,
 	}
 	d.Content = content
-	m.tmpl.render(w, "servers", d)
+	m.tmpl.render(w, "rd_servers", d)
+}
+
+// ── /config (superowner) ──────────────────────────────────────────────────
+
+// handleConfigPage renders the bot-wide core configuration as its own page
+// (moved off the server picker per the redesign). Same sections the servers
+// page used to embed; same save API.
+func (m *DashboardModule) handleConfigPage(w http.ResponseWriter, r *http.Request) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if m.resolveLevel(us) != lvlOwner {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	d := m.baseData(us)
+	d.Page = "config"
+	variants := m.imageFilterVariants()
+	d.Content = map[string]any{
+		"sections": m.coreSettingsFields(true, "", us),
+		"variants": variants,
+		"variant":  m.imageFilterVariant(),
+	}
+	m.tmpl.render(w, "rd_admin", d)
+}
+
+// imageFilterVariants lists selectable CLIP variants (empty when the module
+// isn't loaded — the owner panel then simply hides the section in JS).
+func (m *DashboardModule) imageFilterVariants() []string {
+	adm, ok := m.imageFilterAdmin()
+	if !ok {
+		return nil
+	}
+	return adm.Status().Available
+}
+
+// imageFilterVariant returns the configured variant ("" when module absent).
+func (m *DashboardModule) imageFilterVariant() string {
+	if adm, ok := m.imageFilterAdmin(); ok {
+		return adm.Variant()
+	}
+	return ""
 }
 
 // ── /admin (super owner only) ─────────────────────────────────────────────
@@ -285,7 +328,7 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 	level := m.resolveLevel(us)
 	views := m.filterCatalog(us, false, true, guildID)
 	d := m.baseData(us)
-	d.Page = "commands"
+	d.Page = "gcommands"
 	d.GuildID = guildID
 	d.GuildName = m.guildDisplayName(guildID, us)
 	content := map[string]any{
@@ -310,7 +353,7 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 		}
 	}
 	d.Content = content
-	m.tmpl.render(w, "commands", d)
+	m.tmpl.render(w, "rd_commands", d)
 }
 
 // renderGuildTickets renders the tickets list pinned to one guild (reuses the
@@ -333,32 +376,15 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 		}
 		mv := m.buildModuleView(wc, name, us, level, guildID)
 		if len(mv.Fields) > 0 {
-			data.Modules = append(data.Modules, mv)
+			data.ModulesView = append(data.ModulesView, mv)
 		}
 	}
 	d := m.baseData(us)
-	d.Page = "guildmodules"
+	d.Page = "gmodules"
 	d.GuildID = guildID
 	d.GuildName = m.guildDisplayName(guildID, us)
 	d.Content = data
-	m.tmpl.render(w, "settings", d)
-}
-
-// ── /guild/{id} ───────────────────────────────────────────────────────────
-
-func (m *DashboardModule) handleGuildPage(w http.ResponseWriter, r *http.Request, id string) {
-	detail, err := m.buildGuildDetail(id)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-	us := sessionOf(r)
-	d := m.baseData(us)
-	d.Page = "guild"
-	d.GuildID = id
-	d.GuildName = m.guildDisplayName(id, us)
-	d.Content = detail
-	m.tmpl.render(w, "guild", d)
+	m.tmpl.render(w, "rd_modules", d)
 }
 
 // buildGuildDetail assembles a guild view from the cache. Shared by the page
@@ -415,79 +441,9 @@ func (m *DashboardModule) handleModulesPage(w http.ResponseWriter, r *http.Reque
 	}
 	sort.Slice(views, func(i, j int) bool { return views[i].Name < views[j].Name })
 	d := m.baseData(sessionOf(r))
-	d.Content = views
-	m.tmpl.render(w, "modules", d)
-}
-
-// ── /settings?guild= ─────────────────────────────────────────────────────
-
-func (m *DashboardModule) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
-	us := sessionOf(r)
-	if us == nil {
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-		return
-	}
-	level := m.resolveLevel(us)
-	guildID := r.URL.Query().Get("guild")
-
-	// "all" is the explicit opt-out sentinel: the toolbar's "All servers"
-	// option navigates to ?guild=all, which means "no server selected"
-	// (raw-ID fields). Without any param, auto-select the first manageable
-	// server so the channel/role/user pickers have a context out of the box.
-	if guildID == "all" {
-		guildID = ""
-	} else if guildID == "" {
-		if mg := m.manageableGuildIDs(us); len(mg) > 0 {
-			guildID = mg[0]
-		}
-	}
-
-	if guildID != "" {
-		if !m.canManageGuild(us, guildID) {
-			http.Error(w, "403 Forbidden — you may not manage this guild", http.StatusForbidden)
-			return
-		}
-	} else if level != lvlOwner && level != lvlElevated {
-		// Regular (and even staff with no guild context) cannot see global config.
-		http.Error(w, "403 Forbidden", http.StatusForbidden)
-		return
-	}
-
-	data := settingsPageData{GuildID: guildID}
-	if guildID != "" {
-		if detail, err := m.buildGuildDetail(guildID); err == nil {
-			data.GuildName = detail.Name
-		}
-	}
-	// Core/global sections render for owner/elevated on every view; the
-	// selected server (if any) only powers the channel/role/user pickers.
-	if level == lvlOwner || level == lvlElevated {
-		data.Sections = m.coreSettingsFields(level == lvlOwner, guildID, us)
-	}
-
-	// Dashboard self-config + module configs: global fields always (owner/
-	// elevated), guild-scoped fields merged in when a server is selected.
-	if wc, ok := m.webCfg("dashboard"); ok {
-		data.DashboardSelf = m.buildModuleView(wc, "dashboard", us, level, guildID)
-	}
-
-	for _, name := range m.bot.GetLoadedModuleNames() {
-		if name == "dashboard" {
-			continue // handled separately above
-		}
-		wc, ok := m.webCfg(name)
-		if !ok {
-			continue
-		}
-		mv := m.buildModuleView(wc, name, us, level, guildID)
-		if len(mv.Fields) > 0 {
-			data.Modules = append(data.Modules, mv)
-		}
-	}
-
-	d := m.baseData(us)
-	d.Content = data
-	m.tmpl.render(w, "settings", d)
+	d.Page = "modules"
+	d.Content = settingsPageData{Manage: true, MgmtRows: views}
+	m.tmpl.render(w, "rd_modules", d)
 }
 
 // ── core settings (schema-driven, grouped into sections) ────────────────
@@ -697,24 +653,88 @@ func (m *DashboardModule) handlePermissionsPage(w http.ResponseWriter, r *http.R
 	elevated := m.permMgr().GetElevated()
 	names := m.resolveUsernames(append([]string{m.bot.GetOwnerID()}, elevated...))
 	d := m.baseData(sessionOf(r))
+	d.Page = "permissions"
 	d.Content = map[string]any{
 		"elevated": elevated,
 		"owner_id": m.bot.GetOwnerID(),
 		"names":    names,
 	}
-	m.tmpl.render(w, "permissions", d)
+	m.tmpl.render(w, "rd_permissions", d)
 }
 
 // ── /logs ──────────────────────────────────────────────────────────────────
 
 func (m *DashboardModule) handleLogsPage(w http.ResponseWriter, r *http.Request) {
 	path := m.logFilePath()
-	lines, err := tailLines(path, 200)
+	lines, err := logutil.TailLines(path, 200)
 	note := ""
 	if err != nil {
 		lines, note = nil, "no log file yet — is file logging enabled? (logging.enabled)"
 	}
 	d := m.baseData(sessionOf(r))
+	d.Page = "logs"
 	d.Content = map[string]any{"path": path, "lines": lines, "note": note}
-	m.tmpl.render(w, "logs", d)
+	m.tmpl.render(w, "rd_logs", d)
+}
+
+// ── /g/<id>/imagefilter (server-scoped image spam filter) ─────────────────
+
+// handleGuildImageFilterPage renders the per-server image filter page:
+// enable toggle, detection settings (with a channel picker for the log
+// channel) and the blacklisted-images gallery. Data comes straight from the
+// module's ImageFilterAdmin surface; writes go through /api/.../imagefilter.
+func (m *DashboardModule) handleGuildImageFilterPage(w http.ResponseWriter, r *http.Request, guildID string) {
+	us := sessionOf(r)
+	if us == nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	if !m.canManageGuild(us, guildID) {
+		http.Redirect(w, r, "/g/"+guildID+"/commands", http.StatusSeeOther)
+		return
+	}
+	d := m.baseData(us)
+	d.Page = "imagefilter"
+	d.GuildID = guildID
+	d.GuildName = m.guildDisplayName(guildID, us)
+
+	content := map[string]any{
+		"guild": guildID,
+	}
+	if adm, ok := m.imageFilterAdmin(); ok {
+		content["admin"] = true
+		content["config"] = mustConfig(adm.GetGuildConfig(guildID))
+		content["images"] = mustList(adm.ListImages(guildID))
+		content["status"] = adm.Status()
+		if cfg, err := adm.GetGuildConfig(guildID); err == nil {
+			content["enabled"] = cfg["enabled"] == "true"
+		}
+	} else {
+		content["admin"] = false
+		content["config"] = map[string]string{}
+		content["images"] = []string{}
+		content["enabled"] = false
+	}
+	// Channel list for the log-channel picker (cache only; staff-visible).
+	if detail, err := m.buildGuildDetail(guildID); err == nil {
+		content["channels"] = detail.Channels
+	}
+	d.Content = content
+	m.tmpl.render(w, "rd_imagefilter", d)
+}
+
+// mustList swallows list errors into an empty slice (template-safe).
+func mustList(v []string, err error) []string {
+	if err != nil {
+		return []string{}
+	}
+	return v
+}
+
+// mustConfig swallows config errors into an empty map (template-safe).
+func mustConfig(v map[string]string, err error) map[string]string {
+	if err != nil {
+		return map[string]string{}
+	}
+	return v
 }

@@ -1,0 +1,1400 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: "Inter", system-ui, sans-serif;
+    margin: 0;
+    background: #0d0d0d;
+}
+
+.muted {
+    color: #a1a1aa;
+}
+
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 10px 20px;
+    min-height: 44px;
+    border: none;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s ease, transform 0.1s ease;
+
+}
+
+.btn-primary {
+    color: black;
+    background: white;
+}
+
+.login-page {
+    /*background: linear-gradient(145deg, black 30%, #0d0d0d 70%);*/
+    background:
+        radial-gradient(600px 400px at 80% 20%, rgba(88,101,242,.15), transparent 70%),
+        radial-gradient(500px 500px at 10% 80%, rgba(255,255,255,.06), transparent 70%),
+        linear-gradient(145deg, black 30%, #0d0d0d 70%);
+    min-height: 100vh;
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+}
+
+.login-card {
+    background: #1a1a1e;
+    border: 4px solid #b8b8b8;
+    padding: 32px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5), 0 0 12px rgba(88, 101, 242, 0.3);
+    border-radius: 12px;
+    text-align: center;
+}
+
+.btn-icon {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    margin: 0;
+}
+
+.login-btn {
+    background: #5865F2;
+    color: white;
+    width: 230px;
+    box-sizing: border-box;
+    font-size: 20px;
+}
+
+.login-hint {
+    font-size: 13px;
+    margin: 3px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 2px;
+    opacity: 0.4;
+    
+}
+
+.login-sub {
+    font-size: 20px;
+    margin: 0 0 10px 0;
+    font-weight: bold;
+    color: white;
+}
+
+.login-title {
+    color: white;
+    margin: 0;
+    font-family: "Cookie", cursive;
+    font-weight: 400;
+    font-style: normal;
+    font-size: 70px;
+    display: inline-block;
+    transform: scaleX(1.15);
+}
+
+.login-brand img {
+    width: 150px;
+    height: auto;
+    border-radius: 12px;
+    margin: 0 auto 0px;
+    display: block;
+}
+
+.app {
+    background: #0d0d0d;
+    min-height: 100vh;
+    margin: 0;
+    display: flex;
+    align-items: stretch;
+}
+
+.logo {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    display: block;
+}
+
+/* ================= SIDEBAR ================= */
+
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: #141417;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 20px 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-icon svg {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 0;
+    text-decoration: none;
+    font-size: 15px;
+    font-weight: 500;
+    color: #a1a1aa;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.nav-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+
+.nav-item.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.server-current {
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin: 0 12px 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.server-current-name {
+    color: white;
+    font-weight: 600;
+    font-size: 15px;
+}
+
+/* ================= TOPBAR ================= */
+
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 24px;
+    background: #141417;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+}
+
+/* The login-page signature, miniaturized for the header */
+.topbar-name {
+    font-family: "Cookie", cursive;
+    font-weight: 400;
+    font-size: 32px;
+    color: white;
+    display: inline-block;
+    transform: scaleX(1.15);
+    transform-origin: left;
+}
+
+.topbar-user {
+    position: relative;
+}
+
+.user-avatar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.2s ease;
+}
+
+.user-avatar:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.user-avatar img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: block;
+}
+
+.user-caret {
+    color: #a1a1aa;
+    font-size: 12px;
+}
+
+/* Dropdown: pure CSS — hidden until the row is hovered or keyboard-focused */
+.user-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    min-width: 180px;
+    padding: 6px;
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    z-index: 100;
+}
+
+.topbar-user:hover .user-menu,
+.topbar-user:focus-within .user-menu {
+    display: block;
+}
+
+.user-menu-item {
+    display: block;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 14px;
+    color: #a1a1aa;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.user-menu-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+
+.user-menu-logout:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+
+/* ================= CONTENT ================= */
+
+.content {
+    padding: 24px;
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 16px;
+}
+
+.stat-card {
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.stat-value {
+    color: white;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+/* Suffix like "/8" in a module count */
+.stat-value small {
+    font-size: 18px;
+    font-weight: 600;
+    color: #a1a1aa;
+}
+
+/* Smaller value for long strings (go1.26.4, v0.9.0) */
+.stat-value-sm {
+    font-size: 20px;
+}
+
+.stat-label {
+    color: #a1a1aa;
+    font-size: 13px;
+    margin-top: 4px;
+}
+
+.card {
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.card h2 {
+    color: white;
+    font-size: 20px;
+    margin: 0;
+}
+
+.card .muted {
+    margin: 6px 0 0;
+    font-size: 14px;
+}
+
+/* Server picker list */
+.server-list {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.server-item a {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    text-decoration: none;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.server-item a:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.server-name {
+    color: white;
+    font-weight: 600;
+}
+
+/* Form fields (server config pages) */
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+}
+
+.field-label {
+    color: #a1a1aa;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.field-input {
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: white;
+    font-family: inherit;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.field-input:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+textarea.field-input {
+    min-height: 90px;
+    resize: vertical;
+    cursor: text;
+}
+
+/* ================= CONFIG ================= */
+
+.config-section {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.config-section:first-of-type {
+    margin-top: 16px;
+    padding-top: 0;
+    border-top: none;
+}
+
+.config-section h3 {
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Two-up fields (label + control), collapses on narrow widths */
+.field-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.field-grid .field {
+    margin-top: 0;
+}
+
+/* Toggle switch (monochrome) */
+.toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-track {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    transition: background 0.2s ease;
+    flex-shrink: 0;
+}
+
+.toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.toggle input[type="checkbox"]:checked + .toggle-track {
+    background: white;
+}
+
+.toggle input[type="checkbox"]:checked + .toggle-track::after {
+    transform: translateX(18px);
+    background: #141417;
+}
+
+.toggle-label {
+    color: #a1a1aa;
+    font-size: 14px;
+}
+
+/* ================= BUTTON VARIANTS ================= */
+
+.btn-small {
+    min-height: 32px;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* Destructive action in a monochrome scheme = hollow, not colored */
+.btn-danger {
+    background: transparent;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+}
+
+.btn-danger:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+/* Buttons that follow a heading/description in a config section get breathing room */
+.config-section .btn {
+    margin-top: 16px;
+}
+
+/* Modules shown as chips (no versions — modules don't carry them) */
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.chip {
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 6px 14px;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+/* ================= USER LIST (permissions) ================= */
+
+.user-list {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.user-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.user-identity {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.user-name {
+    color: white;
+    font-weight: 600;
+}
+
+.user-id {
+    font-size: 13px;
+}
+
+.user-badge {
+    background: rgba(255, 255, 255, 0.12);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.add-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.add-row .field {
+    flex: 1;
+    margin-top: 0;
+}
+
+/* ================= LOG VIEWER (logs) ================= */
+
+.log-toolbar {
+    display: flex;
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.log-toolbar .field {
+    flex: 1;
+    margin-top: 0;
+}
+
+.log-viewer {
+    margin-top: 16px;
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 14px;
+    font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.log-line {
+    display: flex;
+    gap: 12px;
+    white-space: pre-wrap;
+}
+
+.log-time {
+    color: #a1a1aa;
+    flex-shrink: 0;
+}
+
+.log-level {
+    color: white;
+    font-weight: 700;
+    width: 52px;
+    flex-shrink: 0;
+}
+
+.log-msg {
+    color: #d4d4d8;
+}/* ============================================================
+   redesign-additions.css — styles for the server-rendered pages
+   that the static drafts didn't need yet. Appended to
+   style.css at cut-over (B5).
+   ============================================================ */
+
+/* ---------- Server tiles (Carl-style big round icons) ---------- */
+.server-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 20px;
+    margin-top: 16px;
+}
+
+.server-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 20px 12px;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    text-decoration: none;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+}
+
+.server-tile:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.06);
+    transform: translateY(-2px);
+}
+
+.server-tile-icon {
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+}
+
+.server-tile-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1a1a1e;
+    color: white;
+    font-size: 34px;
+    font-weight: 700;
+}
+
+.server-tile-name {
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    text-align: center;
+    overflow-wrap: anywhere;
+}
+
+/* ---------- Image filter gallery ---------- */
+.if-model-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.image-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.image-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+}
+
+.image-tile img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    border-radius: 8px;
+    display: block;
+}
+
+.image-tile .image-remove {
+    width: 100%;
+}
+
+/* ---------- Toasts ---------- */
+.toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    background: #1a1a1e;
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 12px 18px;
+    font-size: 14px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 200;
+    max-width: 340px;
+}
+
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.toast-err {
+    border-color: rgba(237, 66, 69, 0.6);
+}
+
+/* ---------- User menu name row ---------- */
+.user-menu-name {
+    display: block;
+    padding: 10px 12px 6px;
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    margin-bottom: 6px;
+}
+
+/* ---------- nav-module group (global sidebar) ---------- */
+.nav-module {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nav-module-name {
+    color: #a1a1aa;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 4px 14px;
+}
+
+.nav-sub {
+    display: block;
+    padding: 8px 14px 8px 24px;
+    color: #a1a1aa;
+    text-decoration: none;
+    font-size: 14px;
+    border-radius: 0;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+.nav-sub:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: white;
+}
+
+.nav-sub.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+/* ---------- code + log toolbar tweaks for server pages ---------- */
+code {
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 1px 6px;
+    font-family: ui-monospace, "Cascadia Code", Menlo, monospace;
+    font-size: 13px;
+}
+
+/* ================= COMMANDS CATALOG ================= */
+
+/* Toolbar row above the grid: search + picker server + raw toggle */
+.toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+
+.toolbar .field {
+    margin-top: 0;
+}
+
+.toolbar-search {
+    flex: 1;
+    min-width: 220px;
+}
+
+/* Per-module tabs (manageable viewers only) */
+.cmd-tabs {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cmd-tab {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #a1a1aa;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+
+.cmd-tab:hover {
+    color: white;
+}
+
+.cmd-tab.cmd-tab-active {
+    color: white;
+    border-bottom-color: white;
+    font-weight: 600;
+}
+
+/* Module group: one grid per module (tab-switchable) */
+.cmd-grid {
+    margin-top: 20px;
+}
+
+.grid-head h3 {
+    margin: 0 0 10px;
+}
+
+.cat {
+    margin-bottom: 14px;
+}
+
+.cat-name {
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 10px;
+}
+
+/* One expandable command card */
+.cmd-card {
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.cmd-card summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    cursor: pointer;
+    color: white;
+    font-weight: 600;
+    list-style: none;
+}
+
+.cmd-card summary::-webkit-details-marker {
+    display: none;
+}
+
+.card-name small {
+    color: #a1a1aa;
+    font-weight: 400;
+}
+
+.usable {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
+.usable.yes {
+    color: #a1a1aa;
+}
+
+.usable.no {
+    color: #52525b;
+}
+
+.card-body {
+    padding: 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 13px;
+}
+
+.card-body .row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.lbl {
+    color: #a1a1aa;
+    flex-shrink: 0;
+}
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+/* ---------- Per-command config (gear) modal ---------- */
+
+.gear-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.gear-modal[hidden] {
+    display: none;
+}
+
+.gear-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.72);
+}
+
+.gear-panel {
+    position: relative;
+    width: min(560px, 100%);
+    max-height: 86vh;
+    overflow-y: auto;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+}
+
+.gear-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 15px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gear-head h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.gear-close {
+    background: transparent;
+    border: none;
+    color: #a1a1aa;
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+
+.gear-close:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.gear-body {
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.gear-scope {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.gear-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.gear-fields[hidden] {
+    display: none;
+}
+
+.gear-hint {
+    margin: 0;
+    font-size: 12px;
+}
+
+.gear-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 13px 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Checkbox group (multi) shared by gear pickers and multi fields */
+.multi {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.multi-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #d4d4d8;
+    cursor: pointer;
+}
+
+/* ---------- schema-driven fields (rd_field partial) ---------- */
+
+.field-help {
+    margin: 0;
+    font-size: 12.5px;
+}
+
+.scope {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 999px;
+    padding: 2px 8px;
+    margin-left: 8px;
+    color: #a1a1aa;
+}
+
+.scope-owner {
+    border-color: rgba(255, 255, 255, 0.45);
+    color: white;
+}
+
+.rangeval {
+    font-size: 13px;
+}
+
+input[type="range"].cfg-field {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    max-width: 320px;
+    height: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(to right, white var(--fill, 50%), rgba(255, 255, 255, 0.18) var(--fill, 50%));
+    cursor: pointer;
+}
+
+input[type="range"].cfg-field::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: none;
+    cursor: pointer;
+}
+
+input[type="range"].cfg-field::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    border: none;
+    cursor: pointer;
+}
+
+.login-brand img {
+    width: 150px;
+    height: auto;
+    border-radius: 12px;
+    margin: 0 auto 0px;
+    display: block;
+}
+
+/* First-run setup: same centered card, wider + left-aligned steps */
+.setup-card {
+    max-width: 640px;
+    text-align: left;
+    margin: 40px auto;
+}
+
+.setup-list {
+    margin: 16px 0 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    color: #d4d4d8;
+    font-size: 14px;
+    text-align: left;
+}
+
+.setup-list pre {
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 10px 12px;
+    overflow-x: auto;
+    font-size: 13px;
+}
+
+/* ================= TICKET TRANSCRIPT (standalone page) ================= */
+
+.transcript-page {
+    background: #0d0d0d;
+    padding: 24px 12px;
+}
+
+.transcript-wrap {
+    max-width: 860px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.msg-entry {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.msg-entry:last-child {
+    border-bottom: none;
+}
+
+.msg-avatar {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: #1a1a1e;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+}
+
+.msg-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.msg-head {
+    font-size: 14px;
+}
+
+.msg-time {
+    font-size: 0.85em;
+}
+
+.msg-body {
+    margin-top: 2px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: #d4d4d8;
+}
+
+.msg-deleted {
+    text-decoration: line-through;
+    opacity: 0.55;
+}
+
+.msg-media {
+    max-width: min(420px, 100%);
+    border-radius: 8px;
+    margin-top: 8px;
+    display: block;
+    cursor: zoom-in;
+}
+
+.msg-media-wide {
+    max-width: min(480px, 100%);
+    cursor: default;
+}
+
+.msg-audio {
+    width: 100%;
+    max-width: 480px;
+    margin-top: 8px;
+    display: block;
+}
+
+.msg-attachment {
+    display: block;
+    margin-top: 4px;
+}
+
+.msg-sticker {
+    max-width: 160px;
+    margin-top: 6px;
+    display: block;
+    border-radius: 8px;
+}
+
+#lightbox {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 150;
+    cursor: zoom-out;
+    align-items: center;
+    justify-content: center;
+}
+
+#lightbox.open {
+    display: flex;
+}
+
+#lightbox img {
+    max-width: 95vw;
+    max-height: 95vh;
+    border-radius: 8px;
+}
+
+/* ================= DATA TABLES (tickets, modules) ================= */
+
+.tbl-wrap {
+    margin-top: 16px;
+    overflow-x: auto;
+}
+
+.tbl {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.tbl th {
+    text-align: left;
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 8px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.tbl td {
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: #d4d4d8;
+    vertical-align: middle;
+}
+
+.tbl tr:last-child td {
+    border-bottom: none;
+}
+
+.tbl a {
+    color: white;
+    text-decoration: none;
+}
+
+.tbl a:hover {
+    text-decoration: underline;
+}
+
+.tag {
+    display: inline-block;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    padding: 3px 10px;
+    color: #a1a1aa;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.tag.ok {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.35);
+}

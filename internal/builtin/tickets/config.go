@@ -12,101 +12,129 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
-const configVersion = 2
-const defaultRetentionDays = 30
-const defaultTicketColor = 0x5865F2
+const (
+	configVersion        = 3
+	defaultRetentionDays = 30
+	defaultTicketColor   = 0x5865F2
 
-// TypeConfig is what a ticket IS: where channels spawn, who is pinged, who can
-// help, and how the open-embed + button look.
+	maxModalQuestions      = 5
+	maxQuestionLabel       = 45
+	maxQuestionPlaceholder = 100
+	maxQuestionValue       = 4000
+)
+
+// TypeConfig is one ticket type (v2 replacement of GroupConfig).
 type TypeConfig struct {
-	Key         string     `yaml:"key" json:"key"`
-	Label       string     `yaml:"label" json:"label"`
-	Enabled     bool       `yaml:"enabled" json:"enabled"`
-	Category    string     `yaml:"category" json:"category"` // ticket channels spawn under this category
-	PingRoles   []string   `yaml:"ping_roles" json:"ping_roles"`
-	HelperRoles []string   `yaml:"helper_roles" json:"helper_roles"` // see/claim/close (+ mods always pass)
-	AccessRoles []string   `yaml:"access_roles" json:"access_roles"` // may OPEN; empty = everyone
-	WelcomeMsg  string     `yaml:"welcome_msg" json:"welcome_msg"`
-	EmbedBody   string     `yaml:"embed_body" json:"embed_body"`
-	ButtonLabel string     `yaml:"button_label" json:"button_label"`
-	ButtonEmoji string     `yaml:"button_emoji" json:"button_emoji"`
-	Color       colorValue `yaml:"color" json:"color"`
-	AllowClaim  *bool      `yaml:"allow_claim" json:"allow_claim"`
-	AllowClose  *bool      `yaml:"allow_close" json:"allow_close"`
-
-	Seq int `yaml:"-" json:"-"` // next ticket number (reserved via store)
+	Key         string     `yaml:"key"`
+	Label       string     `yaml:"label"`
+	Enabled     bool       `yaml:"enabled"`
+	Category    string     `yaml:"category"`
+	PingRoles   []string   `yaml:"ping_roles"`
+	HelperRoles []string   `yaml:"helper_roles"`
+	AccessRoles []string   `yaml:"access_roles"`
+	WelcomeMsg  string     `yaml:"welcome_msg"`
+	EmbedBody   string     `yaml:"embed_body"`
+	ButtonLabel string     `yaml:"button_label"`
+	ButtonEmoji string     `yaml:"button_emoji"`
+	Color       colorValue `yaml:"color"`
+	AllowClaim  *bool      `yaml:"allow_claim"`
+	AllowClose  *bool      `yaml:"allow_close"`
+	Seq         int        `yaml:"seq"`
 }
 
-func (g TypeConfig) AllowClaimOn() bool { return g.AllowClaim == nil || *g.AllowClaim }
-func (g TypeConfig) AllowCloseOn() bool { return g.AllowClose == nil || *g.AllowClose }
+func (t *TypeConfig) AllowClaimOn() bool { return t.AllowClaim == nil || *t.AllowClaim }
+func (t *TypeConfig) AllowCloseOn() bool { return t.AllowClose == nil || *t.AllowClose }
 
-// PanelConfig is one POSTED embed advertising a type. The bot remembers it so
-// panels can be edited/suspended/resumed by name — never by message ID.
+// QuestionConfig is one open-time modal field for a panel.
+type QuestionConfig struct {
+	Label       string `yaml:"label"`
+	Placeholder string `yaml:"placeholder,omitempty"`
+	Style       string `yaml:"style,omitempty"` // "" | "short" | "paragraph"
+	Required    bool   `yaml:"required"`
+	Value       string `yaml:"value,omitempty"`
+}
+
+// PanelConfig is one posted panel: a channel + message carrying the open button.
 type PanelConfig struct {
-	Name        string `yaml:"name" json:"name"`
-	ChannelID   string `yaml:"channel_id" json:"channel_id"`
-	MessageID   string `yaml:"message_id" json:"message_id"`
-	TypeKey     string `yaml:"type" json:"type"`
-	Title       string `yaml:"title,omitempty" json:"title,omitempty"`
-	Description string `yaml:"description,omitempty" json:"description,omitempty"`
-	Suspended   bool   `yaml:"suspended,omitempty" json:"suspended"`
+	Name        string           `yaml:"name"`
+	ChannelID   string           `yaml:"channel_id"`
+	MessageID   string           `yaml:"message_id"`
+	TypeKey     string           `yaml:"type"`
+	Title       string           `yaml:"title"`
+	Description string           `yaml:"description"`
+	Suspended   bool             `yaml:"suspended"`
+	ModalTitle  string           `yaml:"modal_title,omitempty"`
+	Questions   []QuestionConfig `yaml:"questions,omitempty"`
 }
 
-// Config is the tickets module's persisted settings, version 2.
-type Config struct {
-	Version        int                    `yaml:"version"`
-	Types          map[string]*TypeConfig `yaml:"types"`
-	Panels         map[string]PanelConfig `yaml:"panels"`
-	LogChannel     string                 `yaml:"log_channel"`
-	Retention      retentionDays          `yaml:"storage_retention_days"`
-	AllowDashClose bool                   `yaml:"allow_dashboard_close"`
-
-	parsed bool // sanity: loadConfig always leaves Types non-nil
+// ModuleConfig is the bot-wide (non-guild) ticket config: retention, dashboard
+// close, and the open-time modal master switch.
+type ModuleConfig struct {
+	Version        int           `yaml:"version"`
+	Retention      retentionDays `yaml:"storage_retention_days"`
+	AllowDashClose bool          `yaml:"allow_dashboard_close"`
+	ModalsEnabled  *bool         `yaml:"modals_enabled"`
 }
 
-// RetentionDays resolves retention with the omitted-field default applied.
-func (c *Config) RetentionDays() int {
+// ModalsOn reports whether open-time question modals are enabled (nil = on).
+func (c *ModuleConfig) ModalsOn() bool { return c.ModalsEnabled == nil || *c.ModalsEnabled }
+
+// RetentionDays returns the configured retention, defaulting to 30 days.
+func (c *ModuleConfig) RetentionDays() int {
 	if c.Retention.set {
 		return c.Retention.value
 	}
 	return defaultRetentionDays
 }
 
-// retentionDays is an int that records whether the YAML key was present.
-// A YAML null (e.g. from MarshalYAML of an unset value) counts as unset so a
-// save→reload round-trip can never silently disable the default retention.
+// Config is one guild's ticket config: types, panels, and the log channel.
+type Config struct {
+	Version    int                    `yaml:"version"`
+	LogChannel string                 `yaml:"log_channel"`
+	Types      map[string]*TypeConfig `yaml:"types"`
+	Panels     map[string]PanelConfig `yaml:"panels"`
+	parsed     bool
+}
+
+// retentionDays distinguishes an explicit 0 (keep forever) from an unset
+// default.
 type retentionDays struct {
 	value int
 	set   bool
 }
 
-// UnmarshalYAML implements yaml.Unmarshaler.
-func (r *retentionDays) UnmarshalYAML(node *yaml.Node) error {
-	if node.Tag == "!!null" {
-		r.set = false
-		r.value = 0
+// UnmarshalYAML implements yaml.Unmarshaler. A QUOTED numeric scalar
+// ("30") is accepted — yaml.v3 refuses to decode a !!str into an int, so a
+// hand-edited quoted value would otherwise fail the whole module load.
+func (r *retentionDays) UnmarshalYAML(value *yaml.Node) error {
+	if value.Tag == "!!null" {
+		return nil // unset → default
+	}
+	if n, err := strconv.Atoi(strings.TrimSpace(value.Value)); err == nil {
+		r.value = n
+		r.set = true
 		return nil
 	}
-	r.set = true
-	if node.Kind == yaml.ScalarNode {
-		if n, err := strconv.Atoi(strings.TrimSpace(node.Value)); err == nil {
-			r.value = n
-		}
+	// Fall back to yaml's own decoding so unquoted scalars keep working
+	// (e.g. 0x1e) and junk gets yaml's descriptive error.
+	var v int
+	if err := value.Decode(&v); err != nil {
+		return fmt.Errorf("storage_retention_days must be an integer: %w", err)
 	}
+	r.value = v
+	r.set = true
 	return nil
 }
 
-// MarshalYAML omits the key entirely when it was never set.
-func (r retentionDays) MarshalYAML() (any, error) {
+// MarshalYAML implements yaml.Marshaler.
+func (r retentionDays) MarshalYAML() (interface{}, error) {
 	if !r.set {
 		return nil, nil
 	}
 	return r.value, nil
 }
 
-// colorValue accepts hex strings ("0x5865F2", "#5865f2", "5865F2") and plain
-// ints in YAML, so owners can type colors naturally. Invalid values unmarshal
-// to 0 and fall back to blurple at parse time (never an error, never black).
+// colorValue is an int color that accepts 0xRRGGBB, #RRGGBB, or decimal.
 type colorValue int
 
 // UnmarshalYAML implements yaml.Unmarshaler.
@@ -130,129 +158,180 @@ func (c *colorValue) UnmarshalYAML(node *yaml.Node) error {
 	}
 }
 
-func configPath(dataDir string) string { return filepath.Join(dataDir, "config.yml") }
+// ── paths ──────────────────────────────────────────────────────────────────
 
-func cfgGuildsRoot(dataDir string) string { return filepath.Join(dataDir, "tickets") }
+func moduleConfigPath(dataDir string) string { return filepath.Join(dataDir, "config.yml") }
+func guildsRoot(dataDir string) string       { return filepath.Join(dataDir, "guilds") }
+func guildConfigPath(dataDir, guildID string) string {
+	return filepath.Join(guildsRoot(dataDir), guildID+".yml")
+}
 
-// loadConfig reads the module config, migrating v1 groups_yaml on the fly.
-func loadConfig(dataDir string) (*Config, error) {
-	cfg := &Config{
-		Version: configVersion,
-		Types:   map[string]*TypeConfig{},
-		Panels:  map[string]PanelConfig{},
-	}
-	raw, err := os.ReadFile(configPath(dataDir))
-	if os.IsNotExist(err) {
-		return cfg, nil
-	}
+// ── load / save ────────────────────────────────────────────────────────────
+
+// loadModuleConfig reads the bot-wide config; a missing file yields defaults
+// (no write — the file is created on first save).
+func loadModuleConfig(dataDir string) (*ModuleConfig, error) {
+	cfg := &ModuleConfig{Version: configVersion}
+	raw, err := os.ReadFile(moduleConfigPath(dataDir))
 	if err != nil {
-		return nil, fmt.Errorf("read tickets config: %w", err)
-	}
-	// Detect v1: legacy top-level groups_yaml key.
-	if isV1Config(raw) {
-		if err := migrateV1(raw, cfg); err != nil {
-			return nil, err
+		if os.IsNotExist(err) {
+			return cfg, nil
 		}
-	} else if err := yaml.Unmarshal(raw, cfg); err != nil {
-		return nil, fmt.Errorf("parse tickets config: %w", err)
-	}
-	if err := validateTypes(cfg.Types); err != nil {
 		return nil, err
 	}
-	if cfg.Types == nil {
-		cfg.Types = map[string]*TypeConfig{}
+	if err := yaml.Unmarshal(raw, cfg); err != nil {
+		return nil, fmt.Errorf("parse module config: %w", err)
 	}
-	if cfg.Panels == nil {
-		cfg.Panels = map[string]PanelConfig{}
-	}
-	for k, p := range cfg.Panels { // name/key consistency with map key
-		p.Name = k
-		cfg.Panels[k] = p
-	}
-	cfg.parsed = true
+	cfg.Version = configVersion
 	return cfg, nil
 }
 
-func isV1Config(raw []byte) bool {
-	var probe struct {
-		GroupsYAML string `yaml:"groups_yaml"`
-		Version    int    `yaml:"version"`
+// loadGuildConfig reads one guild's config; a missing file yields empty maps.
+// Per-panel question-validation failures clear that panel's questions (and
+// modal title) and WARN, keeping the panel itself.
+func loadGuildConfig(dataDir, guildID string, log modules.Logger) *Config {
+	empty := func() *Config {
+		return &Config{Version: configVersion, Types: map[string]*TypeConfig{}, Panels: map[string]PanelConfig{}}
 	}
-	_ = yaml.Unmarshal(raw, &probe)
-	return probe.Version == 0 && probe.GroupsYAML != ""
-}
-
-// migrateV1 converts a v1 groups_yaml into v2 types. parent_channel becomes
-// category; everything else carries over; unknown fields are dropped.
-func migrateV1(raw []byte, cfg *Config) error {
-	var old struct {
-		GroupsYAML     string               `yaml:"groups_yaml"`
-		LogChannel     string               `yaml:"log_channel"`
-		Retention      retentionDays        `yaml:"storage_retention_days"`
-		AllowDashClose bool                 `yaml:"allow_dashboard_close"`
-		Guilds         map[string]*struct { // ignored: per-guild control channel gone
-			ControlChannel string `yaml:"control_channel"`
-		} `yaml:"guilds"`
-	}
-	if err := yaml.Unmarshal(raw, &old); err != nil {
-		return fmt.Errorf("parse v1 tickets config: %w", err)
-	}
-	cfg.LogChannel = old.LogChannel
-	cfg.Retention = old.Retention
-	cfg.AllowDashClose = old.AllowDashClose
-
-	groups, err := parseGroupsYAML(old.GroupsYAML)
+	raw, err := os.ReadFile(guildConfigPath(dataDir, guildID))
 	if err != nil {
-		return fmt.Errorf("migrating groups_yaml: %w", err)
+		if os.IsNotExist(err) {
+			return empty()
+		}
+		if log != nil {
+			log.Warn("Tickets: could not read guild config %s: %v", guildID, err)
+		}
+		return empty()
 	}
-	for _, g := range groups {
-		gc := g // copy
-		cfg.Types[g.Key] = &TypeConfig{
-			Key: gc.Key, Label: gc.Label, Enabled: gc.Enabled,
-			Category: gc.ParentChannel, PingRoles: gc.PingRoles,
-			EmbedBody: gc.EmbedTemplate, Color: gc.Color,
-			AllowClaim: gc.AllowClaim, AllowClose: gc.AllowClose,
-			ButtonLabel: gc.Label,
+	cfg := empty()
+	if err := yaml.Unmarshal(raw, cfg); err != nil {
+		if log != nil {
+			log.Warn("Tickets: parse guild config %s failed: %v", guildID, err)
+		}
+		return empty()
+	}
+	for name, p := range cfg.Panels {
+		if err := validateQuestions(p.Questions); err != nil {
+			if log != nil {
+				log.Warn("Tickets: panel %s questions invalid (%v); cleared", name, err)
+			}
+			p.Questions = nil
+			p.ModalTitle = ""
+			cfg.Panels[name] = p
 		}
 	}
-	return nil
+	cfg.parsed = true
+	return cfg
 }
 
-func validateTypes(types map[string]*TypeConfig) error {
-	for k, t := range types {
-		if t == nil {
-			delete(types, k) // YAML "key:" with no body → drop, never reach consumers
-			continue
-		}
-		if strings.TrimSpace(t.Key) == "" {
-			t.Key = k
-		}
-		if t.Enabled && strings.TrimSpace(t.Category) == "" {
-			return fmt.Errorf("type %q: enabled but no category set", k)
-		}
-	}
-	return nil
-}
-
-// save persists the config atomically (0600 — types carry server internals).
-func (c *Config) save(dataDir string) error {
-	c.Version = configVersion
-	out, err := yaml.Marshal(c)
+// save writes the bot-wide config atomically (tmp + rename, 0600).
+func (c *ModuleConfig) save(dataDir string) error {
+	raw, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
-	path := configPath(dataDir)
+	return atomicWrite(moduleConfigPath(dataDir), raw)
+}
+
+// save writes one guild's config atomically (tmp + rename, 0600).
+func (c *Config) save(dataDir, guildID string) error {
+	if err := os.MkdirAll(guildsRoot(dataDir), 0755); err != nil {
+		return err
+	}
+	raw, err := yaml.Marshal(c)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(guildConfigPath(dataDir, guildID), raw)
+}
+
+func atomicWrite(path string, raw []byte) error {
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0600); err != nil {
+	if err := os.WriteFile(tmp, raw, 0600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
 }
 
-// ── validation helpers shared by CLI/dashboard setters ────────────────────
+// ── validation ─────────────────────────────────────────────────────────────
 
-// validPanelName restricts panel names to safe identifier chars — they become
-// custom_id payloads AND map keys.
+// validateQuestions enforces the modal field limits: at most 5 questions,
+// each with a non-empty label (<=45 runes), placeholder (<=100), value
+// (<=4000), and a valid style.
+func validateQuestions(qs []QuestionConfig) error {
+	if len(qs) > maxModalQuestions {
+		return fmt.Errorf("at most %d questions per panel (got %d)", maxModalQuestions, len(qs))
+	}
+	for i, q := range qs {
+		if q.Label == "" {
+			return fmt.Errorf("question %d: label is required", i+1)
+		}
+		if len([]rune(q.Label)) > maxQuestionLabel {
+			return fmt.Errorf("question %d: label exceeds %d chars", i+1, maxQuestionLabel)
+		}
+		if len([]rune(q.Placeholder)) > maxQuestionPlaceholder {
+			return fmt.Errorf("question %d: placeholder exceeds %d chars", i+1, maxQuestionPlaceholder)
+		}
+		if len([]rune(q.Value)) > maxQuestionValue {
+			return fmt.Errorf("question %d: value exceeds %d chars", i+1, maxQuestionValue)
+		}
+		if q.Style != "" && q.Style != "short" && q.Style != "paragraph" {
+			return fmt.Errorf("question %d: style must be \"\", \"short\" or \"paragraph\"", i+1)
+		}
+	}
+	return nil
+}
+
+// ── legacy migration ───────────────────────────────────────────────────────
+
+// legacyConfig is the v1/v2 single-file config shape (all guilds in one file).
+type legacyConfig struct {
+	Version        int                    `yaml:"version"`
+	GroupsYAML     string                 `yaml:"groups_yaml"`
+	Types          map[string]*TypeConfig `yaml:"types"`
+	Panels         map[string]PanelConfig `yaml:"panels"`
+	LogChannel     string                 `yaml:"log_channel"`
+	Retention      retentionDays          `yaml:"storage_retention_days"`
+	AllowDashClose bool                   `yaml:"allow_dashboard_close"`
+}
+
+// isV1Config reports whether a raw config file is the v1 groups_yaml shape.
+func isV1Config(raw []byte) bool {
+	var probe struct {
+		Version    int    `yaml:"version"`
+		GroupsYAML string `yaml:"groups_yaml"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err != nil {
+		return false
+	}
+	return probe.Version < 2 && probe.GroupsYAML != ""
+}
+
+// migrateV1 converts a v1 groups_yaml config into per-type entries.
+func migrateV1(cfg *legacyConfig) error {
+	groups, err := parseGroupsYAML(cfg.GroupsYAML)
+	if err != nil {
+		return fmt.Errorf("parse legacy groups: %w", err)
+	}
+	cfg.Types = map[string]*TypeConfig{}
+	for _, g := range groups {
+		cfg.Types[g.Key] = &TypeConfig{
+			Key:        g.Key,
+			Label:      g.Label,
+			Enabled:    g.Enabled,
+			Category:   g.ParentChannel,
+			PingRoles:  g.PingRoles,
+			EmbedBody:  g.EmbedTemplate,
+			Color:      g.Color,
+			AllowClaim: g.AllowClaim,
+			AllowClose: g.AllowClose,
+		}
+	}
+	return nil
+}
+
+// validPanelName accepts letters, digits, '-' and '_' (<=64 chars) — the
+// charset shared by panel names, type keys, and custom_id payloads.
 func validPanelName(name string) bool {
 	if name == "" || len(name) > 64 {
 		return false
@@ -294,6 +373,3 @@ func validEmoji(e string) bool {
 	}
 	return true
 }
-
-// ensure TypeSummary/GroupSummary stay referenced (contract surface).
-var _ = modules.TypeSummary{}

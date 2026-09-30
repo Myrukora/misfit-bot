@@ -1,28 +1,28 @@
 #!/usr/bin/env bash
-# install.sh — Misfit Bot: system dependencies + build (single binary; Lua/Python modules dynamic)
+# install.sh — Misfit Bot: system deps + build (single binary; Lua/Python modules dynamic)
 #
 # Usage:
-#   ./install.sh                 # detect distro, install deps, build single binary
-#   ./install.sh --check         # print detected toolchain/deps, change nothing
-#   ./install.sh --no-deps       # skip system packages, only build
-#   ./install.sh --skip-go       # don't auto-install the Go toolchain
-#   DISTRO=ubuntu ./install.sh   # override distro detection
+#   ./install.sh                     # detect distro, install deps, build binary
+#   ./install.sh --check             # print detected toolchain/deps, change nothing
+#   ./install.sh --no-deps           # skip system packages, only build
+#   ./install.sh --skip-go           # don't auto-install the Go toolchain
+#   ./install.sh --skip-imagefilter  # don't provision the image-filter runtime
+#   DISTRO=ubuntu ./install.sh       # override distro detection
 #
-# Note: package installs are always non-interactive; sudo prompts for the
-# password itself when needed.
-#
-# Dependency map (verified against the codebase):
-#   build  : Go >= 1.26.4  (go.mod directive; older Go auto-downloads the
-#                           toolchain via GOTOOLCHAIN=auto on build)
-#            C compiler (cgo), pkg-config,
-#            libopus-dev + libopusfile-dev — gopkg.in/hraban/opus.v2 is a cgo
-#            binding: #cgo pkg-config: opus
-#   runtime: git  — self-updater (updater/ pulls the repo)
-#            python3 + venv + pip — Python module system (per-module .venv)
-#            ffmpeg — voice playback (modules/voice.go exec.LookPath("ffmpeg"))
+# Package installs are always non-interactive; sudo prompts for the password.
 #
 # Declarative alternative for Nix/NixOS: `nix-shell --run './install.sh --no-deps'`
 # (see shell.nix in this directory).
+#
+# Dependency map (verified against the codebase):
+#   build  : Go >= 1.26.4 (go.mod directive), C compiler (cgo), pkg-config,
+#            libopus-dev + libopusfile-dev — gopkg.in/hraban/opus.v2 is a cgo
+#            binding: #cgo pkg-config: opus
+#   runtime: git — self-updater; python3 + venv + pip — Python modules;
+#            ffmpeg — voice playback
+#   filter : scripts/setup_imagefilter.sh fetches the ONNX Runtime lib and the
+#            CLIP b32 model for the imagefilter builtin (both gitignored, so a
+#            fresh clone has neither). Idempotent, never fails the install.
 
 set -euo pipefail
 
@@ -37,6 +37,7 @@ GO_BASE_URL="https://go.dev/dl"
 DO_DEPS=1
 DO_GO=1
 DO_CHECK=0
+DO_IFILTER=1
 
 info() { printf '\033[1;34m[install]\033[0m %s\n' "$*"; }
 ok()    { printf '\033[1;32m[ ok    ]\033[0m %s\n' "$*"; }
@@ -52,6 +53,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-deps)            DO_DEPS=0 ;;
     --skip-go)            DO_GO=0 ;;
+    --skip-imagefilter)   DO_IFILTER=0 ;;
     --check)              DO_CHECK=1 ;;
     -h|--help)            usage ;;
     *) die "unknown argument: $arg (see --help)" ;;
@@ -299,6 +301,32 @@ build_core() {
   ok "core binary: ./bot (v$version)"
 }
 
+# ── image filter runtime (optional; never fails the install) ──────────────
+#
+# The ONNX Runtime library and the CLIP model are gitignored, so a fresh clone
+# has neither and the imagefilter builtin would run cold. scripts/setup_imagefilter.sh
+# provisions both and is a no-op (a fraction of a second) once they exist, so
+# this is safe to call on every install. It is deliberately non-strict: a
+# failure here is a warning, never an install failure — the filter is optional
+# and reports its own cold reason on the dashboard.
+
+setup_imagefilter() {
+  local root script
+  root=$(cd "$(dirname "$0")" && pwd)
+  script="$root/scripts/setup_imagefilter.sh"
+  if [ ! -f "$script" ]; then
+    warn "scripts/setup_imagefilter.sh not found — the image filter will stay cold"
+    return 0
+  fi
+  info "provisioning image filter runtime (ONNX Runtime + CLIP model)"
+  if bash "$script"; then
+    ok "image filter: artifacts in place"
+  else
+    warn "image filter setup did not complete — the filter will stay cold until it is fixed"
+  fi
+  return 0
+}
+
 # ── main ──────────────────────────────────────────────────────────────────
 
 if [ "$DO_CHECK" = 1 ]; then
@@ -308,6 +336,12 @@ if [ "$DO_CHECK" = 1 ]; then
   have python3 && info "python3: $(python3 --version 2>&1)" || warn "python3: not found"
   have ffmpeg && info "ffmpeg: $(ffmpeg -version 2>/dev/null | head -n1)" || warn "ffmpeg: not found"
   have pkg-config && info "pkg-config: $(pkg-config --version)" && info "libopus:    $(pkg-config --modversion opus 2>/dev/null || echo 'opus NOT found')" || warn "pkg-config: not found"
+  # Prints its own one-line-per-artifact readiness report.
+  if [ -f "$(cd "$(dirname "$0")" && pwd)/scripts/setup_imagefilter.sh" ]; then
+    bash "$(cd "$(dirname "$0")" && pwd)/scripts/setup_imagefilter.sh" --check
+  else
+    warn "image filter: scripts/setup_imagefilter.sh not found"
+  fi
   exit 0
 fi
 
@@ -321,12 +355,21 @@ ensure_go
 check_runtime
 build_core
 
+if [ "$DO_IFILTER" = 1 ]; then
+  setup_imagefilter
+  FILTER_NOTE="ONNX Runtime lib + CLIP b32 model present (imagefilter builtin)"
+else
+  info "skipping image filter runtime (--skip-imagefilter)"
+  FILTER_NOTE="skipped (--skip-imagefilter) — run scripts/setup_imagefilter.sh later"
+fi
+
 cat <<EOF
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  ✅ Build complete.
     core:   ./bot (single binary — dashboard + feature modules compiled in)
     modules: Lua/Python loaded dynamically at runtime
+    filter: ${FILTER_NOTE}
 
  Next steps:
    1. Run the bot:  ./bot          (first run starts the onboarding wizard)

@@ -3,6 +3,9 @@ package dashboard
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/misfit/bot/modules"
 )
 
 func mkData(level string) renderData {
@@ -49,38 +52,76 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsContent["roles"] = []entityOpt{{ID: "r1", Name: "@everyone"}}
 	commandsContent["members"] = []entityOpt{{ID: "u1", Name: "sam"}}
 
-	guildContent := &guildDetail{
-		ID: "1", Name: "G", OwnerID: "2", MemberCount: 9,
-		Channels: []entityOpt{{ID: "c", Name: "general", Type: "Text"}},
-		Roles:    []roleOpt{{ID: "r", Name: "@everyone", Color: 0, Position: 0}}, BotPerms: "Administrator",
-	}
-
 	cases := []struct {
 		page    string
 		content any
 	}{
-		{"login", nil},
-		{"setup", map[string]string{
+		// ── Redesign templates (rd_*) ──
+		{"rd_login", nil},
+		{"rd_login", nil}, // standalone variant also exercised via ShowSidebar=false below
+		{"rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111", "redirect_uri": "https://x.com/callback",
 			"listen": "127.0.0.1:8080", "prefix": "?",
 		}},
-		{"index", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5}, Modules: []string{}}},
-		{"commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
-		{"commands", commandsContent},
-		{"guild", guildContent},
-		{"modules", []moduleView{{Name: "cleanup", Loaded: true, Description: "d"}}},
-		{"permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
-		{"logs", map[string]any{"path": "logs/bot.log", "lines": []string{"line1", "line2"}}},
-		// Server picker: guild cards + super-owner admin links.
-		{"servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Owner: true}}, "level": lvlOwner, "isSuper": true, "isElev": true}},
-		{"servers", map[string]any{"guilds": []guildPickerRow{}, "level": lvlStaff, "isSuper": false, "isElev": false}},
-		// Guild-scoped module settings reuse the settings template.
-		{"settings", settingsPageData{GuildID: "1", GuildName: "G", Modules: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
+		{"rd_servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Icon: "https://cdn/i.png"}, {ID: "2", Name: "Second"}}}},
+		{"rd_servers", map[string]any{"guilds": []guildPickerRow{}}},
+		{"rd_overview", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5, "gc_cycles": 2, "go_version": "go1.26.4"}, Modules: []string{"cleanup"}}},
+		{"rd_permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
+		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": []string{"l1"}, "note": ""}},
+		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": nil, "note": "no log file"}},
+		{"rd_admin", map[string]any{
+			"sections": []settingsSection{{Title: "Bot", Help: "h", Fields: []fieldRender{
+				{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"},
+				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info"}},
+				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
+			}}},
+			"variants": []string{"b32", "b16"}, "variant": "b32",
+		}},
+		{"rd_imagefilter", map[string]any{
+			"admin":    true,
+			"guild":    "1",
+			"config":   map[string]string{"enabled": "true", "threshold": "0.95", "punishment": "mute", "mute_duration": "600", "log_channel": "", "delete_on_none": "false"},
+			"images":   []string{"abc_ref.png"},
+			"status":   modules.ImageFilterStatus{Warm: true, Variant: "b32", EnabledGuilds: 2},
+			"enabled":  true,
+			"channels": []entityOpt{{ID: "c1", Name: "general"}},
+		}},
+		{"rd_imagefilter", map[string]any{"admin": false, "guild": "1", "config": map[string]string{}, "images": []string{}, "enabled": false}},
+		// Command catalog (redesign): empty + populated, global and scoped.
+		{"rd_commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
+		{"rd_commands", commandsContent},
+		// Tickets list (redesign): populated, empty and module-missing.
+		{"rd_tickets", map[string]any{"GuildID": "1", "Types": []struct{ Key, Label string }{{"support", "Support"}}, "Open": nil, "Closed": nil}},
+		{"rd_tickets", map[string]any{"GuildID": "", "Error": "tickets module is not loaded"}},
+		// Modules (redesign): owner management view + guild settings view
+		// (both empty-panel variants).
+		{"rd_modules", settingsPageData{Manage: true, MgmtRows: []moduleView{
+			{Name: "cleanup", Loaded: true, Description: "d"},
+			{Name: "hello", Loaded: false},
+		}}},
+		{"rd_modules", settingsPageData{Manage: true, MgmtRows: nil}},
+		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
+		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", Sections: []settingsSection{{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"}}}}, DashboardSelf: moduleConfigView{Name: "dashboard", Fields: []fieldRender{{Key: "s", Label: "S", Type: "secret", Value: ""}}}, ModulesView: nil}},
+		// Ticket transcript (redesign, standalone): open with close button.
+		{"rd_transcript", struct {
+			Ticket   *modules.Ticket
+			GuildID  string
+			CloseURL string
+		}{Ticket: &modules.Ticket{ID: "support-0001", Type: "support", OpenerID: "2", Status: "open",
+			Log: []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "opener", Content: "help"}},
+		}, GuildID: "1", CloseURL: "/api/tickets/1/support-0001/close"}},
 	}
 
 	for i, c := range cases {
 		d := mkData(lvlOwner)
 		d.Content = c.content
+		// Server-scoped sidebar variant for guild pages.
+		switch c.page {
+		case "rd_imagefilter":
+			d.GuildID = "1"
+			d.GuildName = "G"
+			d.ShowImageFilter = true
+		}
 		var sb strings.Builder
 		if err := b.render(&sb, c.page, d); err != nil {
 			t.Errorf("render %s (#%d): %v", c.page, i, err)
@@ -88,6 +129,25 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	}
 }
 
+// TestRedesignStandaloneLogin renders the login page without a session (no
+// sidebar, no user chip).
+func TestRedesignStandaloneLogin(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlRegular)
+	d.ShowSidebar = false
+	d.Page = "rd_login"
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_login", d); err != nil {
+		t.Fatalf("render rd_login standalone: %v", err)
+	}
+}
+
+// TestSettingsFieldEveryType mirrors the field-partial contract through the
+// redesign: every field type renders via rd_field, and the module settings
+// page (rd_modules) shows the core sections + dashboard self-config.
 func TestSettingsFieldEveryType(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -108,11 +168,13 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	// Render the shared field partial directly to cover every branch.
 	for i, fr := range fields {
 		var sb strings.Builder
-		if err := b.tmpl.ExecuteTemplate(&sb, "field", fr); err != nil {
-			t.Errorf("field partial #%d (%s): %v", i, fr.Type, err)
+		if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fr); err != nil {
+			t.Errorf("rd_field partial #%d (%s): %v", i, fr.Type, err)
 		}
 	}
 	content := settingsPageData{
+		GuildID:   "1",
+		GuildName: "G",
 		Sections: []settingsSection{{
 			Title: "Bot",
 			Fields: []fieldRender{
@@ -129,8 +191,8 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	d := mkData(lvlOwner)
 	d.Content = content
 	var sb strings.Builder
-	if err := b.render(&sb, "settings", d); err != nil {
-		t.Fatalf("render settings: %v", err)
+	if err := b.render(&sb, "rd_modules", d); err != nil {
+		t.Fatalf("render rd_modules: %v", err)
 	}
 	if !strings.Contains(sb.String(), "Dashboard (self-config)") {
 		t.Errorf("settings page missing dashboard self-config section")
@@ -151,6 +213,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	// coreSettingsFields).
 	build := func(locked bool) settingsPageData {
 		return settingsPageData{
+			GuildID:   "1",
+			GuildName: "G",
 			Sections: []settingsSection{
 				{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
@@ -166,8 +230,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	render := func(d renderData) string {
 		t.Helper()
 		var sb strings.Builder
-		if err := b.render(&sb, "settings", d); err != nil {
-			t.Fatalf("render settings: %v", err)
+		if err := b.render(&sb, "rd_modules", d); err != nil {
+			t.Fatalf("render rd_modules: %v", err)
 		}
 		return sb.String()
 	}
@@ -176,7 +240,7 @@ func TestSettingsSectionsPins(t *testing.T) {
 	owner.Content = build(false)
 	out := render(owner)
 	for _, title := range []string{"Bot", "Logging", "Dashboard", "Updater", "Secrets"} {
-		if !strings.Contains(out, "<h3>"+title+"</h3>") {
+		if !strings.Contains(out, "<h2>"+title+"</h2>") {
 			t.Errorf("owner render missing section %q", title)
 		}
 	}
@@ -211,8 +275,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 }
 
 // TestScopedSidebar pins the per-server scoped sidebar: when GuildID is set,
-// the header renders the server-scoped nav (server name + back-to-servers +
-// Commands/Tickets/Modules/Server info) instead of the global nav.
+// the header renders the server-scoped nav (server name + Commands/Tickets/
+// Modules) instead of the global nav.
 func TestScopedSidebar(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
@@ -220,22 +284,19 @@ func TestScopedSidebar(t *testing.T) {
 	}
 	d := mkData(lvlOwner)
 	d.ShowSidebar = true
-	d.Page = "commands"
+	d.Page = "gcommands"
 	d.GuildID = "123"
 	d.GuildName = "My Server"
 	d.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
 	var sb strings.Builder
-	if err := b.render(&sb, "commands", d); err != nil {
-		t.Fatalf("render commands (scoped): %v", err)
+	if err := b.render(&sb, "rd_commands", d); err != nil {
+		t.Fatalf("render rd_commands (scoped): %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `guild-context-name">My Server`) {
+	if !strings.Contains(out, `server-current-name">My Server`) {
 		t.Error("scoped sidebar missing server name")
 	}
-	if !strings.Contains(out, `guild-context-back`) {
-		t.Error("scoped sidebar missing back-to-servers link")
-	}
-	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`, `/guild/123`} {
+	for _, link := range []string{`/g/123/commands`, `/g/123/tickets`, `/g/123/modules`} {
 		if !strings.Contains(out, link) {
 			t.Errorf("scoped sidebar missing %s link", link)
 		}
@@ -244,9 +305,6 @@ func TestScopedSidebar(t *testing.T) {
 	if strings.Contains(out, `href="/" class="nav-item`) {
 		t.Error("global Servers nav must be hidden on per-server pages")
 	}
-	if strings.Contains(out, `>Administration</a>`) {
-		t.Error("global Administration nav must be hidden on per-server pages")
-	}
 
 	// Top-level pages (GuildID empty) keep the global sidebar.
 	d2 := mkData(lvlOwner)
@@ -254,120 +312,22 @@ func TestScopedSidebar(t *testing.T) {
 	d2.Page = "commands"
 	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}
 	var sb2 strings.Builder
-	if err := b.render(&sb2, "commands", d2); err != nil {
-		t.Fatalf("render commands (global): %v", err)
+	if err := b.render(&sb2, "rd_commands", d2); err != nil {
+		t.Fatalf("render rd_commands (global): %v", err)
 	}
 	out2 := sb2.String()
-	if strings.Contains(out2, `guild-context-name`) {
+	if strings.Contains(out2, `server-current-name`) {
 		t.Error("top-level page must not render the scoped sidebar")
 	}
-	if !strings.Contains(out2, `href="/" class="nav-item`) {
+	if !strings.Contains(out2, `class="nav-item" href="/"`) {
 		t.Error("top-level page must keep the global Servers nav")
 	}
 }
 
-// TestGuildPageActiveNav pins the Server info nav state: on /guild/<id>
-// (Page "guild") the scoped sidebar's Server info link is active, and on
-// other scoped pages it is not.
-func TestGuildPageActiveNav(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	d := mkData(lvlOwner)
-	d.ShowSidebar = true
-	d.Page = "guild"
-	d.GuildID = "123"
-	d.GuildName = "My Server"
-	d.Content = &guildDetail{ID: "123", Name: "My Server", MemberCount: 5, OwnerID: "1", BotPerms: "ManageGuild"}
-	var sb strings.Builder
-	if err := b.render(&sb, "guild", d); err != nil {
-		t.Fatalf("render guild: %v", err)
-	}
-	out := sb.String()
-	if !strings.Contains(out, `href="/guild/123" class="nav-item active"`) {
-		t.Error("Server info link must be active on the guild page")
-	}
-	if !strings.Contains(out, `title="Server info" aria-current="page"`) {
-		t.Error("Server info link must carry aria-current on the guild page")
-	}
-
-	// On another scoped page the Server info link is not active.
-	d2 := mkData(lvlOwner)
-	d2.ShowSidebar = true
-	d2.Page = "commands"
-	d2.GuildID = "123"
-	d2.GuildName = "My Server"
-	d2.Content = map[string]any{"groups": []moduleGroup{}, "guild": "123", "count": 0, "canRaw": true}
-	var sb2 strings.Builder
-	if err := b.render(&sb2, "commands", d2); err != nil {
-		t.Fatalf("render commands (scoped): %v", err)
-	}
-	if strings.Contains(sb2.String(), `href="/guild/123" class="nav-item active"`) {
-		t.Error("Server info link must not be active on other scoped pages")
-	}
-}
-
-// TestServersPageBotWideSections pins the bot-wide config sections on the
-// /servers page for the super owner (and their absence for non-super users).
-func TestServersPageBotWideSections(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	d := mkData(lvlOwner)
-	d.Page = "servers"
-	d.Content = map[string]any{
-		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
-		"level":   lvlOwner,
-		"isSuper": true,
-		"isElev":  true,
-		"adminSections": []settingsSection{
-			{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
-			{Title: "Secrets", Fields: []fieldRender{{Key: "token", Label: "Bot token", Type: "secret", OwnerOnly: true}}},
-		},
-	}
-	var sb strings.Builder
-	if err := b.render(&sb, "servers", d); err != nil {
-		t.Fatalf("render servers: %v", err)
-	}
-	out := sb.String()
-	if !strings.Contains(out, "Bot-wide configuration") {
-		t.Error("servers page missing bot-wide configuration heading")
-	}
-	if !strings.Contains(out, `<h3>Bot</h3>`) {
-		t.Error("servers page missing Bot section")
-	}
-	if !strings.Contains(out, `<h3>Secrets</h3>`) {
-		t.Error("servers page missing Secrets section")
-	}
-	if !strings.Contains(out, `id="bk-create"`) {
-		t.Error("servers page missing Backups card")
-	}
-	if !strings.Contains(out, `id="upd-check"`) {
-		t.Error("servers page missing Updater status card")
-	}
-
-	// Non-super users must NOT see the bot-wide sections.
-	d2 := mkData(lvlStaff)
-	d2.Page = "servers"
-	d2.Content = map[string]any{
-		"guilds":  []guildPickerRow{{ID: "1", Name: "G", Owner: true}},
-		"level":   lvlStaff,
-		"isSuper": false,
-		"isElev":  false,
-	}
-	var sb2 strings.Builder
-	if err := b.render(&sb2, "servers", d2); err != nil {
-		t.Fatalf("render servers (staff): %v", err)
-	}
-	if strings.Contains(sb2.String(), "Bot-wide configuration") {
-		t.Error("staff render must NOT show bot-wide configuration")
-	}
-}
-
-// TestCommandsRunAffordance pins the Run button on usable commands (never on SuperOwnerOnly ones).
-func TestCommandsRunAffordance(t *testing.T) {
+// TestRedesignCommandsRunAffordance pins the same Run affordance contract on
+// the redesign commands template (rd_commands): usable commands get a Run
+// button carrying the page's guild; SuperOwnerOnly and locked ones never do.
+func TestRedesignCommandsRunAffordance(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
@@ -382,13 +342,15 @@ func TestCommandsRunAffordance(t *testing.T) {
 	}}
 	d := mkData(lvlOwner)
 	d.ShowSidebar = true
-	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 3, "canRaw": true}
+	d.Page = "gcommands"
+	d.GuildID = "1"
+	d.GuildName = "My Server"
+	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 3, "canRaw": false, "canManage": true, "level": lvlOwner}
 	var sb strings.Builder
-	if err := b.render(&sb, "commands", d); err != nil {
-		t.Fatalf("render commands: %v", err)
+	if err := b.render(&sb, "rd_commands", d); err != nil {
+		t.Fatalf("render rd_commands: %v", err)
 	}
 	out := sb.String()
-	// Run affordance is the .run-cmd button, which carries data-name + data-guild.
 	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
 		t.Error("usable command missing Run affordance")
 	}
@@ -400,5 +362,243 @@ func TestCommandsRunAffordance(t *testing.T) {
 	}
 	if !strings.Contains(out, `data-guild="1"`) {
 		t.Error("Run affordance must carry the page's guild context")
+	}
+}
+
+// TestRedesignTicketsCloseAffordance pins the Close button on open tickets of
+// the redesign tickets template: open tickets get a .tk-close carrying the
+// guild + ticket id; the archive never renders one.
+func TestRedesignTicketsCloseAffordance(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = true
+	d.Page = "gtickets"
+	d.GuildID = "1"
+	d.GuildName = "My Server"
+	now := time.Now()
+	d.Content = map[string]any{
+		"GuildID": "1",
+		"Types":   []struct{ Key, Label string }{{"support", "Support"}},
+		"Open": []struct {
+			ID, Type, OpenerID, ClaimerID string
+			OpenedAt                      time.Time
+		}{{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: now}},
+		"Closed": []struct {
+			ID, Type, OpenerID string
+			ClosedAt           time.Time
+		}{{ID: "11", Type: "report", OpenerID: "222", ClosedAt: now}},
+	}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_tickets", d); err != nil {
+		t.Fatalf("render rd_tickets: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `tk-close" data-id="12" data-guild="1"`) {
+		t.Error("open ticket missing Close affordance")
+	}
+	if strings.Count(out, "tk-close") != 1 {
+		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, "tk-close"))
+	}
+}
+
+// TestRedesignFieldEveryType mirrors TestSettingsFieldEveryType for the
+// redesign field partial: every field type renders through rd_field, locked
+// variants render disabled with the owner-only marker.
+func TestRedesignFieldEveryType(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	fields := []fieldRender{
+		{Key: "t1", Label: "Toggle", Type: "toggle", Value: "true"},
+		{Key: "t2", Label: "Text", Type: "text", Value: "hi", Placeholder: "type"},
+		{Key: "t3", Label: "Textarea", Type: "textarea", Value: "multi\nline"},
+		{Key: "t4", Label: "Number", Type: "number", Value: "3", Min: "0", Max: "10", Step: "1"},
+		{Key: "t5", Label: "Range", Type: "range", Value: "50", Min: "0", Max: "100", Step: "5"},
+		{Key: "t6", Label: "Select", Type: "select", Value: "b", Options: []string{"a", "b", "c"}},
+		{Key: "t7", Label: "Multi", Type: "multi", Value: "a,c", Options: []string{"a", "b", "c"}},
+		{Key: "t8", Label: "Secret", Type: "secret", Value: "••••••••"},
+		{Key: "t9", Label: "Channel", Type: "channel", Value: "c", Entities: []entityOpt{{ID: "c", Name: "general"}}},
+		{Key: "t10", Label: "Role", Type: "role", Value: "r", Entities: []entityOpt{{ID: "r", Name: "@everyone"}}},
+		{Key: "t11", Label: "User", Type: "user", Value: "u", Entities: []entityOpt{{ID: "u", Name: "sam"}}},
+		{Key: "t12", Label: "Unknown", Type: "banana", Value: "x"}, // falls back to text
+	}
+	for i, fr := range fields {
+		var sb strings.Builder
+		if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fr); err != nil {
+			t.Errorf("rd_field partial #%d (%s): %v", i, fr.Type, err)
+		}
+	}
+	// Locked (elevated view of an owner-only field): disabled + data-owneronly.
+	locked := fieldRender{Key: "tok", Label: "Secret", Type: "secret", Value: "••", OwnerOnly: true, Locked: true}
+	var sb strings.Builder
+	if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", locked); err != nil {
+		t.Fatalf("rd_field locked: %v", err)
+	}
+	if !strings.Contains(sb.String(), `data-owneronly="true"`) || !strings.Contains(sb.String(), "disabled") {
+		t.Error("locked rd_field must render data-owneronly and disabled")
+	}
+	// Entity-less picker types fall back to text inputs.
+	fallback := fieldRender{Key: "tc", Label: "Channel", Type: "channel", Value: ""}
+	sb.Reset()
+	if err := b.tmpl.ExecuteTemplate(&sb, "rd_field", fallback); err != nil {
+		t.Fatalf("rd_field channel fallback: %v", err)
+	}
+	if !strings.Contains(sb.String(), `type="text"`) {
+		t.Error("entity-less channel field must fall back to a text input")
+	}
+	// Through the module settings page: fields render inside the form.
+	content := settingsPageData{
+		GuildID:       "1",
+		GuildName:     "G",
+		DashboardSelf: moduleConfigView{Name: "dashboard", Fields: fields},
+		ModulesView:   []moduleConfigView{{Name: "tickets", Fields: fields}},
+	}
+	d := mkData(lvlOwner)
+	d.Content = content
+	var page strings.Builder
+	if err := b.render(&page, "rd_modules", d); err != nil {
+		t.Fatalf("render rd_modules: %v", err)
+	}
+	if !strings.Contains(page.String(), "Dashboard (self-config)") {
+		t.Error("rd_modules page missing dashboard self-config section")
+	}
+}
+
+// TestRedesignImageFilterControls pins the two dashboard controls whose
+// rendering bug made the panel unusable/lie to the user:
+//   - the CLIP variant <select> must be populated and preselect the active
+//     variant (an empty select made "Switch variant" a silent no-op);
+//   - delete_on_none is a string in config, so it must compare against "true"
+//     (plain truthiness rendered the box checked whenever the setting was off).
+func TestRedesignImageFilterControls(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+
+	d := mkData(lvlOwner)
+	d.Page = "config"
+	d.Content = map[string]any{"sections": []settingsSection(nil), "variants": []string{"b32", "b16", "l14"}, "variant": "b16"}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_admin", d); err != nil {
+		t.Fatalf("render rd_admin: %v", err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`<option value="b32" >b32</option>`,
+		`<option value="b16" selected>b16</option>`,
+		`<option value="l14" >l14</option>`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("clip variant select missing %q (body: %s)", want, out)
+		}
+	}
+
+	filterContent := func(deleteOnNone string) map[string]any {
+		return map[string]any{
+			"admin": true, "guild": "1", "enabled": true, "images": []string{},
+			"config": map[string]string{"delete_on_none": deleteOnNone, "mute_duration": "600"},
+		}
+	}
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"false", false},
+		{"true", true},
+		{"", false},
+	} {
+		fd := mkData(lvlOwner)
+		fd.Page = "imagefilter"
+		fd.Content = filterContent(tc.value)
+		sb.Reset()
+		if err := b.render(&sb, "rd_imagefilter", fd); err != nil {
+			t.Fatalf("render rd_imagefilter(%q): %v", tc.value, err)
+		}
+		checked := strings.Contains(sb.String(), `id="if-delete-on-none" checked`)
+		if checked != tc.want {
+			t.Errorf("delete_on_none=%q rendered checked=%v, want %v", tc.value, checked, tc.want)
+		}
+	}
+
+	// P2: the mute duration must accept any positive number of seconds.
+	fd := mkData(lvlOwner)
+	fd.Page = "imagefilter"
+	fd.Content = filterContent("false")
+	sb.Reset()
+	if err := b.render(&sb, "rd_imagefilter", fd); err != nil {
+		t.Fatalf("render rd_imagefilter: %v", err)
+	}
+	if !strings.Contains(sb.String(), `min="1" step="1"`) {
+		t.Error("mute duration input must accept any positive second (min=1)")
+	}
+}
+
+// TestRedesignTranscript pins the standalone transcript page: no sidebar
+// chrome, close affordance on open tickets, message log with attachments and
+// the lightbox container.
+func TestRedesignTranscript(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	tk := &modules.Ticket{
+		ID: "support-0007", Type: "support", GuildID: "1", OpenerID: "2", ClaimerID: "3", Status: "open",
+		OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"4"},
+		Log: []modules.LogEntry{
+			{MsgID: "m1", AuthorID: "2", AuthorName: "vixen", Content: "crashes",
+				Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/a.png", LocalPath: "files/a.png", Kind: "image", Filename: "a.png"}},
+				Stickers:    []modules.Media{{URL: "https://cdn.discordapp.com/s.png", Kind: "sticker", Filename: "s.png"}}},
+			{MsgID: "m2", AuthorID: "2", AuthorName: "vixen", Content: "gone", Deleted: true},
+		},
+	}
+	d := mkData(lvlOwner)
+	d.ShowSidebar = false
+	d.Page = "transcript"
+	d.Content = struct {
+		Ticket   *modules.Ticket
+		GuildID  string
+		CloseURL string
+	}{Ticket: tk, GuildID: "1", CloseURL: "/api/tickets/1/support-0007/close"}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_transcript", d); err != nil {
+		t.Fatalf("render rd_transcript: %v", err)
+	}
+	out := sb.String()
+	for _, want := range []string{
+		`tk-close" data-id="support-0007" data-guild="1"`,
+		`/api/ticketfiles/1/support-0007/a.png`, // LocalPath mirroring on image attachments
+		`class="zoomable msg-media"`,
+		`id="lightbox"`,
+		`msg-deleted`, // deleted tombstone styling
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("transcript missing %q", want)
+		}
+	}
+	if strings.Contains(out, `class="sidebar"`) || strings.Contains(out, `class="app"`) {
+		t.Error("transcript must render standalone (no sidebar chrome)")
+	}
+	// The mirrored-file URL form only applies when LocalPath is set; CDN URLs
+	// must pass through untouched.
+	d2 := d
+	tk2 := *tk
+	tk2.Log = []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "v", Content: "x",
+		Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/b.png", Kind: "image", Filename: "b.png"}}}}
+	d2.Content = struct {
+		Ticket   *modules.Ticket
+		GuildID  string
+		CloseURL string
+	}{Ticket: &tk2, GuildID: "1", CloseURL: ""}
+	sb.Reset()
+	if err := b.render(&sb, "rd_transcript", d2); err != nil {
+		t.Fatalf("render rd_transcript (CDN): %v", err)
+	}
+	if !strings.Contains(sb.String(), `src="https://cdn.discordapp.com/b.png"`) {
+		t.Error("CDN attachment URL must be used as-is")
 	}
 }

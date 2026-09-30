@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -535,5 +537,186 @@ func TestForcePushResyncsSilently(t *testing.T) {
 	st := m.loadState()
 	if st.LastCommitSHA != "fffffff" {
 		t.Errorf("last seen SHA should resync to remote head, got %s", st.LastCommitSHA)
+	}
+}
+
+// ── Apply: update must not depend on optional runtime artifacts ───────────
+
+// applyTestRepo builds a throwaway working tree that Apply can drive end to
+// end without touching the real repo: a bare origin whose main has one commit,
+// a clone of it with a stale `bot` file and a `scripts/setup_imagefilter.sh`
+// stand-in, checked out one commit behind so the fast-forward has work to do.
+func applyTestRepo(t *testing.T, script string) *Manager {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go not installed")
+	}
+
+	root := t.TempDir()
+	remote := filepath.Join(root, "origin.git")
+	dir := filepath.Join(root, "work")
+
+	runIn := func(cwd string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = cwd
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@invalid", "GIT_AUTHOR_DATE=2026-01-01T00:00:00Z",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@invalid", "GIT_COMMITTER_DATE=2026-01-01T00:00:00Z")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git -C %s %s: %v (%s)", cwd, strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(rel, content string) {
+		t.Helper()
+		path := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commit := func(msg string) {
+		runIn(dir, "add", "-A")
+		runIn(dir, "commit", "-q", "-m", msg)
+	}
+
+	runIn(root, "init", "-q", "--bare", "--initial-branch=main", "origin.git")
+	runIn(root, "init", "-q", "-b", "main", "work")
+	runIn(dir, "remote", "add", "origin", remote)
+
+	// The tracked package Apply's `go build ./cmd/bot/` compiles.
+	write("go.mod", "module applyfixture\n\ngo 1.21\n")
+	write("cmd/bot/main.go", "package main\n\nfunc main() {}\n")
+	write("scripts/setup_imagefilter.sh", script)
+	commit("first")
+	runIn(dir, "push", "-q", "--set-upstream", "origin", "main")
+
+	// A newer origin commit to fast-forward onto.
+	runIn(dir, "checkout", "-q", "-b", "dev")
+	write("cmd/bot/main.go", "package main\n\nfunc main() { println(\"v2\") }\n")
+	commit("second")
+	runIn(dir, "push", "-q", "origin", "dev:main")
+
+	// The local checkout stays behind remote main, with a stale binary in place.
+	runIn(dir, "checkout", "-q", "main")
+	write("bot", "old binary\n")
+
+	return New(dir, testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+}
+
+// TestApplyRunsArtifactSetupAfterSwap is the ordering guard: the optional
+// imagefilter artifacts are re-provisioned as part of an update, after the new
+// binary is in place and before the process is flagged for re-exec.
+func TestApplyRunsArtifactSetupAfterSwap(t *testing.T) {
+	m := applyTestRepo(t, "#!/usr/bin/env bash\nset -eu\n[ -x bot ]\necho new-binary-in-place\n")
+
+	called := false
+	m.setupArtifacts = func(context.Context) error {
+		called = true
+		// The hook must run after the swap, which is observable through the
+		// renamed-away original and the freshly built replacement.
+		if _, err := os.Stat(filepath.Join(m.Dir, "bot.old")); err != nil {
+			t.Errorf("setup ran before the binary swap: bot.old missing (%v)", err)
+		}
+		return nil
+	}
+
+	if err := m.Apply(context.Background()); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	if !called {
+		t.Fatal("Apply did not run the artifact setup hook")
+	}
+	if !m.ApplyRequested() {
+		t.Fatal("Apply must still request the restart after a successful swap")
+	}
+	if b, err := os.ReadFile(filepath.Join(m.Dir, "bot")); err != nil {
+		t.Fatalf("installed binary unreadable: %v", err)
+	} else if string(b) == "old binary\n" {
+		t.Error("the stale binary was not replaced")
+	}
+}
+
+// TestApplyArtifactFailureDoesNotFailTheUpdate pins the non-fatal contract: a
+// broken artifact provisioner (no pip, no network, unsupported host) must never
+// surface as an update error — the filter stays cold, the bot still restarts.
+func TestApplyArtifactFailureDoesNotFailTheUpdate(t *testing.T) {
+	m := applyTestRepo(t, "#!/usr/bin/env bash\nexit 1\n")
+	m.setupArtifacts = func(context.Context) error {
+		return errors.New("simulated provisioning failure")
+	}
+
+	if err := m.Apply(context.Background()); err != nil {
+		t.Fatalf("artifact failure must not fail the update, got: %v", err)
+	}
+	if !m.ApplyRequested() {
+		t.Fatal("the update must complete and request a restart")
+	}
+}
+
+// TestRunArtifactSetupReportsFailure covers the default implementation: a
+// missing or failing script is reported, never mistaken for success. Apply is
+// what decides to swallow that error.
+func TestRunArtifactSetupReportsFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := New(dir, testLogger{}, func() *config.UpdaterConfig { return testCfg() })
+	if err := m.setupArtifacts(context.Background()); err == nil {
+		t.Fatal("a missing artifact script should be reported")
+	}
+
+	script := filepath.Join(dir, "scripts", "setup_imagefilter.sh")
+	if err := os.WriteFile(script, []byte("#!/usr/bin/env bash\necho boom >&2\nexit 3\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := m.setupArtifacts(context.Background())
+	if err == nil {
+		t.Fatal("a failing artifact script should be reported")
+	}
+	if !strings.Contains(err.Error(), "boom") {
+		t.Errorf("error should carry the script's output, got: %v", err)
+	}
+}
+
+// ── branch check ───────────────────────────────────────────────────────────
+
+func TestCheckCheckedOutBranch(t *testing.T) {
+	tests := []struct {
+		name    string
+		current string
+		tracked string
+		wantErr string
+	}{
+		{name: "match main", current: "main", tracked: "main", wantErr: ""},
+		{name: "match named", current: "main", tracked: "", wantErr: ""},
+		{name: "match empty default", current: "release", tracked: "release", wantErr: ""},
+		{name: "mismatch", current: "feature-x", tracked: "main", wantErr: `on "feature-x" but the updater tracks "main"`},
+		{name: "detached HEAD", current: "HEAD", tracked: "main", wantErr: "detached"},
+		{name: "detached HEAD empty tracked", current: "HEAD", tracked: "", wantErr: "detached"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := checkCheckedOutBranch(tt.current, tt.tracked)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.wantErr)
+				} else if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.wantErr)
+				}
+			}
+		})
 	}
 }

@@ -1,66 +1,15 @@
 package tickets
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
-func writeCfg(t *testing.T, dir, content string) {
-	t.Helper()
-	if err := os.WriteFile(configPath(dir), []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestConfigV2MigrationFromGroups pins the v1→v2 config migration: legacy
-// groups YAML becomes one type per group; panels/log_channel survive.
-func TestConfigV2MigrationFromGroups(t *testing.T) {
+// TestConfigV3FreshRoundTrip covers a native per-guild file: types + panels
+// round-trip with button label/emoji and panel registry intact.
+func TestConfigV3FreshRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	writeCfg(t, dir, `groups_yaml: |
-  - key: staff
-    label: Staff
-    enabled: true
-    parent_channel: "111222333444555666"
-    ping_roles: ["987654321098765432"]
-  - key: apps
-    label: Applications
-    enabled: false
-    parent_channel: "111222333444555666"
-log_channel: "555444333222111000"
-`)
-	cfg, err := loadConfig(dir)
-	if err != nil {
-		t.Fatalf("loadConfig: %v", err)
-	}
-	if cfg.Version != 2 {
-		t.Fatalf("version = %d, want 2 after migration", cfg.Version)
-	}
-	if len(cfg.Types) != 2 {
-		t.Fatalf("types = %d, want 2", len(cfg.Types))
-	}
-	staff, ok := cfg.Types["staff"]
-	if !ok || !staff.Enabled || staff.Category != "111222333444555666" || len(staff.PingRoles) != 1 {
-		t.Fatalf("staff type not migrated: %+v", staff)
-	}
-	if staff.Label != "Staff" {
-		t.Fatalf("label not carried: %q", staff.Label)
-	}
-	if cfg.LogChannel != "555444333222111000" {
-		t.Fatalf("log_channel lost: %q", cfg.LogChannel)
-	}
-}
-
-// TestConfigV2FreshRoundTrip covers a native v2 file: types + panels round-trip
-// with button label/emoji and panel registry intact.
-func TestConfigV2FreshRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	cfg, err := loadConfig(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.Version = 2
+	guildID := "111222333444555666"
+	cfg := loadGuildConfig(dir, guildID, nil)
 	cfg.LogChannel = "999888777666555444"
 	cfg.Types["contact"] = &TypeConfig{
 		Key: "contact", Label: "Contact Staff", Enabled: true,
@@ -77,13 +26,10 @@ func TestConfigV2FreshRoundTrip(t *testing.T) {
 		MessageID: "343434343434343434", TypeKey: "contact",
 		Title: "Need help?", Description: "Click below.",
 	}
-	if err := cfg.save(dir); err != nil {
+	if err := cfg.save(dir, guildID); err != nil {
 		t.Fatal(err)
 	}
-	got, err := loadConfig(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	got := loadGuildConfig(dir, guildID, nil)
 	tc := got.Types["contact"]
 	if tc == nil || tc.ButtonEmoji != "🎫" || tc.ButtonLabel != "Open Ticket" || !tc.AllowClaimOn() {
 		t.Fatalf("type round-trip broken: %+v", tc)
@@ -113,24 +59,3 @@ func TestPanelNameValidation(t *testing.T) {
 		}
 	}
 }
-
-func TestTypeValidation(t *testing.T) {
-	dir := t.TempDir()
-	cfg, _ := loadConfig(dir)
-	// enabled without category must be rejected at parse time
-	raw := `
-version: 2
-types:
-  bad:
-    key: bad
-    label: Bad
-    enabled: true
-`
-	writeCfg(t, dir, strings.TrimSpace(raw))
-	if _, err := loadConfig(dir); err == nil {
-		t.Fatal("enabled-without-category must fail load")
-	}
-	_ = cfg
-}
-
-var _ = filepath.Join // keep import if tests shrink

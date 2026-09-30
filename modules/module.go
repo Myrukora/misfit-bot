@@ -2,6 +2,8 @@ package modules
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -160,6 +162,7 @@ type EventHooks struct {
 	OnMessageReactionAdd    []func(event *events.MessageReactionAdd)
 	OnMessageReactionRemove []func(event *events.MessageReactionRemove)
 	OnVoiceStateUpdate      []func(event *events.GuildVoiceStateUpdate)
+	OnGuildChannelDelete    []func(event *events.GuildChannelDelete)
 	OnComponentInteraction  []func(event *events.ComponentInteractionCreate)
 	OnModalSubmit           []func(event *events.ModalSubmitInteractionCreate)
 }
@@ -392,6 +395,20 @@ func (e *EventHooks) GetVoiceStateUpdateHandlers() []func(event *events.GuildVoi
 	return h
 }
 
+func (e *EventHooks) AddGuildChannelDelete(h func(event *events.GuildChannelDelete)) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.OnGuildChannelDelete = append(e.OnGuildChannelDelete, h)
+}
+
+func (e *EventHooks) GetGuildChannelDeleteHandlers() []func(event *events.GuildChannelDelete) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	h := make([]func(*events.GuildChannelDelete), len(e.OnGuildChannelDelete))
+	copy(h, e.OnGuildChannelDelete)
+	return h
+}
+
 func (e *EventHooks) AddComponentInteraction(h func(event *events.ComponentInteractionCreate)) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -434,6 +451,17 @@ type LoadedModule struct {
 	Hooks        *EventHooks
 	LuaLoader    *LuaLoader
 	PythonLoader *PythonLoader
+}
+
+// RawComponentHandler is implemented by a module that must answer a specific
+// component interaction itself (e.g. a ticket panel button that opens a
+// modal). The dispatcher dispatches such interactions WITHOUT the automatic
+// deferral, because the module needs to pick its own response type (modal vs
+// ephemeral message). An implementation MUST always respond to any
+// interaction it claims — a claimed interaction that is never answered dies
+// on Discord's 3-second deadline.
+type RawComponentHandler interface {
+	HandlesRawComponent(e *events.ComponentInteractionCreate) bool
 }
 
 type Manager struct {
@@ -503,6 +531,165 @@ func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Conte
 		m.AddModuleHooks(hooks)
 	}
 	return nil
+}
+
+// AdoptLegacyBuiltinData moves a plugin-era builtin data dir from
+// <baseDir>/Go/<name>/ to <baseDir>/<name>/ so a 0.1.0 → 0.2.0 update does not
+// silently lose state. It must run before the builtins' OnLoad: the tickets
+// module's migrateToV3 only finds the legacy single-file config if it is
+// already at the new DataDir.
+//
+//   - Legacy present, new absent/empty → adopt: os.Rename (same filesystem,
+//     atomic), falling back to a recursive copy across filesystems. Legacy
+//     *.so files are dropped (dead plugin artifacts).
+//   - Both present → WARN, no merge, no overwrite (owner reconciles by hand).
+//   - Neither present → no-op (fresh install).
+//
+// Idempotent: a second run finds the legacy dir gone/empty and does nothing.
+func AdoptLegacyBuiltinData(baseDir, name string, log Logger) {
+	legacy := filepath.Join(baseDir, "Go", name)
+	fresh := filepath.Join(baseDir, name)
+
+	li, err := os.Stat(legacy)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			warnAdoption(log, "stat %s: %v", legacy, err)
+		}
+		return
+	}
+	if !li.IsDir() {
+		warnAdoption(log, "%s is not a directory; leaving it", legacy)
+		return
+	}
+
+	// The legacy dir must hold state (a non-.so file or a subdirectory).
+	entries, err := os.ReadDir(legacy)
+	if err != nil {
+		warnAdoption(log, "read %s: %v", legacy, err)
+		return
+	}
+	hasState := false
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".so") {
+			hasState = true
+			break
+		}
+	}
+	if !hasState {
+		return // only .so files (or empty) — nothing to adopt
+	}
+
+	// The fresh dir must be absent or empty.
+	fi, err := os.Stat(fresh)
+	if err == nil {
+		if !fi.IsDir() {
+			warnAdoption(log, "%s is not a directory; not adopting %s", fresh, legacy)
+			return
+		}
+		fe, err := os.ReadDir(fresh)
+		if err != nil {
+			warnAdoption(log, "read %s: %v", fresh, err)
+			return
+		}
+		if len(fe) > 0 {
+			warnAdoption(log, "both %s and %s hold state; not merging (reconcile by hand)", legacy, fresh)
+			return
+		}
+	} else if !os.IsNotExist(err) {
+		warnAdoption(log, "stat %s: %v", fresh, err)
+		return
+	}
+
+	// Adopt. Prefer os.Rename (same filesystem, atomic); fall back to a
+	// recursive copy across filesystems. Legacy *.so files are dropped.
+	if err := os.Rename(legacy, fresh); err == nil {
+		dropSOFiles(fresh, log)
+		if log != nil {
+			log.Info("adopted builtin %s data: %s -> %s", name, legacy, fresh)
+		}
+		return
+	}
+	if err := copyDirDropSO(legacy, fresh); err != nil {
+		warnAdoption(log, "copy %s -> %s: %v", legacy, fresh, err)
+		return
+	}
+	if err := os.RemoveAll(legacy); err != nil {
+		warnAdoption(log, "remove %s after copy: %v", legacy, err)
+		return
+	}
+	if log != nil {
+		log.Info("adopted builtin %s data (copy): %s -> %s", name, legacy, fresh)
+	}
+}
+
+// warnAdoption logs a WARN if log is non-nil.
+func warnAdoption(log Logger, format string, args ...any) {
+	if log != nil {
+		log.Warn(format, args...)
+	}
+}
+
+// dropSOFiles removes top-level *.so files in dir (dead plugin artifacts that
+// came along with a rename).
+func dropSOFiles(dir string, log Logger) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".so") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if err := os.Remove(p); err != nil {
+			warnAdoption(log, "remove %s: %v", p, err)
+		}
+	}
+}
+
+// copyDirDropSO recursively copies src into dst, skipping *.so files at every
+// depth. dst is created if absent.
+func copyDirDropSO(src, dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			if err := copyDirDropSO(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+				return err
+			}
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".so") {
+			continue
+		}
+		if err := copyFile(filepath.Join(src, e.Name()), filepath.Join(dst, e.Name())); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file src → dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 // SetLuaLoader sets the Lua loader for the manager.
@@ -814,6 +1001,24 @@ func (m *Manager) GetNames() []string {
 	names := make([]string, len(m.order))
 	copy(names, m.order)
 	return names
+}
+
+// NeedsRawComponent reports whether any loaded module claims the component
+// interaction, i.e. must be dispatched WITHOUT the automatic deferral. It
+// iterates the loaded modules and type-asserts each to RawComponentHandler.
+// Get/GetNames each take their own RLock; no manager lock is held across the
+// handler calls (a claimed handler may call back into the manager).
+func (m *Manager) NeedsRawComponent(e *events.ComponentInteractionCreate) bool {
+	for _, name := range m.GetNames() {
+		mod, ok := m.Get(name)
+		if !ok {
+			continue
+		}
+		if h, ok := mod.(RawComponentHandler); ok && h.HandlesRawComponent(e) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Manager) AddModuleHooks(h *EventHooks) {
