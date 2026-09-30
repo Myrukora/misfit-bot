@@ -78,8 +78,9 @@ func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, panel
 		m.ephemeralErr(e, "Tickets only work inside a server.")
 		return
 	}
+	cfg := m.guildConfig(guildID)
 	m.mu.RLock()
-	panel, ok := m.cfg.Panels[panelName]
+	panel, ok := cfg.Panels[panelName]
 	m.mu.RUnlock()
 	if !ok {
 		m.ephemeralErr(e, "This panel no longer exists.")
@@ -89,9 +90,14 @@ func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, panel
 		m.ephemeralErr(e, "This panel is currently suspended.")
 		return
 	}
-	g, ok := m.typeOf(panel.TypeKey)
+	g, ok := m.typeOf(guildID, panel.TypeKey)
 	if !ok || !g.Enabled {
 		m.ephemeralErr(e, "This ticket type is currently disabled.")
+		return
+	}
+	// Open-time question modal: hand off to the modal flow.
+	if m.panelUsesModal(guildID, panelName) {
+		m.onOpenButtonWithModal(e, guildID, panelName)
 		return
 	}
 	opener := actorUser(e)
@@ -99,7 +105,7 @@ func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, panel
 		m.ephemeralErr(e, "Could not resolve your user — try again.")
 		return
 	}
-	ticket, err := m.openTicket(g, opener, guildID, panel.Name)
+	ticket, err := m.openTicket(g, opener, guildID, panel.Name, nil)
 	if err != nil {
 		m.ephemeralErr(e, err.Error())
 		return
@@ -115,30 +121,30 @@ func (m *TicketsModule) onOpenButton(e *events.ComponentInteractionCreate, panel
 
 func (m *TicketsModule) onClaimButton(e *events.ComponentInteractionCreate, ticketID string) {
 	guildID := guildIDOf(e)
-	tk, err := m.store.load(guildID, ticketID)
+	userID := e.User().ID.String()
+	name := effectiveName(e)
+	// Compare-and-set under the store lock: two fast clicks (or an in-chat
+	// claim landing at the same moment) cannot both win.
+	tk, changed, err := m.store.mutate(guildID, ticketID, func(cur *modules.Ticket) bool {
+		if cur.Status != "open" || cur.ClaimerID != "" {
+			return false
+		}
+		cur.ClaimerID = userID
+		cur.ClaimedAt = time.Now().UTC()
+		return true
+	})
 	if err != nil || tk == nil || tk.Status != "open" {
 		m.ephemeralErr(e, "This ticket no longer exists or is closed.")
 		return
 	}
-	userID := e.User().ID.String()
-	name := effectiveName(e)
-
-	m.mu.Lock()
-	if tk.ClaimerID != "" {
-		claimed := tk.ClaimerID
-		m.mu.Unlock()
-		m.ephemeralErr(e, fmt.Sprintf("Already claimed by <@%s>.", claimed))
+	if !changed {
+		m.ephemeralErr(e, fmt.Sprintf("Already claimed by <@%s>.", tk.ClaimerID))
 		return
 	}
-	tk.ClaimerID = userID
-	tk.ClaimedAt = time.Now().UTC()
-	m.mu.Unlock()
-
-	g, _ := m.typeOf(tk.EffectiveType())
+	g, _ := m.typeOf(tk.GuildID, tk.EffectiveType())
 	if tk.MessageID != "" {
 		m.editTicketButtons(tk, g, "Claimed by "+name)
 	}
-	_ = m.store.save(tk)
 	e.CreateMessage(discord.MessageCreate{
 		Embeds: []discord.Embed{embedSuccess("Claimed",
 			fmt.Sprintf("<@%s> claimed this ticket.", userID))},

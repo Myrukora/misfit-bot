@@ -1,6 +1,7 @@
 package tickets
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -133,23 +134,72 @@ func TestParseGroupsYAMLInvalidYAML(t *testing.T) {
 // field falls back to the 30-day default.
 func TestLoadConfigRetentionZeroExplicit(t *testing.T) {
 	dir := t.TempDir()
-	cfg, err := loadConfig(dir)
+	mod, err := loadModuleConfig(dir)
 	if err != nil {
-		t.Fatalf("loadConfig fresh: %v", err)
+		t.Fatalf("loadModuleConfig fresh: %v", err)
 	}
-	if cfg.RetentionDays() != defaultRetentionDays {
-		t.Fatalf("fresh config: want default %d, got %d", defaultRetentionDays, cfg.RetentionDays())
+	if mod.RetentionDays() != defaultRetentionDays {
+		t.Fatalf("fresh config: want default %d, got %d", defaultRetentionDays, mod.RetentionDays())
 	}
 	// Owner sets 0 (keep forever) via the dashboard setter path.
-	cfg.Retention = retentionDays{value: 0, set: true}
-	if err := cfg.save(dir); err != nil {
+	mod.Retention = retentionDays{value: 0, set: true}
+	if err := mod.save(dir); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	reloaded, err := loadConfig(dir)
+	reloaded, err := loadModuleConfig(dir)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
 	if reloaded.RetentionDays() != 0 {
 		t.Fatalf("explicit zero lost on reload: got %d, want 0 (keep forever)", reloaded.RetentionDays())
+	}
+}
+
+// TestRetentionDaysScalarForms is the regression guard for a module-load
+// failure: yaml.v3 refuses to decode a QUOTED numeric ("30") into an int, so a
+// hand-edited `storage_retention_days: "30"` used to error out of
+// loadModuleConfig → OnLoad → the whole module refused to load. Quoted,
+// unquoted and hex forms must all parse; junk must error; null stays unset.
+func TestRetentionDaysScalarForms(t *testing.T) {
+	cases := []struct {
+		name    string
+		raw     string
+		wantSet bool
+		want    int
+		wantErr bool
+	}{
+		{"quoted", `storage_retention_days: "30"` + "\n", true, 30, false},
+		{"single-quoted", "storage_retention_days: '7'\n", true, 7, false},
+		{"quoted-padded", `storage_retention_days: " 12 "` + "\n", true, 12, false},
+		{"unquoted", "storage_retention_days: 30\n", true, 30, false},
+		{"hex", "storage_retention_days: 0x1e\n", true, 30, false},
+		{"explicit-zero", "storage_retention_days: 0\n", true, 0, false},
+		{"null", "storage_retention_days: null\n", false, defaultRetentionDays, false},
+		{"quoted-junk", `storage_retention_days: "abc"` + "\n", false, defaultRetentionDays, true},
+		{"unquoted-junk", "storage_retention_days: abc\n", false, defaultRetentionDays, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(moduleConfigPath(dir), []byte(tc.raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := loadModuleConfig(dir)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("loadModuleConfig(%q) = %+v, want error", tc.raw, cfg)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadModuleConfig(%q): %v", tc.raw, err)
+			}
+			if cfg.Retention.set != tc.wantSet {
+				t.Errorf("%q: Retention.set = %v, want %v", tc.raw, cfg.Retention.set, tc.wantSet)
+			}
+			if got := cfg.RetentionDays(); got != tc.want {
+				t.Errorf("%q: RetentionDays() = %d, want %d", tc.raw, got, tc.want)
+			}
+		})
 	}
 }

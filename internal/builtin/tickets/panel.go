@@ -75,7 +75,7 @@ func parseButtonEmoji(raw string) *discord.ComponentEmoji {
 // postOrUpdatePanel posts the panel embed (or edits in place if we already
 // know its message), then records it in the registry.
 func (m *TicketsModule) postOrUpdatePanel(guildID string, p *PanelConfig) error {
-	t, ok := m.typeOf(p.TypeKey)
+	t, ok := m.typeOf(guildID, p.TypeKey)
 	if !ok {
 		return fmt.Errorf("panel %q references unknown type %q", p.Name, p.TypeKey)
 	}
@@ -87,13 +87,14 @@ func (m *TicketsModule) postOrUpdatePanel(guildID string, p *PanelConfig) error 
 		Embeds:     []discord.Embed{buildPanelEmbed(*p, t)},
 		Components: buildPanelRows(*p, t),
 	}
+	cfg := m.guildConfig(guildID)
 	if p.MessageID != "" {
 		if mid, err := snowflake.Parse(p.MessageID); err == nil {
 			update := discord.MessageUpdate{Embeds: &create.Embeds, Components: &create.Components}
 			if _, err := m.ctx.Rest.UpdateMessage(chID, mid, update); err == nil {
 				m.mu.Lock()
-				m.cfg.Panels[p.Name] = *p
-				_ = m.cfg.save(m.ctx.DataDir)
+				cfg.Panels[p.Name] = *p
+				_ = m.saveGuildLocked(guildID)
 				m.mu.Unlock()
 				return nil
 			}
@@ -106,31 +107,32 @@ func (m *TicketsModule) postOrUpdatePanel(guildID string, p *PanelConfig) error 
 	}
 	p.MessageID = msg.ID.String()
 	m.mu.Lock()
-	m.cfg.Panels[p.Name] = *p
-	err = m.cfg.save(m.ctx.DataDir)
+	cfg.Panels[p.Name] = *p
+	err = m.saveGuildLocked(guildID)
 	m.mu.Unlock()
 	return err
 }
 
 // setPanelSuspended greys/un-greys one panel's Open button and persists the
 // flag. Other panels are untouched. Returns the updated panel config.
-func (m *TicketsModule) setPanelSuspended(name string, suspended bool) (PanelConfig, error) {
+func (m *TicketsModule) setPanelSuspended(guildID, name string, suspended bool) (PanelConfig, error) {
+	cfg := m.guildConfig(guildID)
 	m.mu.Lock()
-	p, ok := m.cfg.Panels[name]
+	p, ok := cfg.Panels[name]
 	if !ok {
 		m.mu.Unlock()
 		return PanelConfig{}, fmt.Errorf("unknown panel %q", name)
 	}
 	p.Suspended = suspended
-	m.cfg.Panels[name] = p
-	saveErr := m.cfg.save(m.ctx.DataDir)
+	cfg.Panels[name] = p
+	saveErr := m.saveGuildLocked(guildID)
 	m.mu.Unlock()
 
 	if saveErr != nil {
 		return p, saveErr
 	}
 	// Best-effort live edit; registry already flipped so restarts stay correct.
-	if t, ok := m.typeOf(p.TypeKey); ok {
+	if t, ok := m.typeOf(guildID, p.TypeKey); ok {
 		if mid, err1 := snowflake.Parse(p.MessageID); err1 == nil {
 			if cid, err2 := snowflake.Parse(p.ChannelID); err2 == nil {
 				row := buildPanelRows(p, t) // single source of truth for the row

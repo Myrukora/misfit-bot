@@ -80,23 +80,25 @@ func colorFromHex(s string) (int, error) {
 
 // ── Type registry helpers (on TicketsModule) ─────────────────────────────
 
-// typeOf returns the current config for one type key.
-func (m *TicketsModule) typeOf(key string) (TypeConfig, bool) {
+// typeOf returns the current config for one type key in a guild.
+func (m *TicketsModule) typeOf(guildID, key string) (TypeConfig, bool) {
+	cfg := m.guildConfig(guildID)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	t, ok := m.cfg.Types[key]
+	t, ok := cfg.Types[key]
 	if !ok || t == nil {
 		return TypeConfig{}, false
 	}
 	return *t, true
 }
 
-// typesSnapshot returns copies of all configured types sorted by key.
-func (m *TicketsModule) typesSnapshot() []TypeConfig {
+// typesSnapshot returns copies of all configured types for a guild, sorted by key.
+func (m *TicketsModule) typesSnapshot(guildID string) []TypeConfig {
+	cfg := m.guildConfig(guildID)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make([]TypeConfig, 0, len(m.cfg.Types))
-	for _, t := range m.cfg.Types {
+	out := make([]TypeConfig, 0, len(cfg.Types))
+	for _, t := range cfg.Types {
 		if t != nil {
 			out = append(out, *t)
 		}
@@ -109,13 +111,13 @@ func (m *TicketsModule) typesSnapshot() []TypeConfig {
 	return out
 }
 
-// panelsSnapshot returns copies of all registered panels for one guild scope
-// (panels are global config today; guild filtering happens by stored channel).
-func (m *TicketsModule) panelsSnapshot() []PanelConfig {
+// panelsSnapshot returns copies of all registered panels for a guild, sorted by name.
+func (m *TicketsModule) panelsSnapshot(guildID string) []PanelConfig {
+	cfg := m.guildConfig(guildID)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	out := make([]PanelConfig, 0, len(m.cfg.Panels))
-	for _, p := range m.cfg.Panels {
+	out := make([]PanelConfig, 0, len(cfg.Panels))
+	for _, p := range cfg.Panels {
 		out = append(out, p)
 	}
 	for i := 1; i < len(out); i++ {
@@ -124,44 +126,4 @@ func (m *TicketsModule) panelsSnapshot() []PanelConfig {
 		}
 	}
 	return out
-}
-
-// setGroupsYAML — v1 dashboard setter shim: MERGES the legacy YAML list into
-// v2 types. Existing v2-only fields (helper/access roles, welcome message,
-// button emoji) are preserved for keys that already exist; only the legacy
-// GroupConfig fields are overwritten. Blank payloads are rejected so a stray
-// empty save can never wipe the type list.
-func (m *TicketsModule) setGroupsYAML(guildID, yamlText string) error {
-	groups, err := parseGroupsYAML(yamlText)
-	if err != nil {
-		return err
-	}
-	if len(groups) == 0 {
-		return fmt.Errorf("empty groups list — use `tickets type remove <key>` to delete individual types")
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, g := range groups {
-		gc := g
-		existing, ok := m.cfg.Types[gc.Key]
-		var t *TypeConfig
-		if ok && existing != nil {
-			t = existing // merge: keep v2-only fields
-		} else {
-			t = &TypeConfig{Key: gc.Key}
-		}
-		t.Label = gc.Label
-		t.Enabled = gc.Enabled
-		t.Category = gc.ParentChannel
-		t.PingRoles = gc.PingRoles
-		t.EmbedBody = gc.EmbedTemplate
-		t.Color = gc.Color
-		t.AllowClaim = gc.AllowClaim
-		t.AllowClose = gc.AllowClose
-		if t.ButtonLabel == "" || t.ButtonLabel == t.Key {
-			t.ButtonLabel = gc.Label
-		}
-		m.cfg.Types[gc.Key] = t
-	}
-	return m.cfg.save(m.ctx.DataDir)
 }

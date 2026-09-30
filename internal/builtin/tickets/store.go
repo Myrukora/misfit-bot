@@ -98,12 +98,18 @@ func copyTicket(tk *modules.Ticket) *modules.Ticket {
 		return nil
 	}
 	out := *tk
+	if tk.Members != nil {
+		out.Members = append([]string(nil), tk.Members...)
+	}
 	if tk.Log != nil {
 		out.Log = make([]modules.LogEntry, len(tk.Log))
 		for i, e := range tk.Log {
 			out.Log[i] = e
 			if e.Attachments != nil {
 				out.Log[i].Attachments = append([]modules.Media(nil), e.Attachments...)
+			}
+			if e.Embeds != nil {
+				out.Log[i].Embeds = append([]modules.Media(nil), e.Embeds...)
 			}
 			if e.Stickers != nil {
 				out.Log[i].Stickers = append([]modules.Media(nil), e.Stickers...)
@@ -116,9 +122,17 @@ func copyTicket(tk *modules.Ticket) *modules.Ticket {
 // save persists one ticket (memory + disk, atomic write). The passed ticket
 // is copied into the store; the caller keeps ownership of its own object.
 // A successful save releases any sequence reservation for this ticket.
+//
+// save is the locking wrapper; mutate calls saveLocked directly while it
+// already holds s.mu, so a read-modify-write never releases the lock.
 func (s *store) save(tk *modules.Ticket) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.saveLocked(tk)
+}
+
+// saveLocked is the unlocked core of save: the caller holds s.mu.
+func (s *store) saveLocked(tk *modules.Ticket) error {
 	cp := copyTicket(tk)
 	if grp, seq, ok := parseTicketID(cp.ID); ok {
 		delete(s.reserved, seqKey(cp.GuildID, grp, seq))
@@ -169,6 +183,57 @@ func (s *store) load(guildID, ticketID string) (*modules.Ticket, error) {
 	return copyTicket(tk), nil
 }
 
+// mutate runs fn on a PRIVATE COPY of the stored ticket while holding the
+// STORE lock, then persists the result iff fn returns true. It replaces the
+// load → modify → save sequence, which was lossy: two callers could both
+// load the same ticket and the later save silently dropped the earlier
+// one's change. fn MUST NOT perform I/O (network, REST, downloads) or call
+// back into store/module methods that take locks — it runs under s.mu.
+func (s *store) mutate(guildID, ticketID string, fn func(tk *modules.Ticket) bool) (*modules.Ticket, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mutateLocked(guildID, ticketID, fn)
+}
+
+// mutateLocked is the unlocked core of mutate.
+func (s *store) mutateLocked(guildID, ticketID string, fn func(tk *modules.Ticket) bool) (*modules.Ticket, bool, error) {
+	var tk *modules.Ticket
+	if m, ok := s.tickets[guildID]; ok {
+		if t, ok := m[ticketID]; ok {
+			tk = copyTicket(t)
+		}
+	}
+	if tk == nil {
+		var err error
+		tk, err = readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
+		if err != nil || tk == nil {
+			return nil, false, err
+		}
+		tk = copyTicket(tk)
+	}
+	if !fn(tk) {
+		return tk, false, nil
+	}
+	if err := s.saveLocked(tk); err != nil {
+		return nil, false, err
+	}
+	return copyTicket(tk), true, nil
+}
+
+// mutateByChannel resolves the OPEN ticket owning channelID and mutates it
+// under the SAME lock, so the "is this channel a ticket?" lookup and the
+// mutation cannot be split by a concurrent close.
+func (s *store) mutateByChannel(guildID, channelID string, fn func(tk *modules.Ticket) bool) (*modules.Ticket, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, tk := range s.tickets[guildID] {
+		if tk.ChannelID == channelID && tk.Status == "open" {
+			return s.mutateLocked(guildID, id, fn)
+		}
+	}
+	return nil, false, nil
+}
+
 // listOpen returns summaries of every open ticket in the guild, oldest first.
 func (s *store) listOpen(guildID string) []modules.TicketSummary {
 	s.mu.RLock()
@@ -194,6 +259,35 @@ func (s *store) openTicketsSnapshot() map[string]map[string]*modules.Ticket {
 		}
 	}
 	return out
+}
+
+// ticketByChannel returns a private copy of the open ticket owning
+// channelID in guildID, or nil. The map is store-owned: iteration happens
+// under the STORE lock, never the module lock.
+func (s *store) ticketByChannel(guildID, channelID string) *modules.Ticket {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, tk := range s.tickets[guildID] {
+		if tk.ChannelID == channelID && tk.Status == "open" {
+			return copyTicket(tk)
+		}
+	}
+	return nil
+}
+
+// hasOpenTicketOnChannel reports whether channelID is the channel of an open
+// ticket in guildID. Read-locked and copy-free: it exists so the per-message
+// hot path can skip non-ticket channels without deep-copying a transcript
+// (ticketByChannel does copy).
+func (s *store) hasOpenTicketOnChannel(guildID, channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, tk := range s.tickets[guildID] {
+		if tk.ChannelID == channelID && tk.Status == "open" {
+			return true
+		}
+	}
+	return false
 }
 
 // listClosed returns summaries of closed tickets by scanning ticket files
@@ -255,7 +349,12 @@ func (s *store) openIDsLocked(guildID string) []string {
 	}
 	sort.Strings(ids)
 	out, _ := json.Marshal(ids)
-	_ = os.WriteFile(idxPath, out, 0644)
+	// tmp + rename (same pattern as writeIndexLocked): a crash mid-write must
+	// never leave a truncated index.json behind.
+	tmp := idxPath + ".tmp"
+	if err := os.WriteFile(tmp, out, 0644); err == nil {
+		_ = os.Rename(tmp, idxPath)
+	}
 	return ids
 }
 
@@ -395,40 +494,88 @@ func validTicketID(id string) bool {
 	return true
 }
 
+// pruneCandidate is one closed+expired ticket found by the unlocked scan
+// phase of pruneClosed: the paths to remove plus the in-memory map key.
+type pruneCandidate struct {
+	json string // <base>/<id>.json
+	id   string // ticket ID (memory map key)
+	dir  string // <base>/<id>/files
+	html string // <base>/<id>.html
+}
+
+// pruneScan groups the removal candidates of one guild directory.
+type pruneScan struct {
+	gid   string
+	cands []pruneCandidate
+}
+
 // pruneClosed removes closed tickets older than retentionDays (0 = disabled).
+// The filesystem walk runs OUTSIDE the store lock; only the removals are
+// serialized, so a sweep over many tickets cannot stall message logging.
 func (s *store) pruneClosed(retentionDays int) int {
 	if retentionDays <= 0 {
 		return 0
 	}
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	pruned := 0
+
+	// Phase 1 (unlocked): collect candidates per guild directory.
 	guilds, err := os.ReadDir(ticketsRoot(s.dataDir))
 	if err != nil {
 		return 0
 	}
+	var scans []pruneScan
 	for _, g := range guilds {
 		if !g.IsDir() {
 			continue
 		}
 		gid := g.Name()
-		entries, _ := os.ReadDir(filepath.Join(ticketsRoot(s.dataDir), gid))
+		base := filepath.Join(ticketsRoot(s.dataDir), gid)
+		entries, err := os.ReadDir(base)
+		if err != nil {
+			continue
+		}
+		var cands []pruneCandidate
 		for _, e := range entries {
 			name := e.Name()
 			if e.IsDir() || name == "index.json" || filepath.Ext(name) != ".json" {
 				continue
 			}
-			tk, err := readTicketFile(filepath.Join(ticketsRoot(s.dataDir), gid, name))
+			tk, err := readTicketFile(filepath.Join(base, name))
 			if err != nil || tk == nil || tk.Status != "closed" || tk.ClosedAt.After(cutoff) {
 				continue
 			}
-			if os.Remove(filepath.Join(ticketsRoot(s.dataDir), gid, name)) == nil {
-				delete(s.tickets[gid], tk.ID)
+			cands = append(cands, pruneCandidate{
+				json: filepath.Join(base, name),
+				id:   tk.ID,
+				dir:  filepath.Join(base, tk.ID, "files"),
+				html: filepath.Join(base, tk.ID+".html"),
+			})
+		}
+		if len(cands) > 0 {
+			scans = append(scans, pruneScan{gid: gid, cands: cands})
+		}
+	}
+
+	// Phase 2 (locked): removals only. Each candidate is RE-READ under the
+	// lock because a concurrent save could have rewritten the file between
+	// the scan and here.
+	for _, sc := range scans {
+		s.mu.Lock()
+		for _, c := range sc.cands {
+			tk, err := readTicketFile(c.json)
+			if err != nil || tk == nil || tk.Status != "closed" || tk.ClosedAt.After(cutoff) {
+				continue
+			}
+			if os.Remove(c.json) == nil {
+				_ = os.RemoveAll(c.dir)
+				_ = os.Remove(c.html)
+				delete(s.tickets[sc.gid], c.id)
 				pruned++
 			}
 		}
-		_ = s.writeIndexLocked(gid)
+		_ = s.writeIndexLocked(sc.gid)
+		s.mu.Unlock()
 	}
 	return pruned
 }

@@ -1,6 +1,7 @@
 package tickets
 
 import (
+	"net/url"
 	"strings"
 
 	"github.com/disgoorg/disgo/discord"
@@ -34,19 +35,14 @@ func (m *TicketsModule) recoverLog(what string) {
 	}
 }
 
-// ticketByChannel resolves the open ticket owning a channel, if any.
+// ticketByChannel resolves the open ticket owning a channel, if any. The
+// lookup is delegated to the store so the tickets map is only ever iterated
+// under the STORE lock (the module lock does not protect it).
 func (m *TicketsModule) ticketByChannel(guildID, channelID string) *modules.Ticket {
 	if !m.isLoaded() {
 		return nil
 	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, tk := range m.store.tickets[guildID] {
-		if tk.ChannelID == channelID && tk.Status == "open" {
-			return copyTicket(tk)
-		}
-	}
-	return nil
+	return m.store.ticketByChannel(guildID, channelID)
 }
 
 // isOwnPost reports whether a message was authored by the bot itself (panel
@@ -65,8 +61,9 @@ func (m *TicketsModule) selfID() string {
 func (m *TicketsModule) logMessageCreate(e *events.GuildMessageCreate) {
 	guildID := e.GuildID.String()
 	channelID := e.Message.ChannelID.String()
-	tk := m.ticketByChannel(guildID, channelID)
-	if tk == nil {
+	// Cheap copy-free gate: skip the classification work for non-ticket
+	// channels without deep-copying a transcript (ticketByChannel copies).
+	if !m.isLoaded() || !m.store.hasOpenTicketOnChannel(guildID, channelID) {
 		return
 	}
 	authorID := ""
@@ -93,50 +90,56 @@ func (m *TicketsModule) logMessageCreate(e *events.GuildMessageCreate) {
 		Content:     e.Message.Content,
 		Attachments: classifyAttachments(e.Message.Attachments),
 		Stickers:    classifyStickers(e.Message.StickerItems),
+		Embeds:      classifyEmbeds(e.Message.Embeds),
 	}
-	m.mu.Lock()
-	tk.Log = append(tk.Log, entry)
-	m.mu.Unlock()
-	_ = m.store.save(tk)
+	tk, changed, _ := m.store.mutateByChannel(guildID, channelID, func(tk *modules.Ticket) bool {
+		for i := range tk.Log {
+			if tk.Log[i].MsgID == entry.MsgID {
+				return false
+			}
+		}
+		tk.Log = append(tk.Log, entry)
+		return true
+	})
+	if !changed || tk == nil {
+		return
+	}
+
+	// Mirror non-link media in the background (sticker/attachment/embed).
+	if m.mirror != nil && entryHasMirrorableMedia(entry) {
+		m.mirror.enqueue(mirrorJob{guildID: guildID, ticketID: tk.ID, entry: entry})
+	}
 }
 
 func (m *TicketsModule) logMessageUpdate(e *events.GuildMessageUpdate) {
 	guildID := e.GuildID.String()
 	channelID := e.Message.ChannelID.String()
-	tk := m.ticketByChannel(guildID, channelID)
-	if tk == nil {
-		return
-	}
 	msgID := e.Message.ID.String()
-	m.mu.Lock()
-	for i := range tk.Log {
-		if tk.Log[i].MsgID == msgID {
-			tk.Log[i].Content = e.Message.Content
-			tk.Log[i].Edited = true
-			break
+	_, _, _ = m.store.mutateByChannel(guildID, channelID, func(tk *modules.Ticket) bool {
+		for i := range tk.Log {
+			if tk.Log[i].MsgID == msgID {
+				tk.Log[i].Content = e.Message.Content
+				tk.Log[i].Edited = true
+				return true
+			}
 		}
-	}
-	m.mu.Unlock()
-	_ = m.store.save(tk)
+		return false
+	})
 }
 
 func (m *TicketsModule) logMessageDelete(e *events.GuildMessageDelete) {
 	guildID := e.GuildID.String()
 	channelID := e.Message.ChannelID.String()
-	tk := m.ticketByChannel(guildID, channelID)
-	if tk == nil {
-		return
-	}
 	msgID := e.Message.ID.String()
-	m.mu.Lock()
-	for i := range tk.Log {
-		if tk.Log[i].MsgID == msgID {
-			tk.Log[i].Deleted = true
-			break
+	_, _, _ = m.store.mutateByChannel(guildID, channelID, func(tk *modules.Ticket) bool {
+		for i := range tk.Log {
+			if tk.Log[i].MsgID == msgID {
+				tk.Log[i].Deleted = true
+				return true
+			}
 		}
-	}
-	m.mu.Unlock()
-	_ = m.store.save(tk)
+		return false
+	})
 }
 
 // ── classification (pure functions, unit-tested) ─────────────────────────
@@ -197,4 +200,54 @@ func classifyStickers(items []discord.MessageSticker) []modules.Media {
 		})
 	}
 	return out
+}
+
+// classifyEmbeds maps Discord embeds to Media records: video → "video",
+// image → "image", thumbnail (when no image) → "image", else link. Only
+// http/https URLs are kept. Filename falls back to the embed title, then the
+// provider name.
+func classifyEmbeds(embeds []discord.Embed) []modules.Media {
+	if len(embeds) == 0 {
+		return nil
+	}
+	out := make([]modules.Media, 0, len(embeds))
+	for _, e := range embeds {
+		kind := "link"
+		url := ""
+		switch {
+		case e.Video != nil && e.Video.URL != "":
+			kind = "video"
+			url = e.Video.URL
+		case e.Image != nil && e.Image.URL != "":
+			kind = "image"
+			url = e.Image.URL
+		case e.Thumbnail != nil && e.Thumbnail.URL != "":
+			kind = "image"
+			url = e.Thumbnail.URL
+		case e.URL != "":
+			kind = "link"
+			url = e.URL
+		default:
+			continue
+		}
+		if !isHTTPURL(url) {
+			continue
+		}
+		filename := e.Title
+		if filename == "" && e.Provider != nil {
+			filename = e.Provider.Name
+		}
+		out = append(out, modules.Media{
+			URL:      url,
+			Kind:     kind,
+			Filename: filename,
+		})
+	}
+	return out
+}
+
+// isHTTPURL reports whether u is an http/https URL.
+func isHTTPURL(u string) bool {
+	parsed, err := url.Parse(u)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https")
 }
