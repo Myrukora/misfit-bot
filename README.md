@@ -1,25 +1,25 @@
 # Misfit Bot
 
-A self-hosting Discord bot in Go: hot-loadable modules (Go/Lua/Python), an in-process web dashboard, and a GitHub self-updater.
+A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature modules) with hot-loadable Lua and Python modules, and a GitHub self-updater.
 
 ![Misfit Bot banner](assets/banner.png)
 
 ## Features
 
-- **Hot-loadable module system** — Go `.so` plugins (via the Go `plugin` package), Lua scripts (gopher-lua), and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload modules at runtime with `[p]load` / `[p]unload` / `[p]reload`.
-- **19 core commands** with prefix **and** slash equivalents: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `shutdown`, `restart`, `set`, `permissions`, `eval`, `debug`, `status`, `logs`, `backup`, `ratelimit`, `update`.
-- **Three-tier permission system** — bot owner/elevated users bypass everything, guild owners bypass Discord permission requirements, everyone else is checked against Discord role permissions. `eval` is additionally `SuperOwnerOnly` (bot owner only).
-- **Web dashboard module** — Discord OAuth2 login (mutual-guild enforced), 4 RBAC tiers (owner / elevated / staff / regular), live metrics, a permission-filtered command catalog, and per-module settings panels rendered from each module's opt-in `WebConfigurable` schema. No dashboard code changes needed to support a new module's settings.
-- **GitHub self-updater** — polls the bot's own repository for new commits and pull requests, posts embed notifications to a Discord channel, and can automatically pull the latest code, rebuild the bot (and Go plugin modules), and self-restart.
+- **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `[p]load` / `[p]unload` / `[p]reload`. The dashboard and the cleanup/tickets/imagefilter feature modules are compiled into the single binary instead (core infrastructure, always on).
+- **13 core commands** with prefix **and** slash equivalents: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `shutdown`, `restart`, `permissions`, `ratelimit`, `update`.
+- **Three-tier permission system** — bot owner/elevated users bypass everything, guild owners bypass Discord permission requirements, everyone else is checked against Discord role permissions.
+- **Web dashboard** — Discord OAuth2 login (mutual-guild enforced), 4 RBAC tiers (owner / elevated / staff / regular), live metrics, a permission-filtered command catalog, and per-module settings panels rendered from each module's opt-in `WebConfigurable` schema. No dashboard code changes needed to support a new module's settings.
+- **GitHub self-updater** — polls the bot's own repository for new commits and pull requests, posts embed notifications to a Discord channel, and can automatically pull the latest code, rebuild the binary, and self-restart.
 - **Voice API for modules** — `VoiceManager` lets modules join voice channels and play audio via FFmpeg.
 - **First-run onboarding wizard** — interactive setup of token, owner ID, and prefix.
-- **JSON logging** (async, stdout + file), **per-user rate limiting** (owner bypass), **backup/create/verify/restore** of the config.
+- **JSON logging** (async, stdout + file), **per-user rate limiting** (owner bypass), **config backups** (create / verify / restore, surfaced owner-only at `/api/backups`).
 - **Multi-distro install script** + Nix dev shell.
 
 ## Requirements
 
-- **Linux only** — Go's `plugin` package does not work on other platforms.
-- **Go 1.26.x** — module `.so` files must be built with the *exact same* Go version as the bot binary.
+- **Linux only** — the voice stack (cgo + FFmpeg/Opus) and the install script target Linux servers.
+- **Go 1.26.x** — build the single binary from source (`go.mod` pins `go 1.26.4`).
 - **git** — required by the self-updater.
 - **ffmpeg** — required for voice playback.
 - **Python 3 + venv + pip** — required only for Python modules (each gets its own venv).
@@ -31,10 +31,13 @@ A self-hosting Discord bot in Go: hot-loadable modules (Go/Lua/Python), an in-pr
 ### Option 1: install script
 
 ```bash
-./install.sh            # install system deps, Go toolchain, and build
-./install.sh --no-deps  # build only (deps already present)
-./install.sh --check    # verify prerequisites without changing anything
+./install.sh                    # install system deps, Go toolchain, and build
+./install.sh --no-deps          # build only (deps already present)
+./install.sh --check            # verify prerequisites without changing anything
+./install.sh --skip-imagefilter # skip the image-filter runtime (ONNX + CLIP)
 ```
+
+`install.sh` also provisions the **image filter** runtime: the ONNX Runtime library and the CLIP `b32` model (both gitignored, so a fresh clone has neither). It is idempotent and a no-op once they exist, and never fails the install — a machine that cannot build them simply leaves the filter cold, with the reason shown on the dashboard. The same step runs automatically after a self-update. Non-default CLIP variants are exported on demand with `scripts/export_clip_onnx.py`.
 
 Auto-detects the distro; supports apt (Debian/Ubuntu), pacman (Arch), dnf (Fedora/RHEL), zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo), nix (NixOS), and FreeBSD pkg. Override detection with `DISTRO=<id> ./install.sh`.
 
@@ -48,6 +51,7 @@ nix-shell   # drops into a dev shell with everything pinned (shell.nix)
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
+bash scripts/setup_imagefilter.sh   # optional: provisions the image filter runtime
 ```
 
 The `-ldflags` stamp injects the version from the `VERSION` file (the single
@@ -65,12 +69,13 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 
 | Section | Keys |
 |---|---|
-| `bot` | `token`, `prefix`, `owner_id`, `elevated_ids`, `name`, `tos_url`, `privacy_url` |
-| `modules` | `auto_load`, `path`, `disabled` |
+| `bot` | `token`, `prefix`, `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url`, `bot_allowlist` |
+| `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
 | `oauth` | `client_secret` (Discord app OAuth2 secret, shared with the dashboard) |
 | `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channel` |
+| `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
 Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
 
@@ -84,38 +89,32 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 | `uptime` | Check bot uptime | Public |
 | `info` | Show bot information | Public |
 | `help` | Show available commands (permission-filtered) | Public |
-| `status` | Bot status | Administrator |
-| `modules` | List loaded/available modules | Owner |
-| `load` / `unload` / `reload` | Manage modules (`reload all` supported) | Owner |
+| `modules` | List loaded/available modules, or `enable`/`disable <name>` a compiled-in feature (cleanup/tickets only — the config key `modules.enabled_modules` also accepts imagefilter; applies after restart) | Owner |
+| `load` / `unload` / `reload` | Manage Lua/Python modules (`all` supported) | Owner |
 | `shutdown` / `restart` | Stop / restart the bot | Owner |
-| `set` | Change a config value (validated) | Owner |
-| `permissions` | Manage permission overrides | Owner |
-| `eval` | Execute a shell command | Super owner only |
-| `debug` | Runtime diagnostics (goroutines, memory) | Owner |
-| `logs` | Enable/disable file logging (`enable` / `disable`) | Owner |
-| `backup` | `create` / `verify` / `restore` / `list` config backups | Owner |
+| `permissions` | Manage elevated (owner-like) users | Owner |
 | `ratelimit` | Inspect/reset per-user rate limits | Owner |
 | `update` | `check` / `now` / `status` / `test` / `set` — self-updater control | Owner |
 
 ## Modules
 
-The web dashboard and the cleanup/tickets feature modules are **compiled into the single binary** (core infrastructure — always on, never unloaded). Lua and Python modules stay hot-loadable at runtime and live in language folders under `modules/`:
+The web dashboard and the cleanup/tickets/imagefilter builtins are **compiled into the single binary** and cannot be loaded or unloaded at runtime. The three builtins are gated by `modules.enabled_modules` (missing key = enabled) and can be toggled with `[p]modules enable|disable <name>` (cleanup and tickets only; imagefilter is configured per-server on the dashboard). Lua and Python modules stay hot-loadable and live in language folders under `modules/`:
 
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
-Each module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The former Go-plugin folders (`modules/Go/<name>/`) remain on disk as **data homes** (config.yml, tickets/, etc.) even though no `.so` is built there.
+Each Lua/Python module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The compiled-in feature modules get a per-module data directory at `modules/<name>/` — the dashboard is the pinned exception, still using `modules/Go/dashboard/` (with a fallback to `module_configs/dashboard/`). A 0.1.0 → 0.2.0 upgrade adopts the plugin-era `modules/Go/<name>/` directories for cleanup/tickets/imagefilter automatically; when both locations hold state the bot refuses to merge and logs a warning, so reconcile by hand. See [docs/builtin-data-paths.md](docs/builtin-data-paths.md).
 
-In-repo examples: `modules/Lua/hello/hello.lua`, `modules/Python/hello_py/`, `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/`, `internal/dashboard/` (the web dashboard — core subsystem), and `modules/voice.go` (the `VoiceManager` API).
+In-repo examples of authorable (hot-loadable) modules: `examples/lua/sample.lua` and `examples/python/samplepy/`. The compiled-in Go sources — not user-loadable — live in `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/` (the ticket system), `internal/builtin/imagefilter/` (the CLIP image filter) and `internal/dashboard/` (the web dashboard — core subsystem); `modules/voice.go` is the module-facing `VoiceManager` API.
 
-A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes.
+A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes. The same request-time resolution drives the other opt-in module contracts (`modules.TicketProvider` / `TicketAdmin` / `TicketTranscript`): a module that implements the contract gets the dashboard surface, one that doesn't gets a stub or a 404. `modules.TicketTranscript.RefreshTranscript` is the tickets module's: it rebuilds the ticket's stored conversation log into its HTML transcript and returns the bytes, which backs `GET /api/tickets/<guild>/<ticket>/transcript` (guild-gated, downloads `ticket-<id>.html`) — so the uploaded `.html` is a cache of the log, regenerated at close and on demand, not a frozen close-time snapshot.
 
-**See [MODULE_GUIDE.md](MODULE_GUIDE.md)** for the full module-authoring guide (Go, Lua, and Python).
+**See [MODULE_GUIDE.md](MODULE_GUIDE.md)** for the full module-authoring guide (Python and Lua).
 
 ## Versioning
 
 `VERSION` at the repository root is the **single source of truth** for the bot's
-version (currently `0.1.0`). Every build site stamps it into the binary:
+version (currently `0.2.0`). Every build site stamps it into the binary:
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
@@ -153,11 +152,11 @@ change, and the merge to `main` becomes that release. No labels, no separate
 release branch, no version to guess after the fact.
 
 ```text
-fix(tickets): stop double-closing archived tickets   →  VERSION: 0.1.0 → 0.1.1
-feat(dashboard): command manager rework              →  VERSION: 0.1.0 → 0.2.0
+fix(tickets): stop double-closing archived tickets   →  VERSION: 0.2.0 → 0.2.1
+feat(dashboard): command manager rework              →  VERSION: 0.2.0 → 0.3.0
 ```
 
-The file holds **one bare version** — `0.1.0`, no `v`, no build metadata (`+`),
+The file holds **one bare version** — `0.2.0`, no `v`, no build metadata (`+`),
 no trailing comment. Blank lines and `#` comment lines around it are ignored;
 anything that is not a valid SemVer fails the release workflow rather than
 publishing a tag the binary's own parser would reject.
@@ -179,7 +178,7 @@ its tag already there and does nothing.
 The bot polls its own GitHub repository every `check_interval` seconds (default 300):
 
 1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to `notify_channel`. Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
-2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the binary and Go plugin modules, swaps in the new binary, and self-restarts.
+2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
 
 The GitHub token lives **only** in the gitignored `config.yml` and never appears in any commit.
 
@@ -196,30 +195,47 @@ Users log in via Discord OAuth2 and must share at least one server with the bot.
 
 The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). The **Command execution way** setting (dashboard module settings, default `prefix`) picks which implementation is shown and executed: `prefix` runs text-command logic (prefix commands require Discord's Message Content intent to be usable in Discord), `slash` prefers the slash implementations and works without the intent. Commands that only exist in one form work regardless of the setting. Slash execution from the dashboard is best-effort: slash implementations that rely on interaction-only flows beyond the standard response helpers (`ctx.Respond` / `ctx.respond`) may produce an empty result.
 
-Run forms are **click-driven**: pick a server in the commands tab and channel/role/user arguments render as dropdowns populated from the bot's cache (member pickers cap at 1000 members, falling back to typing an ID). Argument forms come from each command's slash options — every core command ships a full option schema (see `commands/core.go` `registerCoreSlashCommands`): enumerable options (e.g. `status type`, `set key`) render as dropdowns, numbers as number inputs, booleans as yes/no, and commands with subcommands (`backup`, `ratelimit`, `permissions`, `update`, `cleanup`) get one subcommand dropdown whose arguments switch with the selection. Only module prefix commands without a slash twin fall back to a free-text box; zero-argument commands show no input at all. The settings page works the same way: a server selector (auto-picked to the first manageable server) gives channel/role/user fields — updater notify channel, owner ID — real pickers, the dashboard's **Allowed Guilds** allowlist is a checkbox list of servers, and all global + per-server fields stay visible on one page.
+Each command card's **Run** button executes the command in-process with **no arguments** (`POST /api/exec` takes an optional `args` array; the commands tab sends an empty one). The JSON catalog (`GET /api/commands`) does expose each command's slash-option schema — subcommand groups, typed options and their choices — for tools that want to build their own argument forms, but the dashboard page itself renders no argument inputs.
+
+### Connecting an MCP client
+
+The bot ships a built-in **MCP (Model Context Protocol)** server, mounted at `/mcp` on the dashboard listener (it follows `dashboard.listen` — default `http://127.0.0.1:8080`). Register it with:
+
+```bash
+claude mcp add -t http misfit http://127.0.0.1:8080/mcp --header "Authorization: Bearer <token from config.yml mcp.token>"
+```
+
+The bearer token is **auto-generated on first start** and saved to `config.yml` (`mcp.token`) — read it there, or replace it in that file (the dashboard's core settings API accepts `mcp_token` too). The endpoint exposes 13 tools covering bot status, commands, logs, config, message sending, and command execution. It grants **full owner-level access** (the token *is* the owner identity, and execution results are never posted to Discord), so treat the token as a secret and keep the endpoint loopback-only or behind a reverse proxy.
 
 ## Project Structure
 
 ```
 misfit-bot/
 ├── cmd/bot/               # Entry point — Discord connection, dispatch, lifecycle
-├── commands/              # Command types + 19 core commands (prefix + slash)
+├── commands/              # Command types + 13 core commands (prefix + slash)
 ├── config/                # YAML config load/save/validate
 ├── embed/                 # Discord embed helpers
 ├── logger/                # Async JSON logging (stdout + file)
-├── modules/               # Module loaders + per-language module folders
-│   ├── Go/                # Go plugin modules (dashboard, cleanup)
-│   │   ├── dashboard/     # Web dashboard module (.so)
-│   │   └── cleanup/       # Message cleanup module (.so)
-│   ├── Lua/               # Lua modules (hello/)
-│   ├── Python/            # Python modules (hello_py/)
+├── internal/
+│   ├── dashboard/         # Web dashboard — compiled-in core subsystem
+│   ├── mcpserver/         # Built-in MCP server (mounted at /mcp)
+│   ├── builtin/           # Compiled-in feature modules: cleanup, tickets, imagefilter
+│   ├── logutil/           # Shared log-file helpers
+│   └── util/              # Small shared helpers
+├── modules/               # Module loaders + Lua/Python module folders
+│   ├── Go/                # data homes for compiled-in modules (gitignored state; dashboard pinned here)
+│   ├── Lua/               # Lua modules (modules/Lua/<name>/<name>.lua)
+│   ├── Python/            # Python modules (modules/Python/<name>/main.py)
 │   ├── voice.go           # VoiceManager API for modules
 │   └── lua_loader.go …    # Loader infrastructure (lua/python bridges, ipc)
 ├── onboarding/            # First-run setup wizard
 ├── permissions/           # Three-tier permission system
 ├── ratelimit/             # Per-user rate limiting
 ├── updater/               # GitHub self-updater + notifications
-├── sdk/python/misfit/  # Python module SDK
+├── sdk/python/misfit/     # Python module SDK
+├── examples/              # Sample Lua + Python modules
+├── docs/                  # Supplemental documentation
+├── assets/                # Banner + static assets
 ├── install.sh             # Multi-distro install script
 ├── shell.nix              # Nix dev shell
 └── MODULE_GUIDE.md        # Module authoring guide
