@@ -42,6 +42,7 @@ type manager struct {
 	log     modules.Logger
 
 	// Injection seams (production defaults set in newManager; tests swap them).
+	initFn   func() error                                    // set in newManager
 	loadFn   func(dataDir, variant string) (embedder, error) // set in newManager
 	fetchFn  func(url string) ([]byte, error)                // set in A8 (SSRF rules)
 	punishFn func(j job, score float64, cfg GuildConfig)     // set in A8 (REST actions)
@@ -77,6 +78,7 @@ func newManager(cfg *config, imgs *images, dataDir string, log modules.Logger) *
 		refs:    map[string][]refEmbed{},
 		jobs:    make(chan job, workerQueueSize),
 	}
+	m.initFn = initRuntime
 	// loadClip returns *clipSession which satisfies embedder; wrap for the seam.
 	m.loadFn = func(dataDir, variant string) (embedder, error) {
 		return loadClip(dataDir, variant)
@@ -209,7 +211,7 @@ func (m *manager) adjust(up bool) error {
 	var loadErr error
 	switch {
 	case need && m.sess == nil:
-		if err := initRuntime(); err != nil {
+		if err := m.initFn(); err != nil {
 			m.log.Error("imagefilter: onnxruntime unavailable (%v)", err)
 			loadErr = err
 			break

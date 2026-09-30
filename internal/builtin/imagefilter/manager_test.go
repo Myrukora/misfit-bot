@@ -50,6 +50,7 @@ func newTestManager(t *testing.T) (*manager, *config, *images, *atomic.Int32) {
 	}
 	imgs := newImages(dir)
 	m := newManager(cfg, imgs, dir, nopLogger{})
+	m.initFn = func() error { return nil }
 
 	loads := &atomic.Int32{}
 	m.loadFn = func(dataDir, variant string) (embedder, error) {
