@@ -6,6 +6,11 @@ body {
     font-family: "Inter", system-ui, sans-serif;
     margin: 0;
     background: #0d0d0d;
+    /* Base foreground: every element without an explicit color inherits this
+       instead of the browser default (black), which is invisible on the
+       near-black background. Primary text is white throughout the redesign;
+       muted/secondary elements set their own (#a1a1aa / #d4d4d8). */
+    color: white;
 }
 
 .muted {
