@@ -942,7 +942,7 @@ code {
 .cmd-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
 }
 
 .cmd-row {
@@ -950,7 +950,7 @@ code {
     align-items: center;
     justify-content: space-between;
     gap: 12px;
-    padding: 10px 12px;
+    padding: 12px 16px;
     background: #141417;
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
@@ -978,6 +978,8 @@ code {
 .cmd-row-desc {
     color: #a1a1aa;
     font-size: 13px;
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -988,6 +990,12 @@ code {
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+}
+
+/* The row toggle drops the form-context top margin so it sits in line
+   with the gear/run controls. */
+.cmd-row-toggle {
+    margin-top: 0;
 }
 
 /* Gear icon button (opens the per-command config modal) */
