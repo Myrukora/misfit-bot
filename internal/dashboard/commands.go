@@ -23,20 +23,14 @@ type cmdView struct {
 	Aliases        []string `json:"aliases"`
 	Usable         bool     `json:"usable"`
 	UsableIn       []string `json:"usable_in"`
-	// GlobalDisabled is true when a bot-owner override disables this command
-	// everywhere. Owner/elevated toggle it globally.
-	GlobalDisabled bool `json:"global_disabled"`
-	// GuildDisabled is true when a per-guild (staff) override disables this
-	// command in the current guild. Staff toggle it locally.
-	GuildDisabled bool `json:"guild_disabled"`
-	// HasGuildOverride is true when any per-guild override entry exists for this
-	// command in the current guild.
-	HasGuildOverride bool `json:"has_guild_override"`
-	// ModOnly is true when a bot-owner override restricts this command to
-	// manage-messages users everywhere.
+	// Disabled is the per-guild override for the current guild (always false
+	// in the global view, where no guild is selected).
+	Disabled bool `json:"disabled"`
+	// ModOnly is true when the per-guild override restricts this command to
+	// manage-messages users in the current guild.
 	ModOnly bool `json:"mod_only"`
-	// AllowedChannels / AllowedRoles carry the effective (global + guild-merged)
-	// allowlists for the gear modal's channel/role pickers. Empty = no restriction.
+	// AllowedChannels / AllowedRoles carry the per-guild allowlists for the
+	// gear modal's channel/role pickers. Empty = no restriction.
 	AllowedChannels []string `json:"allowed_channels"`
 	AllowedRoles    []string `json:"allowed_roles"`
 	// CanExec is true when the command is in the dashboard exec allowlist (and
@@ -327,35 +321,22 @@ func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, 
 		}
 		c.Usable = usable
 		// Populate override state + exec allowlist for the dashboard UI.
-		m.fillOverrideState(&c, guildID, level)
+		m.fillOverrideState(&c, guildID)
 		out = append(out, c)
 	}
 	return out
 }
 
-// fillOverrideState stamps the command's override state (global/guild disable,
-// whether a guild override exists, mod-only, effective channel/role allowlists)
-// and whether it is executable via the dashboard's Run affordance onto the view.
-// The dashboard reads these to render the enable/disable toggles and Run buttons.
-func (m *DashboardModule) fillOverrideState(c *cmdView, guildID, level string) {
+// fillOverrideState stamps the command's per-guild override state (disable,
+// mod-only, channel/role allowlists) onto the view.
+func (m *DashboardModule) fillOverrideState(c *cmdView, guildID string) {
 	ov := m.commandOverrides()
 	if ov != nil {
-		c.GlobalDisabled = ov.GlobalDisabled(c.Name)
-		c.GuildDisabled = ov.GuildDisabled(guildID, c.Name)
-		c.HasGuildOverride = ov.HasGuildOverride(guildID, c.Name)
-		// Effective config for THIS guild (global overlaid by the selected
-		// guild only) drives the modal's channel/role preselection and
-		// mod-only state. All() must not be used here: it merges every
-		// guild's override nondeterministically.
-		if merged := ov.EffectiveFor(guildID, c.Name); merged != nil {
-			c.ModOnly = merged.ModOnly != nil && *merged.ModOnly
-			c.AllowedChannels = merged.AllowedChannels
-			c.AllowedRoles = merged.AllowedRoles
-			// RequiredPerm label: show the override's perm when it replaces
-			// the base command's permission.
-			if merged.RequiredPerm != nil && *merged.RequiredPerm != 0 {
-				c.RequiredPerm = discord.Permissions(*merged.RequiredPerm).String()
-			}
+		c.Disabled = ov.IsDisabled(c.Name, guildID)
+		if cfg := ov.EffectiveFor(guildID, c.Name); cfg != nil {
+			c.ModOnly = cfg.ModOnly != nil && *cfg.ModOnly
+			c.AllowedChannels = cfg.AllowedChannels
+			c.AllowedRoles = cfg.AllowedRoles
 		}
 	}
 	// Exec allowlist is the sole gate for Run buttons. An empty allowlist means

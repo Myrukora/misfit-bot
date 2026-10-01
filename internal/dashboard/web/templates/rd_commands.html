@@ -34,9 +34,6 @@
 
 {{range .Content.groups}}
         <section class="cmd-grid" data-tab="{{.Module}}" {{if .Module}}{{if $.Content.canManage}}{{if ne .Module $.Content.selectedTab}} hidden{{end}}{{end}}{{end}}>
-          <div class="grid-head">
-            <h3>{{if eq .Module "core"}}Core{{else}}{{.Module}}{{end}}</h3>
-          </div>
           {{range .Categories}}
           <div class="cat">
             <div class="cat-name">{{.Name}}</div>
@@ -56,7 +53,7 @@
                 {{if and .Usable (not .SuperOwnerOnly)}}
                 <div class="card-actions">
                   {{if .CanExec}}<button type="button" class="btn btn-small run-cmd" data-name="{{.Name}}" data-guild="{{$.Content.guild}}">Run</button>{{end}}
-                  {{if $.Content.canManage}}<button type="button" class="btn btn-small gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-global-disabled="{{.GlobalDisabled}}" data-guild-disabled="{{.GuildDisabled}}" data-has-guild-override="{{.HasGuildOverride}}" data-modonly="{{.ModOnly}}" data-channels="{{joinOr .AllowedChannels "," ""}}" data-roles="{{joinOr .AllowedRoles "," ""}}" data-global-requiredperm="{{.RequiredPerm}}">⚙ Config</button>{{end}}
+                  {{if $.Content.canManage}}<button type="button" class="btn btn-small gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-disabled="{{.Disabled}}" data-modonly="{{.ModOnly}}" data-channels="{{joinOr .AllowedChannels "," ""}}" data-roles="{{joinOr .AllowedRoles "," ""}}">⚙ Config</button>{{end}}
                 </div>
                 {{end}}
               </div>
@@ -69,8 +66,8 @@
 {{end}}
 
         {{if .Content.canManage}}
-        <!-- Per-command config modal (staff scope: disable in one server;
-             owner/elevated scope: disable everywhere + mod-only) -->
+        <!-- Per-command config modal: per-guild disable, mod-only, and
+             channel/role allowlists for the selected server. -->
         <div class="gear-modal" id="cmd-gear-modal" hidden>
           <div class="gear-backdrop"></div>
           <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Command configuration">
@@ -79,19 +76,16 @@
               <button type="button" class="gear-close" id="gear-close" aria-label="Close">✕</button>
             </div>
             <div class="gear-body">
-              <div class="gear-scope" id="gear-global-scope" {{if and (ne .Content.level "owner") (ne .Content.level "elevated")}}hidden{{end}}>
-                <label class="toggle"><input type="checkbox" id="gear-global-toggle"><span class="toggle-track"></span><span class="toggle-label">Disable everywhere</span></label>
-                <label class="toggle"><input type="checkbox" id="gear-modonly-toggle"><span class="toggle-track"></span><span class="toggle-label">Staff (manage-messages) only</span></label>
-              </div>
-              <div class="gear-scope gear-scope-local" id="gear-local-scope" hidden>
+              <div class="gear-scope gear-scope-local" id="gear-local-scope">
                 <div class="field">
                   <label class="field-label">Server</label>
-                  <select class="field-input" id="gear-guild" aria-label="Server for local config">
+                  <select class="field-input" id="gear-guild" aria-label="Server for this config">
                     <option value="">— server —</option>
                     {{range .Content.guilds}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
                   </select>
                 </div>
                 <label class="toggle"><input type="checkbox" id="gear-local-toggle"><span class="toggle-track"></span><span class="toggle-label">Disable in this server</span></label>
+                <label class="toggle"><input type="checkbox" id="gear-modonly-toggle"><span class="toggle-track"></span><span class="toggle-label">Staff (manage-messages) only</span></label>
               </div>
               <div class="gear-fields" id="gear-fields">
                 <div class="gear-field">

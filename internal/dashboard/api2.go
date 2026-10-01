@@ -513,11 +513,9 @@ func (m *DashboardModule) execAllowlist() []string {
 }
 
 // ── /api/cmdcfg/toggle ──────────────────────────────────────────────────────
-// Global (owner/elevated, guildID empty) toggles a bot-owner override; local
-// (staff, guildID set) narrows a command for one guild. A staff toggle can only
-// DISABLE a command that is not globally disabled — it can never re-enable a
-// globally-disabled command (Carl semantics). Owner/elevated toggling is
-// unrestricted.
+// Command overrides are per-guild: the request must name a guild, and the
+// caller must manage it (staff/owner/elevated). There is no bot-wide scope —
+// "disable everywhere" means disabling in each guild.
 
 type cmdCfgToggle struct {
 	Name     string   `json:"name"`
@@ -548,41 +546,11 @@ func (m *DashboardModule) toggleCmdCfg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "command name required")
 		return
 	}
-	level := m.resolveLevel(us)
-	ov := m.commandOverrides()
-	if ov == nil {
-		writeError(w, http.StatusServiceUnavailable, "command overrides unavailable")
-		return
-	}
-
-	// Global scope: owner/elevated, no guild.
 	if body.GuildID == "" {
-		if level != lvlOwner && level != lvlElevated {
-			writeError(w, http.StatusForbidden, "owner or elevated only")
-			return
-		}
-		cfg := commands.GlobalCmdCfg{
-			AllowedChannels: dedupeStrings(body.Channels),
-			AllowedRoles:    dedupeStrings(body.Roles),
-		}
-		dis := body.Disabled
-		cfg.Disabled = &dis
-		if body.ModOnly != nil {
-			cfg.ModOnly = body.ModOnly
-		}
-		if err := ov.SetGlobal(body.Name, cfg); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if err := ov.Save(); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"name": body.Name, "disabled": body.Disabled, "scope": "global"})
+		writeError(w, http.StatusBadRequest, "guildID required — command overrides are per-guild")
 		return
 	}
-
-	// Local scope: staff managing the guild.
+	level := m.resolveLevel(us)
 	if level != lvlStaff && level != lvlOwner && level != lvlElevated {
 		writeError(w, http.StatusForbidden, "you may not manage this guild")
 		return
@@ -591,22 +559,16 @@ func (m *DashboardModule) toggleCmdCfg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusForbidden, "you may not manage this guild")
 		return
 	}
-	// Local can only narrow. A globally disabled command stays disabled at
-	// dispatch time (Allowed() checks the global flag first), so a
-	// disabled:false local save is harmless — the modal needs it to persist
-	// channel/role/mod-only narrowing for reference once the global disable
-	// is lifted. It is still rejected for a command that is NOT globally
-	// disabled, where disabled:false would be a meaningless widening.
-	if ov.GlobalDisabled(body.Name) && !body.Disabled {
-		writeError(w, http.StatusForbidden, "this command is disabled globally — local restrictions can be saved only alongside a local disable")
+	ov := m.commandOverrides()
+	if ov == nil {
+		writeError(w, http.StatusServiceUnavailable, "command overrides unavailable")
 		return
 	}
-	cfg := commands.GuildCmdCfg{
+	cfg := commands.CmdCfg{
 		AllowedChannels: dedupeStrings(body.Channels),
 		AllowedRoles:    dedupeStrings(body.Roles),
+		Disabled:        &body.Disabled,
 	}
-	dis := body.Disabled
-	cfg.Disabled = &dis
 	if body.ModOnly != nil {
 		cfg.ModOnly = body.ModOnly
 	}
@@ -618,7 +580,7 @@ func (m *DashboardModule) toggleCmdCfg(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"name": body.Name, "disabled": body.Disabled, "guildID": body.GuildID, "scope": "guild"})
+	writeJSON(w, http.StatusOK, map[string]any{"name": body.Name, "disabled": body.Disabled, "guildID": body.GuildID})
 }
 
 // dedupeStrings returns a de-duplicated copy of s preserving first-seen order,

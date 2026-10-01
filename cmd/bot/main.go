@@ -739,7 +739,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	// matching the dispatcher's tiering. The dispatcher treats a nil store as
 	// "allowed".
 	if ov := ba.CommandOverrides(); ov != nil {
-		if !ov.Allowed(scmd.Name, guildID, channelID, ba.GetUserPermissions(user.ID.String(), guildID), roleIDs(ba, guildID, user.ID.String()), isMod(ba, guildID, user.ID.String())) {
+		if !ov.Allowed(scmd.Name, guildID, channelID, roleIDs(ba, guildID, user.ID.String()), isMod(ba, guildID, user.ID.String())) {
 			_ = ctx.Respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
 			return
 		}
@@ -950,9 +950,6 @@ func registerSlashCommands() {
 
 	var cmds []discord.ApplicationCommandCreate
 	for _, scmd := range commands.CoreSlashCommands {
-		if ov := cmdOverrides; ov != nil && ov.IsDisabled(scmd.Name, "") {
-			continue // globally disabled — keep it off Discord's command list
-		}
 		cmds = append(cmds, discord.SlashCommandCreate{
 			Name:        scmd.Name,
 			Description: scmd.Description,
@@ -960,9 +957,6 @@ func registerSlashCommands() {
 		})
 	}
 	for _, scmd := range ModMgr.AllSlashCommands() {
-		if ov := cmdOverrides; ov != nil && ov.IsDisabled(scmd.Name, "") {
-			continue
-		}
 		cmds = append(cmds, discord.SlashCommandCreate{
 			Name:        scmd.Name,
 			Description: scmd.Description,
@@ -1723,7 +1717,6 @@ func prefixAllowed(b *botAdapter, name, guildID, channelID, userID string) bool 
 		return true
 	}
 	return ov.Allowed(name, guildID, channelID,
-		b.GetUserPermissions(userID, guildID),
 		roleIDs(b, guildID, userID),
 		isMod(b, guildID, userID))
 }

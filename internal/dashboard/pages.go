@@ -119,9 +119,6 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		// canManage gates the staff-facing per-command gear modal: a staff member
 		// can edit overrides only for guilds they manage.
 		"canManage": levelGEQ(level, lvlStaff),
-		// level feeds the gear modal so it can show the right scope controls
-		// (owner sees global disable + mod-only; staff sees local-only).
-		"level": level,
 		// guilds feeds the per-command guild selector in the gear modal.
 		"guilds": m.manageableGuildList(us),
 	}
@@ -367,7 +364,6 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 		"mode":        m.execMode(),
 		"canRaw":      false,
 		"canManage":   levelGEQ(level, lvlStaff),
-		"level":       level,
 		"guilds":      m.manageableGuildList(us),
 	}
 	if m.canViewGuildEntities(us, guildID) {
