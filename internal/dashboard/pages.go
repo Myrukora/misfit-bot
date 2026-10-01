@@ -98,7 +98,6 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 	us := sessionOf(r)
 	raw := r.URL.Query().Get("raw") == "true"
 	guildID := r.URL.Query().Get("guild")
-	level := m.resolveLevel(us)
 	var views []cmdView
 	if guildID != "" {
 		views = m.filterCatalog(us, raw, true, guildID)
@@ -116,11 +115,9 @@ func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Requ
 		"count":       len(views),
 		"mode":        m.execMode(),
 		"canRaw":      d.IsOwner || d.IsElevated,
-		// canManage gates the staff-facing per-command gear modal: a staff member
-		// can edit overrides only for guilds they manage.
-		"canManage": levelGEQ(level, lvlStaff),
-		// guilds feeds the per-command guild selector in the gear modal.
-		"guilds": m.manageableGuildList(us),
+		// The hub page is a read-only catalog. Command config is per-guild and
+		// lives on /g/<id>/commands, so there is no gear modal here.
+		"canManage": false,
 	}
 	// Picker entity lists for the modal's allowed-channel / allowed-role
 	// multi-selects — populated only when a guild is selected AND the user
