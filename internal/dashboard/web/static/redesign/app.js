@@ -44,6 +44,52 @@
     });
   }
 
+  /* ---------- mobile: off-canvas sidebar drawer + touch dropdown ---------- */
+  var sidebar = document.getElementById("sidebar");
+  var backdrop = document.querySelector(".sidebar-backdrop");
+  var menuToggle = document.querySelector(".menu-toggle");
+
+  function setDrawer(open) {
+    if (!sidebar) return;
+    sidebar.classList.toggle("open", open);
+    if (backdrop) backdrop.classList.toggle("show", open);
+    document.body.style.overflow = open ? "hidden" : "";
+  }
+
+  if (menuToggle && sidebar) {
+    menuToggle.addEventListener("click", function () {
+      setDrawer(!sidebar.classList.contains("open"));
+    });
+  }
+  if (backdrop) {
+    backdrop.addEventListener("click", function () { setDrawer(false); });
+  }
+  // Tapping a nav link closes the drawer (mobile only).
+  if (sidebar) {
+    sidebar.addEventListener("click", function (e) {
+      if (e.target.closest("a")) setDrawer(false);
+    });
+  }
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && sidebar && sidebar.classList.contains("open")) setDrawer(false);
+  });
+
+  // Touch: the avatar dropdown is hover-driven on desktop (no hover on touch),
+  // so a tap toggles the .open class that the (hover:none) CSS reveals.
+  if (avatar) {
+    avatar.addEventListener("click", function () {
+      var wrap = avatar.parentElement;
+      if (wrap) wrap.classList.toggle("open");
+    });
+    // Tapping elsewhere closes the touch dropdown.
+    document.addEventListener("click", function (e) {
+      var wrap = avatar.parentElement;
+      if (wrap && wrap.classList.contains("open") && !wrap.contains(e.target)) {
+        wrap.classList.remove("open");
+      }
+    });
+  }
+
   /* ---------- overview: live metrics poll ---------- */
   var latencyEl = byId("m-latency");
   if (latencyEl) {

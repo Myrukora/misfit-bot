@@ -14,7 +14,7 @@
   <div class="app">
 
     <!-- ================= SIDEBAR ================= -->
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <nav class="nav">
       {{if .GuildID}}
         <!-- Server-scoped sidebar -->
@@ -72,9 +72,14 @@
       </nav>
     </aside>
 
+    <div class="sidebar-backdrop" aria-hidden="true"></div>
+
     <!-- ================= MAIN ================= -->
     <main class="main">
       <header class="topbar">
+        <button class="menu-toggle" type="button" aria-label="Toggle navigation" aria-controls="sidebar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
         <a href="/" class="topbar-brand">
           <img src="/static/redesign/logo.png" alt="logo" class="logo">
           <span class="topbar-name">{{.Bot}}</span>

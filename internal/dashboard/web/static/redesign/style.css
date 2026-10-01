@@ -211,7 +211,8 @@ body {
 .topbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 10px;
     padding: 10px 24px;
     background: #141417;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -237,6 +238,7 @@ body {
 
 .topbar-user {
     position: relative;
+    margin-left: auto;
 }
 
 .user-avatar {
@@ -1411,4 +1413,209 @@ input[type="range"].cfg-field::-moz-range-thumb {
 .tag.ok {
     color: white;
     border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* ============================================================
+   MOBILE — off-canvas sidebar drawer + responsive topbar.
+   Desktop (>=900px) is untouched: the sidebar stays a fixed
+   220px column and the menu toggle is hidden. Below 900px the
+   sidebar becomes a slide-in drawer over a dimmed backdrop, and
+   the topbar's brand shrinks so the avatar dropdown fits.
+   ============================================================ */
+
+.menu-toggle {
+    display: none;
+    appearance: none;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    color: white;
+    width: 40px;
+    height: 40px;
+    padding: 8px;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.menu-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.28);
+}
+
+.menu-toggle svg {
+    width: 24px;
+    height: 24px;
+    display: block;
+}
+
+.sidebar-backdrop {
+    display: none;
+}
+
+@media (max-width: 899px) {
+    .menu-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Sidebar → fixed off-canvas drawer. */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 260px;
+        z-index: 120;
+        overflow-y: auto;
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .sidebar-backdrop {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 110;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+    }
+
+    .sidebar-backdrop.show {
+        opacity: 1;
+    }
+
+    /* Topbar: compact brand so the avatar + toggle fit. */
+    .topbar {
+        padding: 8px 12px;
+    }
+
+    .topbar-name {
+        font-size: 22px;
+    }
+
+    .logo {
+        width: 28px;
+        height: 28px;
+    }
+
+    .user-avatar img {
+        width: 32px;
+        height: 32px;
+    }
+
+    /* Content padding + card padding shrink. */
+    .content {
+        padding: 16px 12px;
+        gap: 16px;
+    }
+
+    .card {
+        padding: 16px;
+    }
+
+    .stat-value {
+        font-size: 22px;
+    }
+
+    /* Server tiles: smaller icons, 2-up minimum. */
+    .server-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 12px;
+    }
+
+    .server-tile-icon {
+        width: 64px;
+        height: 64px;
+    }
+
+    .server-tile-fallback {
+        font-size: 26px;
+    }
+
+    /* Command rows: let the description wrap instead of ellipsizing. */
+    .cmd-row {
+        flex-wrap: wrap;
+    }
+
+    .cmd-row-desc {
+        white-space: normal;
+    }
+
+    /* Toolbars stack. */
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .toolbar-search {
+        min-width: 0;
+    }
+
+    /* Log toolbar stacks; viewer shorter. */
+    .log-toolbar {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .log-viewer {
+        max-height: 320px;
+    }
+
+    /* Toasts: full-width bottom bar on small screens. */
+    .toast {
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        max-width: none;
+    }
+
+    /* Tables: keep the horizontal scroll, tighten cells. */
+    .tbl {
+        font-size: 13px;
+    }
+
+    .tbl th,
+    .tbl td {
+        padding: 8px 8px;
+    }
+
+    /* Login card fits narrow screens. */
+    .login-card {
+        margin: 16px;
+        padding: 24px 18px;
+    }
+
+    .login-title {
+        font-size: 44px;
+    }
+
+    .login-btn {
+        width: 100%;
+    }
+
+    /* Transcript media: full width. */
+    .msg-media,
+    .msg-media-wide,
+    .msg-audio {
+        max-width: 100%;
+    }
+}
+
+/* Touch devices: the avatar dropdown is hover-driven on desktop, which
+   never fires on touch. A tap toggles it (JS adds .open); hide hover. */
+@media (hover: none) {
+    .topbar-user:hover .user-menu {
+        display: none;
+    }
+
+    .topbar-user.open .user-menu {
+        display: block;
+    }
 }
