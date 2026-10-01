@@ -473,32 +473,20 @@
   }
 
   /* ---------- commands page: filter + tabs + run + gear ---------- */
+  var splitList = function (s) {
+    return (s || "").split(",").filter(function (x) { return x.length > 0; });
+  };
+
   var cmdSearch = byId("cmd-search");
   if (cmdSearch) {
     cmdSearch.addEventListener("input", function () {
       var q = cmdSearch.value.toLowerCase();
-      document.querySelectorAll("details.cmd-card").forEach(function (d) {
-        var t = d.textContent.toLowerCase();
-        d.style.display = (!q || t.indexOf(q) !== -1) ? "" : "none";
+      document.querySelectorAll(".cmd-row").forEach(function (row) {
+        var t = row.textContent.toLowerCase();
+        row.style.display = (!q || t.indexOf(q) !== -1) ? "" : "none";
       });
     });
   }
-
-  var rawBox = byId("cmd-raw");
-  if (rawBox) {
-    rawBox.addEventListener("change", function () {
-      var u = new URL(location.href);
-      u.searchParams.set("raw", rawBox.checked ? "true" : "false");
-      location.href = u;
-    });
-  }
-
-  /* Guild selector navigation (commands/tickets toolbars, global scope) */
-  document.querySelectorAll(".guild-nav").forEach(function (sel) {
-    sel.addEventListener("change", function () {
-      location.href = sel.dataset.path + "?guild=" + encodeURIComponent(sel.value);
-    });
-  });
 
   var cmdTabs = document.querySelectorAll(".cmd-tab");
   if (cmdTabs.length) {
@@ -534,22 +522,38 @@
     });
   });
 
-  /* Per-command config (gear) modal — per-guild overrides */
+  /* Row enable/disable toggle: flips the per-guild disabled override,
+     preserving the command's mod-only + channel/role allowlists. */
+  document.querySelectorAll("input[data-rowtoggle]").forEach(function (inp) {
+    inp.addEventListener("change", function () {
+      var name = inp.dataset.rowtoggle;
+      var gearBtn = inp.closest(".cmd-row").querySelector(".gear-btn");
+      if (!gearBtn) return;
+      var payload = {
+        name: name,
+        disabled: !inp.checked,
+        guildID: gearBtn.dataset.guild || "",
+        channels: splitList(gearBtn.dataset.channels),
+        roles: splitList(gearBtn.dataset.roles),
+        modOnly: gearBtn.dataset.modonly === "true"
+      };
+      api("POST", "/api/cmdcfg/toggle", payload)
+        .then(function () { location.reload(); })
+        .catch(function (e) { toast(name + ": " + e.message, true); });
+    });
+  });
+
+  /* Per-command config (gear) modal — per-guild mod-only + channel/role
+     allowlists for this server. Enable/disable is the row toggle; the modal
+     preserves it (it never changes the disabled flag). */
   var gearModal = byId("cmd-gear-modal");
   if (gearModal) {
     var gearName = byId("gear-cmd-name");
     var gearModOnly = byId("gear-modonly-toggle");
-    var gearGuild = byId("gear-guild");
-    var gearLocalToggle = byId("gear-local-toggle");
     var gearChannels = byId("gear-channels");
     var gearRoles = byId("gear-roles");
-    var gearHint = byId("gear-hint");
-    var gearFields = byId("gear-fields");
-    var gearCurrent = { name: "", guild: "" };
+    var gearCurrent = { name: "", guild: "", disabled: false };
 
-    var splitList = function (s) {
-      return (s || "").split(",").filter(function (x) { return x.length > 0; });
-    };
     var syncPicker = function (box, ids) {
       var map = {};
       (ids || []).forEach(function (id) { map[id] = true; });
@@ -558,52 +562,24 @@
     var selectedIDs = function (box) {
       return Array.prototype.slice.call(box.querySelectorAll("input:checked")).map(function (c) { return c.value; });
     };
-    var gearRefreshHint = function () {
-      if (gearLocalToggle.checked) {
-        gearHint.textContent = "Disabled in this server only. Other servers keep it enabled.";
-      } else {
-        gearHint.textContent = "This command is enabled in this server. Toggle a switch above to restrict it.";
-      }
-    };
     var gearClose = function () {
       gearModal.hidden = true;
       document.body.style.overflow = "";
     };
-    var loadGearEntities = function (guildID, checkedCh, checkedRo) {
-      gearChannels.replaceChildren();
-      gearRoles.replaceChildren();
-      if (!guildID) return;
-      api("GET", "/api/guild/" + encodeURIComponent(guildID)).then(function (d) {
-        var mkItem = function (id, name) {
-          var label = document.createElement("label");
-          label.className = "multi-item";
-          var inp = document.createElement("input");
-          inp.type = "checkbox";
-          inp.value = id;
-          label.appendChild(inp);
-          var span = document.createElement("span");
-          span.textContent = name;
-          label.appendChild(span);
-          return label;
-        };
-        gearChannels.replaceChildren.apply(gearChannels, (d.channels || []).map(function (it) { return mkItem(it.ID, it.Name); }));
-        gearRoles.replaceChildren.apply(gearRoles, (d.roles || []).map(function (it) { return mkItem(it.ID, it.Name); }));
-        syncPicker(gearChannels, checkedCh);
-        syncPicker(gearRoles, checkedRo);
-      }).catch(function (e) { toast("Failed to load channels/roles: " + e.message, true); });
-    };
 
     document.querySelectorAll(".gear-btn").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        gearCurrent = { name: btn.dataset.name, guild: btn.dataset.guild || "" };
+        var row = btn.closest(".cmd-row");
+        var rowToggle = row ? row.querySelector("input[data-rowtoggle]") : null;
+        gearCurrent = {
+          name: btn.dataset.name,
+          guild: btn.dataset.guild || "",
+          disabled: rowToggle ? !rowToggle.checked : false
+        };
         gearName.textContent = gearCurrent.name;
         gearModOnly.checked = btn.dataset.modonly === "true";
-        gearGuild.value = gearCurrent.guild;
-        gearLocalToggle.checked = btn.dataset.disabled === "true";
         syncPicker(gearChannels, splitList(btn.dataset.channels));
         syncPicker(gearRoles, splitList(btn.dataset.roles));
-        gearFields.hidden = gearGuild.value === "";
-        gearRefreshHint();
         gearModal.hidden = false;
         document.body.style.overflow = "hidden";
       });
@@ -613,34 +589,18 @@
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !gearModal.hidden) gearClose();
     });
-    gearGuild.addEventListener("change", function () {
-      gearFields.hidden = gearGuild.value === "";
-      loadGearEntities(gearGuild.value, selectedIDs(gearChannels), selectedIDs(gearRoles));
-      gearRefreshHint();
-    });
-    [gearModOnly, gearLocalToggle].forEach(function (t) {
-      t.addEventListener("change", gearRefreshHint);
-    });
 
     byId("gear-save").addEventListener("click", function () {
       var btn = byId("gear-save");
       btn.disabled = true;
-      if (!gearGuild.value) {
-        toast("Pick a server first — command overrides are per-guild", true);
-        btn.disabled = false;
-        return;
-      }
       var name = gearCurrent.name;
-      var channels = selectedIDs(gearChannels);
-      var roles = selectedIDs(gearRoles);
-      var modOnly = gearModOnly.checked;
       api("POST", "/api/cmdcfg/toggle", {
         name: name,
-        disabled: gearLocalToggle.checked,
-        guildID: gearGuild.value,
-        channels: channels,
-        roles: roles,
-        modOnly: modOnly
+        disabled: gearCurrent.disabled,
+        guildID: gearCurrent.guild,
+        channels: selectedIDs(gearChannels),
+        roles: selectedIDs(gearRoles),
+        modOnly: gearModOnly.checked
       }).then(function () {
         gearClose();
         location.reload();
@@ -653,15 +613,10 @@
     byId("gear-clear").addEventListener("click", function () {
       var btn = byId("gear-clear");
       btn.disabled = true;
-      if (!gearGuild.value) {
-        toast("Pick a server first — command overrides are per-guild", true);
-        btn.disabled = false;
-        return;
-      }
       api("POST", "/api/cmdcfg/toggle", {
         name: gearCurrent.name,
         disabled: false,
-        guildID: gearGuild.value,
+        guildID: gearCurrent.guild,
         channels: [],
         roles: [],
         modOnly: false

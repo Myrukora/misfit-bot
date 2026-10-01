@@ -165,8 +165,6 @@ func pageTitle(page string) string {
 		return "Login"
 	case "setup":
 		return "Setup"
-	case "commands":
-		return "Commands"
 	case "gcommands":
 		return "Commands"
 	case "gtickets":

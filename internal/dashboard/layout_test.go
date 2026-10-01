@@ -110,25 +110,3 @@ func TestAdminRedirectsToRoot(t *testing.T) {
 		t.Errorf("Location = %q, want /", got)
 	}
 }
-
-// TestCommandsRawSwitch pins the raw toggle on the redesign commands page.
-func TestCommandsRawSwitch(t *testing.T) {
-	b, err := loadTemplates()
-	if err != nil {
-		t.Fatalf("loadTemplates: %v", err)
-	}
-	d := mkData(lvlOwner)
-	d.ShowSidebar = true
-	d.Content = map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}
-	var sb strings.Builder
-	if err := b.render(&sb, "rd_commands", d); err != nil {
-		t.Fatalf("render rd_commands: %v", err)
-	}
-	out := sb.String()
-	if !strings.Contains(out, `class="toggle"`) || !strings.Contains(out, `id="cmd-raw"`) {
-		t.Error("raw toggle must be the redesign .toggle component with id cmd-raw")
-	}
-	if !strings.Contains(out, `class="toggle-track"`) {
-		t.Error("toggle missing track")
-	}
-}

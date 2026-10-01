@@ -124,13 +124,6 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		// Legacy: the admin panel moved to /config in the redesign.
 		http.Redirect(w, r, "/config", http.StatusSeeOther)
 		return
-	case "commands":
-		if r.Method == "GET" {
-			m.requireAuthed(m.handleCommandsPage)(w, r)
-			return
-		}
-		methodNotAllowed(w)
-		return
 	case "g":
 		// Server-scoped dashboard: /g/<id> (→ /g/<id>/commands), /g/<id>/commands,
 		// /g/<id>/tickets, /g/<id>/modules, … Everything under this prefix is

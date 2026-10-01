@@ -92,62 +92,6 @@ func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 	m.tmpl.render(w, "rd_setup", d)
 }
 
-// ── /commands?guild=&raw= ──────────────────────────────────────────────────
-
-func (m *DashboardModule) handleCommandsPage(w http.ResponseWriter, r *http.Request) {
-	us := sessionOf(r)
-	raw := r.URL.Query().Get("raw") == "true"
-	guildID := r.URL.Query().Get("guild")
-	var views []cmdView
-	if guildID != "" {
-		views = m.filterCatalog(us, raw, true, guildID)
-	} else {
-		views = m.filterCatalog(us, raw, false, "")
-	}
-	d := m.baseData(us)
-	d.Raw = raw
-	content := map[string]any{
-		"groups": groupCommands(views),
-		"guild":  guildID,
-		// Active category tab (module name); JS switches it client-side,
-		// the server just picks the default so SSR renders the Core grid.
-		"selectedTab": "core",
-		"count":       len(views),
-		"mode":        m.execMode(),
-		"canRaw":      d.IsOwner || d.IsElevated,
-		// The hub page is a read-only catalog. Command config is per-guild and
-		// lives on /g/<id>/commands, so there is no gear modal here.
-		"canManage": false,
-	}
-	// Picker entity lists for the modal's allowed-channel / allowed-role
-	// multi-selects — populated only when a guild is selected AND the user
-	// shares it with the bot, so cached entity names don't leak to members.
-	if guildID != "" && m.canViewGuildEntities(us, guildID) {
-		if detail, err := m.buildGuildDetail(guildID); err == nil {
-			content["channels"] = detail.Channels
-			roles := make([]entityOpt, 0, len(detail.Roles))
-			for _, r := range detail.Roles {
-				roles = append(roles, entityOpt{ID: r.ID, Name: r.Name})
-			}
-			content["roles"] = roles
-		}
-	}
-	d.Content = content
-	m.tmpl.render(w, "rd_commands", d)
-}
-
-// manageableGuildList returns the guilds the user can manage as guildOpt rows,
-// for rendering in the per-command gear modal's guild selector.
-func (m *DashboardModule) manageableGuildList(us *userSession) []guildOpt {
-	var guilds []guildOpt
-	for _, id := range m.manageableGuildIDs(us) {
-		if g := m.guildSummary(id, us); g != nil {
-			guilds = append(guilds, *g)
-		}
-	}
-	return guilds
-}
-
 // canViewGuildEntities reports whether the session may see a guild's cached
 // entities (channels/roles/members) on the commands page: the user must share
 // the guild with the bot.
@@ -361,7 +305,6 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 		"mode":        m.execMode(),
 		"canRaw":      false,
 		"canManage":   levelGEQ(level, lvlStaff),
-		"guilds":      m.manageableGuildList(us),
 	}
 	if m.canViewGuildEntities(us, guildID) {
 		if detail, err := m.buildGuildDetail(guildID); err == nil {
