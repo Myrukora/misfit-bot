@@ -22,22 +22,25 @@ type templateBundle struct {
 
 // renderData is the shared context passed to every page template.
 type renderData struct {
-	Bot         string // dynamic bot name (gateway self-user → Dev Portal app name → config)
-	BotAvatar   string // bot avatar URL (may be empty)
-	User        *userJSON
-	Level       string
-	Guilds      []guildOpt
-	CSRF        string
-	Page        string // page title
-	Content     any    // page-specific payload
-	ShowConfig  bool   // owner/elevated: show core config nav
-	ShowStaff   bool   // staff+: show guild nav
-	IsOwner     bool
-	IsElevated  bool
-	IsStaff     bool
-	IsRegular   bool
-	ShowSidebar bool // false = standalone page (login/setup): no sidebar/topbar
-	Raw         bool
+	Bot       string // dynamic bot name (gateway self-user → Dev Portal app name → config)
+	BotAvatar string // bot avatar URL (may be empty)
+	User      *userJSON
+	Level     string
+	Guilds    []guildOpt
+	CSRF      string
+	// AssetVersion is appended to /static URLs (?v=…) so a release busts the
+	// browser cache — embedded assets carry no mtime/ETag.
+	AssetVersion string
+	Page         string // page title
+	Content      any    // page-specific payload
+	ShowConfig   bool   // owner/elevated: show core config nav
+	ShowStaff    bool   // staff+: show guild nav
+	IsOwner      bool
+	IsElevated   bool
+	IsStaff      bool
+	IsRegular    bool
+	ShowSidebar  bool // false = standalone page (login/setup): no sidebar/topbar
+	Raw          bool
 	// ShowImageFilter: the imagefilter module is loaded — server-scoped
 	// sidebars render its tab (the page itself still guards staff access).
 	ShowImageFilter bool

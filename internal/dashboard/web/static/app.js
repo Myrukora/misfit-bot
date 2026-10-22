@@ -575,7 +575,7 @@
       typeButton.value = t ? t.button_label || "" : "";
       typeEmoji.value = t ? t.button_emoji || "" : "";
       typeColor.value = typeColorHex(t ? t.color : 0x5865f2);
-      typeEnabled.checked = !!(t && t.enabled);
+      typeEnabled.checked = t ? !!t.enabled : true;
       typeClaim.checked = !t || t.allow_claim;
       typeClose.checked = !t || t.allow_close;
     };

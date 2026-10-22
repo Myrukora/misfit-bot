@@ -337,6 +337,7 @@ type fakeTicketBot struct {
 func (f *fakeTicketBot) IsOwner(id string) bool { return id == f.owner }
 func (f *fakeTicketBot) IsElevated(string) bool { return false }
 func (f *fakeTicketBot) GetModuleManager() any  { return ticketGetter{mod: f.mod} }
+func (f *fakeTicketBot) GetVersion() string     { return "test" }
 
 // ticketsTestModule builds the dashboard module with the stub tickets module
 // loaded and a signed owner session cookie.

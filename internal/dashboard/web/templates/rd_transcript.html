@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{.CSRF}}">
 <title>{{.Bot}} — Ticket transcript</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body class="transcript-page">
   <main class="transcript-wrap">
@@ -86,7 +86,7 @@
     </div>
     <p class="muted"><a href="/g/{{.Content.GuildID}}/tickets">← Back to tickets</a> <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a></p>
   </main>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{.AssetVersion}}"></script>
 </body>
 </html>
 {{end}}

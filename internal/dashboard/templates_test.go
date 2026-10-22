@@ -8,6 +8,35 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
+// TestConfigNavItemActiveAndVersionedAssets pins two UI regressions: the Config
+// sidebar entry must highlight on /config (its page key is "config", not the
+// removed "admin" page), and asset URLs carry the version so updates bust the
+// browser cache.
+func TestConfigNavItemActiveAndVersionedAssets(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.Page = "config"
+	d.AssetVersion = "9.9.9"
+	d.Content = map[string]any{"sections": nil}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_admin", d); err != nil {
+		t.Fatalf("render rd_admin: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, `class="nav-item active" href="/config"`) {
+		t.Error("Config nav item is not active on the /config page")
+	}
+	if !strings.Contains(out, `href="/static/style.css?v=9.9.9"`) {
+		t.Error("stylesheet URL is not versioned")
+	}
+	if !strings.Contains(out, `src="/static/app.js?v=9.9.9"`) {
+		t.Error("app.js URL is not versioned")
+	}
+}
+
 func mkData(level string) renderData {
 	return renderData{
 		Bot:        "TestBot",

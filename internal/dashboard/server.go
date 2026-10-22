@@ -13,7 +13,14 @@ import (
 // so an unrecovered panic would crash the whole bot.
 func (m *DashboardModule) buildHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticSubFS()))))
+	staticHandler := http.FileServer(http.FS(staticSubFS()))
+	mux.Handle("/static/", http.StripPrefix("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Assets are embedded (no mtime/ETag), so a browser would otherwise
+		// keep a stale copy across updates. Templates version the URLs
+		// (?v=<bot version>); this header also forces revalidation.
+		w.Header().Set("Cache-Control", "no-cache, max-age=0, must-revalidate")
+		staticHandler.ServeHTTP(w, r)
+	})))
 	mux.HandleFunc("/", m.route)
 
 	var h http.Handler = mux
@@ -256,7 +263,11 @@ func methodNotAllowed(w http.ResponseWriter) {
 // flags, CSRF). Pass the page-specific payload via Content separately.
 func (m *DashboardModule) baseData(us *userSession) renderData {
 	id := m.botIdentity()
-	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: "", ShowSidebar: true}
+	assetVersion := ""
+	if m.bot != nil {
+		assetVersion = m.bot.GetVersion()
+	}
+	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: "", ShowSidebar: true, AssetVersion: assetVersion}
 	if us != nil {
 		level := m.resolveLevel(us)
 		var guilds []guildOpt
