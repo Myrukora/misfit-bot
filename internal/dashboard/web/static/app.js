@@ -485,6 +485,7 @@
     var map = {};
     (ids || []).forEach(function (id) { map[id] = true; });
     box.querySelectorAll("input[type=checkbox]").forEach(function (inp) { inp.checked = !!map[inp.value]; });
+    if (box.__tkRender) box.__tkRender();
   };
   var tkChecked = function (box) {
     return Array.prototype.slice.call(box.querySelectorAll("input[type=checkbox]:checked"))
@@ -495,6 +496,83 @@
   var tkHasOption = function (sel, value) {
     return Array.prototype.some.call(sel.options, function (o) { return o.value === value; });
   };
+
+  /* Role picker: a searchable dropdown over the guild's roles. The menu
+     expands inline (the modal scrolls, so a floating popover would clip). */
+  var tkRenderPicker = function (box) {
+    var list = box.querySelector(".picker-list");
+    var value = box.querySelector(".picker-value");
+    var chips = box.querySelector(".picker-chips");
+    if (!list || !value || !chips) return;
+    var selected = Array.prototype.slice.call(list.querySelectorAll("input[type=checkbox]:checked"));
+    var names = selected.map(function (inp) {
+      var row = inp.closest(".picker-option");
+      return row ? row.querySelector("span").textContent : inp.value;
+    });
+    value.textContent = names.length === 0 ? "No roles selected"
+      : names.length === 1 ? names[0] : names.length + " roles selected";
+    chips.innerHTML = "";
+    names.forEach(function (name, i) {
+      var chip = document.createElement("span");
+      chip.className = "picker-chip";
+      chip.appendChild(document.createTextNode(name));
+      var x = document.createElement("button");
+      x.type = "button";
+      x.className = "picker-chip-x";
+      x.setAttribute("aria-label", "Remove " + name);
+      x.textContent = "×";
+      x.addEventListener("click", function (e) {
+        e.stopPropagation();
+        selected[i].checked = false;
+        tkRenderPicker(box);
+      });
+      chip.appendChild(x);
+      chips.appendChild(chip);
+    });
+    chips.hidden = names.length === 0;
+  };
+
+  var tkInitPicker = function (box) {
+    if (box.dataset.pickerReady) return;
+    box.dataset.pickerReady = "1";
+    var trigger = box.querySelector(".picker-trigger");
+    var panel = box.querySelector(".picker-panel");
+    var search = box.querySelector(".picker-search");
+    var list = box.querySelector(".picker-list");
+    if (!trigger || !panel || !search || !list) return;
+    var empty = box.querySelector(".picker-empty");
+    var filter = function () {
+      var q = search.value.trim().toLowerCase(), any = false;
+      list.querySelectorAll(".picker-option").forEach(function (row) {
+        var hit = row.textContent.toLowerCase().indexOf(q) !== -1;
+        row.hidden = !hit;
+        if (hit) any = true;
+      });
+      if (empty) empty.hidden = any;
+    };
+    var setOpen = function (open) {
+      panel.hidden = !open;
+      trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (open) {
+        search.value = "";
+        filter();
+        search.focus();
+      }
+    };
+    trigger.addEventListener("click", function () { setOpen(panel.hidden); });
+    search.addEventListener("input", filter);
+    list.addEventListener("change", function () { tkRenderPicker(box); });
+    document.addEventListener("click", function (e) {
+      if (!box.contains(e.target)) setOpen(false);
+    });
+    box.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { setOpen(false); trigger.focus(); }
+    });
+    box.__tkRender = function () { tkRenderPicker(box); };
+    tkRenderPicker(box);
+  };
+
+  document.querySelectorAll("[data-picker]").forEach(tkInitPicker);
 
   /* ---------- tickets: close from list or transcript ---------- */
   document.querySelectorAll(".tk-close").forEach(function (btn) {

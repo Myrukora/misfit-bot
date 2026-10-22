@@ -26,9 +26,10 @@ func (mockBot) GetName() string { return "TestBot" }
 // mockRest is a pure in-memory rest.Rest that records the calls the module
 // makes and returns canned responses. No HTTP, no deadlock.
 type mockRest struct {
-	rest.Rest // nil — panics if an un-overridden method is called
-	mu        sync.Mutex
-	calls     []restCall
+	rest.Rest   // nil — panics if an un-overridden method is called
+	mu          sync.Mutex
+	calls       []restCall
+	memberRoles map[snowflake.ID][]snowflake.ID
 }
 
 type restCall struct {
@@ -90,6 +91,9 @@ func (m *mockRest) GetGuild(guildID snowflake.ID, _ bool, _ ...rest.RequestOpt) 
 
 func (m *mockRest) GetMember(guildID, userID snowflake.ID, _ ...rest.RequestOpt) (*discord.Member, error) {
 	m.record("GET", "/guilds/"+guildID.String()+"/members/"+userID.String(), "")
+	if roles, ok := m.memberRoles[userID]; ok {
+		return &discord.Member{User: discord.User{ID: userID}, RoleIDs: roles}, nil
+	}
 	return nil, nil
 }
 

@@ -169,6 +169,9 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 			}
 			userID := ctx.Author.ID.String()
 			isOpener := userID == tk.OpenerID
+			if isOpener && !m.openerMayClose(tk) {
+				return ctx.Respond(embed.Error("❌ Error", "The ticket opener can't close this type — ask a helper."))
+			}
 			if !isOpener && !m.isHelper(ctx, tk, userID) {
 				return ctx.Respond(embed.Error("❌ Error", "Only helpers or the ticket opener can close."))
 			}
@@ -189,6 +192,9 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 			userID := ctx.Author.ID.String()
 			if !m.isHelper(ctx, tk, userID) {
 				return ctx.Respond(embed.Error("❌ Error", "Only helpers can claim tickets."))
+			}
+			if !m.claimEnabled(tk) {
+				return ctx.Respond(embed.Error("❌ Error", "Claiming is disabled for this ticket type."))
 			}
 			claimed, changed, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
 				if cur.Status != "open" || cur.ClaimerID != "" {

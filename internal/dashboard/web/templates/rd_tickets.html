@@ -1,4 +1,21 @@
-{{define "tk_role_checks"}}{{range .Content.Roles}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}{{end}}
+{{define "tk_role_picker"}}
+<div class="picker" id="{{.ID}}" data-picker>
+  <button type="button" class="picker-trigger" aria-haspopup="listbox" aria-expanded="false">
+    <span class="picker-value">No roles selected</span>
+    <span class="picker-chevron" aria-hidden="true"></span>
+  </button>
+  <div class="picker-panel" hidden>
+    <div class="picker-search-wrap">
+      <input type="search" class="picker-search field-input" placeholder="Search roles…" autocomplete="off">
+    </div>
+    <div class="picker-list" role="listbox" aria-multiselectable="true">
+      {{range .Roles}}<label class="picker-option"><input type="checkbox" value="{{.ID}}"><span>{{.Name}}</span></label>{{end}}
+    </div>
+    <div class="picker-empty muted" hidden>No roles match.</div>
+  </div>
+  <div class="picker-chips" hidden></div>
+</div>
+{{end}}
 
 {{define "rd_tickets"}}{{template "rd_header" .}}
         {{if .Content.Error}}
@@ -142,12 +159,13 @@
         <!-- ===== Type editor (shared modal) ===== -->
         <div class="gear-modal" id="tk-type-modal" hidden>
           <div class="gear-backdrop"></div>
-          <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Ticket type editor">
+          <div class="gear-panel gear-panel-wide" role="dialog" aria-modal="true" aria-label="Ticket type editor">
             <div class="gear-head">
               <h4 id="tk-type-heading">New ticket type</h4>
               <button type="button" class="gear-close" id="tk-type-close" aria-label="Close">✕</button>
             </div>
             <div class="gear-body">
+              <h5 class="gear-section-title">Basics</h5>
               <div class="field">
                 <label class="field-label" for="tk-type-key">Key</label>
                 <input class="field-input" id="tk-type-key" placeholder="support" maxlength="64">
@@ -165,39 +183,50 @@
                 </select>
                 <p class="muted field-help">Tickets of this type are created as channels inside this category.</p>
               </div>
+
+              <h5 class="gear-section-title">Roles</h5>
               <div class="field">
                 <span class="field-label">Ping roles</span>
-                <div class="multi" id="tk-type-ping">{{template "tk_role_checks" .}}</div>
+                {{template "tk_role_picker" (dict "ID" "tk-type-ping" "Roles" .Content.Roles)}}
                 <p class="muted field-help">Roles pinged when a ticket of this type opens.</p>
               </div>
               <div class="field">
                 <span class="field-label">Helper roles</span>
-                <div class="multi" id="tk-type-helper">{{template "tk_role_checks" .}}</div>
+                {{template "tk_role_picker" (dict "ID" "tk-type-helper" "Roles" .Content.Roles)}}
                 <p class="muted field-help">Helpers can claim, close and add members, and always see the ticket.</p>
               </div>
               <div class="field">
                 <span class="field-label">Access roles</span>
-                <div class="multi" id="tk-type-access">{{template "tk_role_checks" .}}</div>
+                {{template "tk_role_picker" (dict "ID" "tk-type-access" "Roles" .Content.Roles)}}
                 <p class="muted field-help">Who may open this type. Empty = everyone.</p>
               </div>
+
+              <h5 class="gear-section-title">Messages</h5>
               <div class="field">
                 <label class="field-label" for="tk-type-welcome">Welcome message</label>
                 <textarea class="field-input" id="tk-type-welcome" rows="2"></textarea>
+                <p class="muted field-help">Plain text posted in the new ticket channel after the role pings. Supports {user.mention}, {group}, {guild.name}.</p>
               </div>
               <div class="field">
-                <label class="field-label" for="tk-type-body">Embed body</label>
+                <label class="field-label" for="tk-type-body">Opening embed text</label>
                 <textarea class="field-input" id="tk-type-body" rows="3"></textarea>
+                <p class="muted field-help">Description of the embed posted with the opening message (opener avatar, type color, ticket-ID footer). Supports {user}, {group}, {guild.name}, {ticket.id}; empty = "{user} opened a **{group}** ticket."</p>
               </div>
+
+              <h5 class="gear-section-title">Appearance</h5>
               <div class="field-grid">
                 <div class="field"><label class="field-label" for="tk-type-button">Button label</label><input class="field-input" id="tk-type-button" maxlength="80" placeholder="Support"></div>
                 <div class="field"><label class="field-label" for="tk-type-emoji">Button emoji</label><input class="field-input" id="tk-type-emoji" placeholder="🎫 or &lt;:name:id&gt;"></div>
                 <div class="field"><label class="field-label" for="tk-type-color">Color</label><input class="field-input" type="color" id="tk-type-color" value="#5865f2"></div>
               </div>
+
+              <h5 class="gear-section-title">Behavior</h5>
               <div class="field-grid">
                 <label class="toggle"><input type="checkbox" id="tk-type-enabled"><span class="toggle-track"></span><span class="toggle-label">Enabled</span></label>
                 <label class="toggle"><input type="checkbox" id="tk-type-claim" checked><span class="toggle-track"></span><span class="toggle-label">Allow claim</span></label>
                 <label class="toggle"><input type="checkbox" id="tk-type-close" checked><span class="toggle-track"></span><span class="toggle-label">Allow close</span></label>
               </div>
+              <p class="muted field-help">Claiming is helper-only — helper roles, Manage Messages, or the bot owner; the opener can't claim. The opener can close their own ticket while closing is allowed; helpers and Manage Messages can always close.</p>
             </div>
             <div class="gear-foot">
               <button type="button" class="btn btn-small btn-primary" id="tk-type-save">Save type</button>
@@ -208,7 +237,7 @@
         <!-- ===== Panel editor (shared modal) ===== -->
         <div class="gear-modal" id="tk-panel-modal" hidden>
           <div class="gear-backdrop"></div>
-          <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Panel editor">
+          <div class="gear-panel gear-panel-wide" role="dialog" aria-modal="true" aria-label="Panel editor">
             <div class="gear-head">
               <h4 id="tk-panel-heading">New panel</h4>
               <button type="button" class="gear-close" id="tk-panel-close" aria-label="Close">✕</button>

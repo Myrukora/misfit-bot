@@ -123,6 +123,22 @@ func (m *TicketsModule) onClaimButton(e *events.ComponentInteractionCreate, tick
 	guildID := guildIDOf(e)
 	userID := e.User().ID.String()
 	name := effectiveName(e)
+	// Load first: the gate needs the ticket's type (helper roles, allow_claim).
+	// The mutation below re-checks status/claimer, so a concurrent close or a
+	// double click still cannot be overwritten.
+	cur, err := m.store.load(guildID, ticketID)
+	if err != nil || cur == nil || cur.Status != "open" {
+		m.ephemeralErr(e, "This ticket no longer exists or is closed.")
+		return
+	}
+	if !m.isHelperInteraction(e, cur) {
+		m.ephemeralErr(e, "Only helpers can claim tickets.")
+		return
+	}
+	if !m.claimEnabled(cur) {
+		m.ephemeralErr(e, "Claiming is disabled for this ticket type.")
+		return
+	}
 	// Compare-and-set under the store lock: two fast clicks (or an in-chat
 	// claim landing at the same moment) cannot both win.
 	tk, changed, err := m.store.mutate(guildID, ticketID, func(cur *modules.Ticket) bool {
@@ -155,13 +171,13 @@ func (m *TicketsModule) onClaimButton(e *events.ComponentInteractionCreate, tick
 
 func (m *TicketsModule) onCloseButton(e *events.ComponentInteractionCreate, ticketID string) {
 	guildID := guildIDOf(e)
-	if !m.canManage(e) {
-		m.ephemeralErr(e, "You need the **Manage Messages** permission to close tickets.")
-		return
-	}
 	tk, err := m.store.load(guildID, ticketID)
 	if err != nil || tk == nil || tk.Status != "open" {
 		m.ephemeralErr(e, "This ticket is already closed.")
+		return
+	}
+	if !m.canCloseTicket(e, tk) {
+		m.ephemeralErr(e, "Only helpers or the ticket opener can close tickets.")
 		return
 	}
 	// Acknowledge FIRST (3s interaction deadline), then run the close; the
@@ -173,6 +189,39 @@ func (m *TicketsModule) onCloseButton(e *events.ComponentInteractionCreate, tick
 	e.CreateMessage(discord.MessageCreate{
 		Embeds: []discord.Embed{embedSuccess("Closed", "Ticket **"+ticketID+"** closed — transcript is being saved.")},
 	})
+}
+
+// isHelperInteraction is the interaction-side twin of isHelper: helper role
+// of the ticket's type, Manage Messages, or bot owner/elevated.
+func (m *TicketsModule) isHelperInteraction(e *events.ComponentInteractionCreate, tk *modules.Ticket) bool {
+	if m.canManage(e) {
+		return true
+	}
+	return isHelperByType(m, tk, e.User().ID.String())
+}
+
+// claimEnabled reports whether the ticket's type still allows claiming. A
+// vanished type stays permissive so an old ticket can still be handled.
+func (m *TicketsModule) claimEnabled(tk *modules.Ticket) bool {
+	g, ok := m.typeOf(tk.GuildID, tk.EffectiveType())
+	return !ok || g.AllowClaimOn()
+}
+
+// openerMayClose reports whether the ticket's type still allows the opener to
+// close their own ticket. A vanished type stays permissive.
+func (m *TicketsModule) openerMayClose(tk *modules.Ticket) bool {
+	g, ok := m.typeOf(tk.GuildID, tk.EffectiveType())
+	return !ok || g.AllowCloseOn()
+}
+
+// canCloseTicket: helpers (helper roles / Manage Messages / owner-elevated)
+// can always close; the opener can close their own ticket while its type
+// still allows closing.
+func (m *TicketsModule) canCloseTicket(e *events.ComponentInteractionCreate, tk *modules.Ticket) bool {
+	if e.User().ID.String() == tk.OpenerID {
+		return m.openerMayClose(tk)
+	}
+	return m.isHelperInteraction(e, tk)
 }
 
 // closeTicketFromInteraction runs CloseTicket with panic recovery so a close
