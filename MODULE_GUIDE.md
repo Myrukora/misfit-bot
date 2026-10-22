@@ -353,7 +353,6 @@ appear under a **▸ Tickets** section and a module named `hello` under
 ?unload — Unload a module so its commands stop working. Use `all` to unload every module.
 ?reload — Reload a module to pick up changes without restarting the bot. Use `all` for all.
 ▸ Tickets
-?tickets — Ticket system configuration for this server
 ?close — Close this ticket (inside the ticket channel only)
 ?claim — Claim this ticket (helpers only)
 ?add — Add a member to this ticket

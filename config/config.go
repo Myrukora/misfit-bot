@@ -66,7 +66,10 @@ func NormalizeListen(s string) string {
 }
 
 type BotConfig struct {
-	Token       string   `yaml:"token"`
+	// Token is a SECRET and deliberately not serialized: it lives in
+	// <dir>/.env as DISCORD_BOT_TOKEN (0600) — see secrets.go. Load fills it
+	// from that file, Set writes it there, and Save never emits it.
+	Token       string   `yaml:"-"`
 	Prefix      string   `yaml:"prefix"`
 	OwnerID     string   `yaml:"owner_id"`
 	ElevatedIDs []string `yaml:"elevated_ids"`
@@ -291,6 +294,12 @@ func Load(dir string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config.yml: %w", err)
 	}
 
+	// The bot token is a secret (see secrets.go): it comes from <dir>/.env,
+	// never from config.yml (BotConfig.Token is yaml:"-").
+	if tok := ReadEnvToken(dir); tok != "" {
+		cfg.Bot.Token = tok
+	}
+
 	return &cfg, nil
 }
 
@@ -349,7 +358,14 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.Bot.Prefix = value
 	case "token":
-		c.Bot.Token = value
+		// A secret: write it to <dir>/.env (0600), never config.yml.
+		v := strings.TrimSpace(value)
+		if c.FilePath != "" {
+			if err := WriteEnvToken(filepath.Dir(c.FilePath), v); err != nil {
+				return fmt.Errorf("writing the bot token to .env: %w", err)
+			}
+		}
+		c.Bot.Token = v
 	case "owner_id":
 		c.Bot.OwnerID = value
 	case "tos_url":

@@ -472,6 +472,30 @@
     });
   });
 
+  /* ---------- tickets: dashboard-managed configuration ---------- */
+  var tkTypes = byId("tickets-types");
+  var tkPanels = byId("tickets-panels");
+  var tkSettings = byId("tickets-settings");
+  var tkGuild = (tkTypes && tkTypes.dataset.guild) ||
+    (tkPanels && tkPanels.dataset.guild) ||
+    (tkSettings && tkSettings.dataset.guild) || "";
+  var tkBase = "/api/tickets/" + encodeURIComponent(tkGuild);
+
+  var tkSetChecked = function (box, ids) {
+    var map = {};
+    (ids || []).forEach(function (id) { map[id] = true; });
+    box.querySelectorAll("input[type=checkbox]").forEach(function (inp) { inp.checked = !!map[inp.value]; });
+  };
+  var tkChecked = function (box) {
+    return Array.prototype.slice.call(box.querySelectorAll("input[type=checkbox]:checked"))
+      .map(function (inp) { return inp.value; });
+  };
+  var tkShow = function (modal, show) { if (modal) modal.hidden = !show; };
+  var tkFail = function (e) { toast(e.message, true); };
+  var tkHasOption = function (sel, value) {
+    return Array.prototype.some.call(sel.options, function (o) { return o.value === value; });
+  };
+
   /* ---------- tickets: close from list or transcript ---------- */
   document.querySelectorAll(".tk-close").forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -492,104 +516,260 @@
     });
   });
 
-  /* ---------- tickets: panels table (actions + question editor) ---------- */
-  var panelsCard = byId("tickets-panels");
-  if (panelsCard) {
-    var panelsGuild = panelsCard.dataset.guild || "";
-    var panelURL = function (name, action) {
-      return "/api/tickets/" + encodeURIComponent(panelsGuild) +
-        "/panels/" + encodeURIComponent(name) + "/" + action;
-    };
-    var panelMsg = byId("tickets-panels-msg");
-    var panelError = function (text) {
-      if (!panelMsg) { toast(text, true); return; }
-      panelMsg.textContent = text;
-      panelMsg.hidden = false;
-    };
-    var panelOK = function (text) {
-      if (panelMsg) { panelMsg.textContent = text; panelMsg.hidden = false; }
-      toast(text);
-      setTimeout(function () { location.reload(); }, 700);
-    };
-
-    document.querySelectorAll(".tk-panel-action").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var name = btn.dataset.name, action = btn.dataset.action;
-        if (action === "resend" && !confirm("Post panel '" + name + "' again?")) return;
-        btn.disabled = true;
-        api("POST", panelURL(name, action), {})
-          .then(function () { panelOK("Panel " + name + " " + action + "ed"); })
-          .catch(function (e) { panelError(name + ": " + e.message); btn.disabled = false; });
+  /* ---------- tickets: settings (log channel) ---------- */
+  if (tkSettings) {
+    var tkLog = byId("tk-log-channel");
+    var tkSettingsSave = byId("tk-settings-save");
+    if (tkLog && tkSettingsSave) {
+      tkSettingsSave.addEventListener("click", function () {
+        tkSettingsSave.disabled = true;
+        api("POST", tkBase + "/settings", { log_channel: tkLog.value })
+          .then(function () { toast("Ticket settings saved"); })
+          .catch(tkFail)
+          .finally(function () { tkSettingsSave.disabled = false; });
       });
-    });
-
-    /* Question editor: toggle, add/remove rows (max 5), save. */
-    var syncQAdd = function (editor) {
-      var add = editor.querySelector(".tk-qadd");
-      var rows = editor.querySelectorAll(".tk-qrow");
-      if (add) add.disabled = rows.length >= 5;
-      rows.forEach(function (row) {
-        var rm = row.querySelector(".tk-qremove");
-        if (rm) rm.disabled = rows.length <= 1;
-      });
-    };
-    var bindQRow = function (editor, row) {
-      var rm = row.querySelector(".tk-qremove");
-      if (!rm) return;
-      rm.addEventListener("click", function () {
-        row.remove();
-        syncQAdd(editor);
-      });
-    };
-    document.querySelectorAll(".tk-qeditor").forEach(function (editor) {
-      var toggleBtn = editor.closest("tr").previousElementSibling.querySelector(".tk-qtoggle");
-      editor.querySelectorAll(".tk-qrow").forEach(function (row) { bindQRow(editor, row); });
-      syncQAdd(editor);
-      if (toggleBtn) {
-        toggleBtn.addEventListener("click", function () {
-          editor.hidden = !editor.hidden;
-          if (!editor.hidden) {
-            var first = editor.querySelector(".tk-q-label");
-            if (first) first.focus();
-          }
-        });
-      }
-      var addBtn = editor.querySelector(".tk-qadd");
-      var tpl = byId("tk-qrow-tpl");
-      if (addBtn && tpl) {
-        addBtn.addEventListener("click", function () {
-          var rows = editor.querySelector(".tk-qrows");
-          if (!rows || rows.querySelectorAll(".tk-qrow").length >= 5) return;
-          var row = tpl.content.firstElementChild.cloneNode(true);
-          rows.appendChild(row);
-          bindQRow(editor, row);
-          syncQAdd(editor);
-        });
-      }
-      var saveBtn = editor.querySelector(".tk-qsave");
-      if (saveBtn) {
-        saveBtn.addEventListener("click", function () {
-          var questions = [];
-          editor.querySelectorAll(".tk-qrow").forEach(function (row) {
-            var label = (row.querySelector(".tk-q-label") || {}).value || "";
-            label = label.trim();
-            if (!label) return;
-            questions.push({
-              label: label,
-              style: (row.querySelector(".tk-q-style") || {}).value || "short",
-              required: !!(row.querySelector(".tk-q-required") || {}).checked,
-              placeholder: ((row.querySelector(".tk-q-placeholder") || {}).value || "").trim(),
-              value: ((row.querySelector(".tk-q-value") || {}).value || "").trim()
-            });
-          });
-          saveBtn.disabled = true;
-          api("POST", panelURL(editor.dataset.name, "questions"), { questions: questions })
-            .then(function () { panelOK("Questions saved for " + editor.dataset.name); })
-            .catch(function (e) { panelError(editor.dataset.name + ": " + e.message); saveBtn.disabled = false; });
-        });
-      }
-    });
+    }
   }
+
+  /* ---------- tickets: type editor (shared modal) ---------- */
+  var typeModal = byId("tk-type-modal");
+  if (typeModal && tkTypes) {
+    var typeKey = byId("tk-type-key"), typeLabel = byId("tk-type-label"),
+      typeCategory = byId("tk-type-category"), typePing = byId("tk-type-ping"),
+      typeHelper = byId("tk-type-helper"), typeAccess = byId("tk-type-access"),
+      typeWelcome = byId("tk-type-welcome"), typeBody = byId("tk-type-body"),
+      typeButton = byId("tk-type-button"), typeEmoji = byId("tk-type-emoji"),
+      typeColor = byId("tk-type-color"), typeEnabled = byId("tk-type-enabled"),
+      typeClaim = byId("tk-type-claim"), typeClose = byId("tk-type-close"),
+      typeHeading = byId("tk-type-heading"), typeSave = byId("tk-type-save");
+    var typeMode = "create";
+
+    var typeColorHex = function (n) {
+      var h = (n || 0).toString(16);
+      while (h.length < 6) h = "0" + h;
+      return "#" + h;
+    };
+    var typeColorInt = function (hex) {
+      var h = (hex || "").replace("#", "");
+      return /^[0-9a-fA-F]{6}$/.test(h) ? parseInt(h, 16) : 0;
+    };
+
+    var fillType = function (t) {
+      typeMode = t ? "edit" : "create";
+      typeHeading.textContent = t ? "Edit ticket type" : "New ticket type";
+      typeKey.value = t ? t.key : "";
+      typeKey.disabled = !!t;
+      typeLabel.value = t ? t.label : "";
+      if (t && t.category && !tkHasOption(typeCategory, t.category)) {
+        var opt = document.createElement("option");
+        opt.value = t.category;
+        opt.textContent = t.category + " (unavailable)";
+        typeCategory.appendChild(opt);
+      }
+      typeCategory.value = t && t.category ? t.category : "";
+      tkSetChecked(typePing, t ? t.ping_roles : []);
+      tkSetChecked(typeHelper, t ? t.helper_roles : []);
+      tkSetChecked(typeAccess, t ? t.access_roles : []);
+      typeWelcome.value = t ? t.welcome_message || "" : "";
+      typeBody.value = t ? t.embed_body || "" : "";
+      typeButton.value = t ? t.button_label || "" : "";
+      typeEmoji.value = t ? t.button_emoji || "" : "";
+      typeColor.value = typeColorHex(t ? t.color : 0x5865f2);
+      typeEnabled.checked = !!(t && t.enabled);
+      typeClaim.checked = !t || t.allow_claim;
+      typeClose.checked = !t || t.allow_close;
+    };
+
+    document.querySelectorAll(".tk-type-edit").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        api("GET", tkBase + "/types/" + encodeURIComponent(btn.dataset.key))
+          .then(function (t) { fillType(t); tkShow(typeModal, true); })
+          .catch(tkFail)
+          .finally(function () { btn.disabled = false; });
+      });
+    });
+    document.querySelectorAll(".tk-type-delete").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var key = btn.dataset.key;
+        if (!confirm("Delete type '" + key + "' and its panels? This cannot be undone.")) return;
+        btn.disabled = true;
+        api("POST", tkBase + "/types/" + encodeURIComponent(key) + "/delete", {})
+          .then(function () { toast("Type " + key + " deleted"); location.reload(); })
+          .catch(function (e) { tkFail(e); btn.disabled = false; });
+      });
+    });
+    var typeAddBtn = byId("tk-type-add");
+    if (typeAddBtn) typeAddBtn.addEventListener("click", function () { fillType(null); tkShow(typeModal, true); });
+    var typeCloseBtn = byId("tk-type-close");
+    if (typeCloseBtn) typeCloseBtn.addEventListener("click", function () { tkShow(typeModal, false); });
+    var typeBackdrop = typeModal.querySelector(".gear-backdrop");
+    if (typeBackdrop) typeBackdrop.addEventListener("click", function () { tkShow(typeModal, false); });
+
+    if (typeSave) {
+      typeSave.addEventListener("click", function () {
+        var payload = {
+          label: typeLabel.value.trim(),
+          enabled: typeEnabled.checked,
+          category: typeCategory.value,
+          ping_roles: tkChecked(typePing),
+          helper_roles: tkChecked(typeHelper),
+          access_roles: tkChecked(typeAccess),
+          welcome_message: typeWelcome.value,
+          embed_body: typeBody.value,
+          button_label: typeButton.value.trim(),
+          button_emoji: typeEmoji.value.trim(),
+          color: typeColorInt(typeColor.value),
+          allow_claim: typeClaim.checked,
+          allow_close: typeClose.checked
+        };
+        var url = tkBase + "/types";
+        if (typeMode === "edit") {
+          payload.key = typeKey.value;
+          url += "/" + encodeURIComponent(typeKey.value);
+        } else {
+          payload.key = typeKey.value.trim().toLowerCase();
+        }
+        typeSave.disabled = true;
+        api("POST", url, payload)
+          .then(function () { toast("Type saved"); location.reload(); })
+          .catch(function (e) { tkFail(e); typeSave.disabled = false; });
+      });
+    }
+  }
+
+  /* ---------- tickets: panel editor (shared modal) ---------- */
+  var panelModal = byId("tk-panel-modal");
+  if (panelModal && tkPanels) {
+    var pName = byId("tk-panel-name"), pType = byId("tk-panel-type"),
+      pChannel = byId("tk-panel-channel"), pTitle = byId("tk-panel-title"),
+      pDesc = byId("tk-panel-description"), pModalTitle = byId("tk-panel-modal-title"),
+      pHeading = byId("tk-panel-heading"), pSave = byId("tk-panel-save"),
+      pQuestions = byId("tk-panel-questions"), pQAdd = byId("tk-panel-qadd");
+    var panelMode = "create";
+    var qTpl = byId("tk-qrow-tpl");
+
+    var syncQAdd = function () {
+      if (pQAdd) pQAdd.disabled = pQuestions.querySelectorAll(".tk-qrow").length >= 5;
+    };
+    var bindQRow = function (row) {
+      var rm = row.querySelector(".tk-qremove");
+      if (rm) rm.addEventListener("click", function () { row.remove(); syncQAdd(); });
+    };
+    var addQRow = function (q) {
+      if (!qTpl || pQuestions.querySelectorAll(".tk-qrow").length >= 5) return;
+      var row = qTpl.content.firstElementChild.cloneNode(true);
+      if (q) {
+        row.querySelector(".tk-q-label").value = q.label || "";
+        row.querySelector(".tk-q-style").value = q.style === "paragraph" ? "paragraph" : "short";
+        row.querySelector(".tk-q-required").checked = !!q.required;
+        row.querySelector(".tk-q-placeholder").value = q.placeholder || "";
+        row.querySelector(".tk-q-value").value = q.value || "";
+      }
+      pQuestions.appendChild(row);
+      bindQRow(row);
+      syncQAdd();
+    };
+
+    var fillPanel = function (p) {
+      panelMode = p ? "edit" : "create";
+      pHeading.textContent = p ? "Edit panel" : "New panel";
+      pName.value = p ? p.name : "";
+      pName.disabled = !!p;
+      if (p && p.type && !tkHasOption(pType, p.type)) {
+        var opt = document.createElement("option");
+        opt.value = p.type;
+        opt.textContent = p.type + " (missing type)";
+        pType.appendChild(opt);
+      }
+      pType.value = p ? p.type || "" : (pType.options[0] || {}).value || "";
+      if (p && p.channel_id && !tkHasOption(pChannel, p.channel_id)) {
+        var chOpt = document.createElement("option");
+        chOpt.value = p.channel_id;
+        chOpt.textContent = p.channel_id + " (unavailable)";
+        pChannel.appendChild(chOpt);
+      }
+      pChannel.value = p && p.channel_id ? p.channel_id : (pChannel.options[0] || {}).value || "";
+      pTitle.value = p ? p.title || "" : "";
+      pDesc.value = p ? p.description || "" : "";
+      pModalTitle.value = p ? p.modal_title || "" : "";
+      pQuestions.innerHTML = "";
+      (p && p.questions ? p.questions : []).forEach(addQRow);
+      syncQAdd();
+    };
+
+    document.querySelectorAll(".tk-panel-edit").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        btn.disabled = true;
+        api("GET", tkBase + "/panels/" + encodeURIComponent(btn.dataset.name))
+          .then(function (p) { fillPanel(p); tkShow(panelModal, true); })
+          .catch(tkFail)
+          .finally(function () { btn.disabled = false; });
+      });
+    });
+    document.querySelectorAll(".tk-panel-delete").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var name = btn.dataset.name;
+        if (!confirm("Delete panel '" + name + "'? The posted message is removed too.")) return;
+        btn.disabled = true;
+        api("POST", tkBase + "/panels/" + encodeURIComponent(name) + "/delete", {})
+          .then(function () { toast("Panel " + name + " deleted"); location.reload(); })
+          .catch(function (e) { tkFail(e); btn.disabled = false; });
+      });
+    });
+    var panelAddBtn = byId("tk-panel-add");
+    if (panelAddBtn) panelAddBtn.addEventListener("click", function () { fillPanel(null); tkShow(panelModal, true); });
+    var panelCloseBtn = byId("tk-panel-close");
+    if (panelCloseBtn) panelCloseBtn.addEventListener("click", function () { tkShow(panelModal, false); });
+    var panelBackdrop = panelModal.querySelector(".gear-backdrop");
+    if (panelBackdrop) panelBackdrop.addEventListener("click", function () { tkShow(panelModal, false); });
+    if (pQAdd) pQAdd.addEventListener("click", function () { addQRow(null); });
+
+    if (pSave) {
+      pSave.addEventListener("click", function () {
+        var questions = [];
+        pQuestions.querySelectorAll(".tk-qrow").forEach(function (row) {
+          var label = (row.querySelector(".tk-q-label") || {}).value || "";
+          label = label.trim();
+          if (!label) return;
+          questions.push({
+            label: label,
+            style: (row.querySelector(".tk-q-style") || {}).value || "short",
+            required: !!(row.querySelector(".tk-q-required") || {}).checked,
+            placeholder: ((row.querySelector(".tk-q-placeholder") || {}).value || "").trim(),
+            value: ((row.querySelector(".tk-q-value") || {}).value || "").trim()
+          });
+        });
+        var payload = {
+          name: pName.value.trim(),
+          channel_id: pChannel.value,
+          type: pType.value,
+          title: pTitle.value,
+          description: pDesc.value,
+          modal_title: pModalTitle.value.trim(),
+          questions: questions
+        };
+        var url = tkBase + "/panels";
+        if (panelMode === "edit") url += "/" + encodeURIComponent(pName.value);
+        pSave.disabled = true;
+        api("POST", url, payload)
+          .then(function () { toast("Panel saved"); location.reload(); })
+          .catch(function (e) { tkFail(e); pSave.disabled = false; });
+      });
+    }
+  }
+
+  /* ---------- tickets: panel actions (suspend/resume/resend) ---------- */
+  document.querySelectorAll(".tk-panel-action").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var name = btn.dataset.name, action = btn.dataset.action;
+      if (action === "resend" && !confirm("Post panel '" + name + "' again?")) return;
+      btn.disabled = true;
+      api("POST", tkBase + "/panels/" + encodeURIComponent(name) + "/" + action, {})
+        .then(function () { toast("Panel " + name + " " + action + "ed"); location.reload(); })
+        .catch(function (e) { tkFail(e); btn.disabled = false; });
+    });
+  });
 
   /* ---------- transcript page: image lightbox ---------- */
   var lightbox = byId("lightbox");

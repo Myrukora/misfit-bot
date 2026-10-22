@@ -61,15 +61,15 @@ See [Versioning](#versioning).
 
 ### First run
 
-Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, prefix, and bot name. The default prefix is `[p]`.
+Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, prefix, and bot name — the token is written to `.env` (mode 0600), not `config.yml`. The default prefix is `[p]`.
 
 ## Configuration
 
-All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** — it holds secrets (bot token, GitHub token, OAuth client secret) and must never be committed.
+All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** — it holds secrets (GitHub token, OAuth client secret) and must never be committed. The **Discord bot token is not in `config.yml`**: it lives in `.env` as `DISCORD_BOT_TOKEN` (mode 0600, also gitignored), written by onboarding or the dashboard/settings API and migrated out of `config.yml` automatically on the first start after upgrading.
 
 | Section | Keys |
 |---|---|
-| `bot` | `token`, `prefix`, `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url`, `bot_allowlist` |
+| `bot` | `prefix`, `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url`, `bot_allowlist` (the `token` lives in `.env`) |
 | `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
@@ -107,7 +107,7 @@ Each Lua/Python module's runtime data (config files, saves, logs) lives inside i
 
 In-repo examples of authorable (hot-loadable) modules: `examples/lua/sample.lua` and `examples/python/samplepy/`. The compiled-in Go sources — not user-loadable — live in `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/` (the ticket system), `internal/builtin/imagefilter/` (the CLIP image filter) and `internal/dashboard/` (the web dashboard — core subsystem); `modules/voice.go` is the module-facing `VoiceManager` API.
 
-A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes. The same request-time resolution drives the other opt-in module contracts (`modules.TicketProvider` / `TicketAdmin` / `TicketTranscript`): a module that implements the contract gets the dashboard surface, one that doesn't gets a stub or a 404. `modules.TicketTranscript.RefreshTranscript` is the tickets module's: it rebuilds the ticket's stored conversation log into its HTML transcript and returns the bytes, which backs `GET /api/tickets/<guild>/<ticket>/transcript` (guild-gated, downloads `ticket-<id>.html`) — so the uploaded `.html` is a cache of the log, regenerated at close and on demand, not a frozen close-time snapshot.
+A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes. The same request-time resolution drives the other opt-in module contracts (`modules.TicketProvider` / `TicketAdmin` / `TicketTranscript`): a module that implements the contract gets the dashboard surface, one that doesn't gets a stub or a 404. The tickets module is the reference: its entire management surface (types, panels, questions, per-server log channel) lives on the dashboard, and its only commands are the in-channel end-user actions (close/claim/add/remove). `modules.TicketTranscript.RefreshTranscript` is the tickets module's: it rebuilds the ticket's stored conversation log into its HTML transcript and returns the bytes, which backs `GET /api/tickets/<guild>/<ticket>/transcript` (guild-gated, downloads `ticket-<id>.html`) — so the uploaded `.html` is a cache of the log, regenerated at close and on demand, not a frozen close-time snapshot.
 
 **See [MODULE_GUIDE.md](MODULE_GUIDE.md)** for the full module-authoring guide (Python and Lua).
 

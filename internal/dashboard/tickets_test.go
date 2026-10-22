@@ -28,19 +28,28 @@ import (
 // route tests can assert BOTH the HTTP shape and that a rejected request never
 // reaches the module (i.e. no panel mutation is attempted).
 type stubTickets struct {
-	mu   sync.Mutex
-	sets []panelSetCall
+	mu sync.Mutex
 
 	// TicketFilePath behavior: path returned / error to return.
 	filePath string
 	fileErr  error
 
-	// List behavior: nil (the zero value) for every list means "empty", so the
-	// existing route tests keep seeing the same results as before.
+	// List behavior: nil (the zero value) for every list means "empty", so
+	// tests that don't configure a list behave exactly as before.
 	openTickets   []modules.TicketSummary
 	closedTickets []modules.TicketSummary
 	types         []modules.TypeSummary
 	panels        []modules.PanelSummary
+
+	// Dashboard management (TicketAdmin): in-memory state + recorded calls.
+	typeDetails    []modules.TypeDetail
+	settings       modules.TicketGuildSettings
+	panelWrites    []panelWriteCall
+	panelDeletes   []string
+	panelActions   []panelActionCall
+	typeWrites     []typeWriteCall
+	typeDeletes    []string
+	settingsWrites []settingsWriteCall
 
 	// TicketTranscript behavior: bytes returned / error to return, plus the
 	// recorded calls. The zero value (nil bytes, nil error) keeps existing
@@ -50,16 +59,48 @@ type stubTickets struct {
 	transcriptCalls []transcriptCall
 }
 
-type panelSetCall struct {
-	guild     string
-	panel     string
-	questions []modules.PanelQuestion
+type panelWriteCall struct {
+	guild string
+	name  string
+	in    modules.PanelInput
 }
 
-func (s *stubTickets) setCalls() []panelSetCall {
+type panelActionCall struct {
+	guild, name, action string
+}
+
+type typeWriteCall struct {
+	guild, key string
+	in         modules.TypeDetail
+}
+
+type settingsWriteCall struct {
+	guild string
+	in    modules.TicketGuildSettings
+}
+
+func (s *stubTickets) panelWriteLog() []panelWriteCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return append([]panelSetCall(nil), s.sets...)
+	return append([]panelWriteCall(nil), s.panelWrites...)
+}
+
+func (s *stubTickets) panelActionLog() []panelActionCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]panelActionCall(nil), s.panelActions...)
+}
+
+func (s *stubTickets) typeWriteLog() []typeWriteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]typeWriteCall(nil), s.typeWrites...)
+}
+
+func (s *stubTickets) settingsWriteLog() []settingsWriteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]settingsWriteCall(nil), s.settingsWrites...)
 }
 
 type transcriptCall struct {
@@ -117,10 +158,108 @@ func (s *stubTickets) ListPanels(string) ([]modules.PanelSummary, error) {
 	return s.panels, nil
 }
 
-func (s *stubTickets) SetPanelQuestions(guildID, panel string, questions []modules.PanelQuestion) error {
+func (s *stubTickets) GetPanel(_ string, name string) (modules.PanelSummary, error) {
+	for _, p := range s.panels {
+		if p.Name == name {
+			return p, nil
+		}
+	}
+	return modules.PanelSummary{}, errors.New("unknown panel")
+}
+
+func (s *stubTickets) CreatePanel(guildID string, in modules.PanelInput) (modules.PanelSummary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.sets = append(s.sets, panelSetCall{guild: guildID, panel: panel, questions: questions})
+	s.panelWrites = append(s.panelWrites, panelWriteCall{guild: guildID, name: in.Name, in: in})
+	p := modules.PanelSummary{
+		Name: in.Name, TypeKey: in.TypeKey, ChannelID: in.ChannelID,
+		Title: in.Title, Description: in.Description, ModalTitle: in.ModalTitle,
+		Questions: in.Questions,
+	}
+	s.panels = append(s.panels, p)
+	return p, nil
+}
+
+func (s *stubTickets) UpdatePanel(guildID, name string, in modules.PanelInput) (modules.PanelSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.panelWrites = append(s.panelWrites, panelWriteCall{guild: guildID, name: name, in: in})
+	p := modules.PanelSummary{
+		Name: name, TypeKey: in.TypeKey, ChannelID: in.ChannelID,
+		Title: in.Title, Description: in.Description, ModalTitle: in.ModalTitle,
+		Questions: in.Questions,
+	}
+	for i := range s.panels {
+		if s.panels[i].Name == name {
+			s.panels[i] = p
+			return p, nil
+		}
+	}
+	// The route tests care that the write is forwarded; an unknown name is
+	// treated as an upsert by the stub (the module validates existence).
+	s.panels = append(s.panels, p)
+	return p, nil
+}
+
+func (s *stubTickets) DeletePanel(_ string, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.panelDeletes = append(s.panelDeletes, name)
+	return nil
+}
+
+func (s *stubTickets) PanelAction(guildID, name, action string) (modules.PanelSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.panelActions = append(s.panelActions, panelActionCall{guild: guildID, name: name, action: action})
+	return modules.PanelSummary{Name: name}, nil
+}
+
+func (s *stubTickets) ListTypeDetails(string) ([]modules.TypeDetail, error) {
+	return s.typeDetails, nil
+}
+
+func (s *stubTickets) GetType(_ string, key string) (modules.TypeDetail, error) {
+	for _, t := range s.typeDetails {
+		if t.Key == key {
+			return t, nil
+		}
+	}
+	return modules.TypeDetail{}, errors.New("unknown type")
+}
+
+func (s *stubTickets) CreateType(guildID string, in modules.TypeDetail) (modules.TypeDetail, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.typeWrites = append(s.typeWrites, typeWriteCall{guild: guildID, key: in.Key, in: in})
+	s.typeDetails = append(s.typeDetails, in)
+	return in, nil
+}
+
+func (s *stubTickets) UpdateType(guildID, key string, in modules.TypeDetail) (modules.TypeDetail, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	in.Key = key
+	s.typeWrites = append(s.typeWrites, typeWriteCall{guild: guildID, key: key, in: in})
+	return in, nil
+}
+
+func (s *stubTickets) DeleteType(_ string, key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.typeDeletes = append(s.typeDeletes, key)
+	return nil
+}
+
+func (s *stubTickets) GetGuildSettings(string) (modules.TicketGuildSettings, error) {
+	return s.settings, nil
+}
+
+func (s *stubTickets) SetGuildSettings(guildID string, in modules.TicketGuildSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = in
+	s.settingsWrites = append(s.settingsWrites, settingsWriteCall{guild: guildID, in: in})
 	return nil
 }
 
@@ -270,42 +409,43 @@ func TestTicketsPanelActionRejectsUnsupported(t *testing.T) {
 	}
 }
 
-// TestTicketsQuestionsBadBody422 pins that a malformed questions payload is
+// TestTicketsPanelUpdateBadBody422 pins that a malformed panel payload is
 // refused with 422 and never reaches the module.
-func TestTicketsQuestionsBadBody422(t *testing.T) {
+func TestTicketsPanelUpdateBadBody422(t *testing.T) {
 	stub := &stubTickets{}
 	m, cookie := ticketsTestModule(t, stub)
-	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/panels/p1/questions", `{"questions":"nope"}`, "tok")
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/panels/p1", `{"questions":"nope"}`, "tok")
 	if w.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("status = %d, want 422 (body %s)", w.Code, w.Body.String())
 	}
-	if n := len(stub.setCalls()); n != 0 {
+	if n := len(stub.panelWriteLog()); n != 0 {
 		t.Fatalf("module reached %d times on a bad body, want 0", n)
 	}
 }
 
-// TestTicketsQuestionsRequiresCSRF pins the CSRF gate: without a matching token
-// the request is 403 and the module is never called.
-func TestTicketsQuestionsRequiresCSRF(t *testing.T) {
+// TestTicketsPanelUpdateRequiresCSRF pins the CSRF gate: without a matching
+// token the request is 403 and the module is never called.
+func TestTicketsPanelUpdateRequiresCSRF(t *testing.T) {
 	stub := &stubTickets{}
 	m, cookie := ticketsTestModule(t, stub)
-	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/panels/p1/questions",
-		`{"questions":[{"label":"Why?"}]}`, "wrong-token")
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/panels/p1",
+		`{"channel_id":"123","type":"support","questions":[{"label":"Why?"}]}`, "wrong-token")
 	if w.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403 (body %s)", w.Code, w.Body.String())
 	}
-	if n := len(stub.setCalls()); n != 0 {
+	if n := len(stub.panelWriteLog()); n != 0 {
 		t.Fatalf("module reached %d times without CSRF, want 0", n)
 	}
 }
 
-// TestTicketsQuestionsForwardsPayload pins the happy path: the decoded payload
-// reaches SetPanelQuestions with the guild, panel name and questions intact, and
-// the response is the documented OK body.
-func TestTicketsQuestionsForwardsPayload(t *testing.T) {
+// TestTicketsPanelUpdateForwardsPayload pins the happy path: a panel write
+// reaches UpdatePanel with the guild, name and all fields intact.
+func TestTicketsPanelUpdateForwardsPayload(t *testing.T) {
 	stub := &stubTickets{}
 	m, cookie := ticketsTestModule(t, stub)
 	payload, err := json.Marshal(map[string]any{
+		"name": "ignored", "channel_id": "123", "type": "support",
+		"title": "Need help?", "description": "Open a ticket", "modal_title": "Details",
 		"questions": []modules.PanelQuestion{
 			{Label: "What happened?", Style: "paragraph", Required: true},
 			{Label: "Steam ID", Placeholder: "765…", Style: "short"},
@@ -314,29 +454,63 @@ func TestTicketsQuestionsForwardsPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	w := ticketsReq(m, cookie, "POST", "/api/tickets/g7/panels/support/questions", string(payload), "tok")
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/g7/panels/support", string(payload), "tok")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
 	}
-	calls := stub.setCalls()
+	calls := stub.panelWriteLog()
 	if len(calls) != 1 {
 		t.Fatalf("module called %d times, want 1", len(calls))
 	}
 	got := calls[0]
-	if got.guild != "g7" || got.panel != "support" {
-		t.Fatalf("got guild=%q panel=%q, want g7/support", got.guild, got.panel)
+	if got.guild != "g7" || got.name != "support" {
+		t.Fatalf("got guild=%q name=%q, want g7/support", got.guild, got.name)
 	}
-	if len(got.questions) != 2 {
-		t.Fatalf("got %d questions, want 2", len(got.questions))
+	if got.in.Title != "Need help?" || got.in.ChannelID != "123" || got.in.TypeKey != "support" {
+		t.Fatalf("fields mangled: %+v", got.in)
 	}
-	if got.questions[0].Label != "What happened?" || got.questions[0].Style != "paragraph" || !got.questions[0].Required {
-		t.Fatalf("question 0 mangled: %+v", got.questions[0])
+	if len(got.in.Questions) != 2 || got.in.Questions[0].Label != "What happened?" {
+		t.Fatalf("questions mangled: %+v", got.in.Questions)
 	}
-	if got.questions[1].Placeholder != "765…" {
-		t.Fatalf("question 1 mangled: %+v", got.questions[1])
+}
+
+// TestTicketsTypeCreateForwardsPayload pins the type editor write path.
+func TestTicketsTypeCreateForwardsPayload(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	payload, err := json.Marshal(map[string]any{
+		"key": "support", "label": "Support", "category": "123", "enabled": true,
+		"ping_roles": []string{"9"}, "helper_roles": []string{"8"},
+		"access_roles": []string{}, "color": 0x5865F2,
+		"allow_claim": true, "allow_close": true,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
 	}
-	if !strings.Contains(w.Body.String(), `"ok":true`) {
-		t.Fatalf("body = %s, want ok:true", w.Body.String())
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/g7/types", string(payload), "tok")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	calls := stub.typeWriteLog()
+	if len(calls) != 1 || calls[0].guild != "g7" || calls[0].key != "support" {
+		t.Fatalf("module calls = %+v, want one g7/support", calls)
+	}
+	if calls[0].in.Label != "Support" || !calls[0].in.Enabled || calls[0].in.Color != 0x5865F2 {
+		t.Fatalf("type fields mangled: %+v", calls[0].in)
+	}
+}
+
+// TestTicketsSettingsSaveForwardsPayload pins the log-channel write.
+func TestTicketsSettingsSaveForwardsPayload(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/g7/settings", `{"log_channel":"123"}`, "tok")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	calls := stub.settingsWriteLog()
+	if len(calls) != 1 || calls[0].guild != "g7" || calls[0].in.LogChannel != "123" {
+		t.Fatalf("settings calls = %+v, want one g7/123", calls)
 	}
 }
 
@@ -442,15 +616,23 @@ func TestTicketsPanelsCardRenders(t *testing.T) {
 	d.GuildID = "1"
 	d.GuildName = "G"
 	d.Content = struct {
-		GuildID string
-		Open    any
-		Closed  any
-		Types   any
-		Panels  any
-		Error   string
+		GuildID      string
+		Open         any
+		Closed       any
+		TypeDetails  []modules.TypeDetail
+		Panels       []modules.PanelSummary
+		Settings     modules.TicketGuildSettings
+		Channels     []entityOpt
+		Categories   []entityOpt
+		Roles        []entityOpt
+		ChannelNames map[string]string
+		Error        string
 	}{
 		GuildID: "1",
 		Open:    []modules.TicketSummary{{ID: "support-0001", Type: "support", OpenedAt: time.Now()}},
+		TypeDetails: []modules.TypeDetail{
+			{Key: "support", Label: "Support", Enabled: true, Category: "123"},
+		},
 		Panels: []modules.PanelSummary{{
 			Name: "p1", TypeKey: "support", ChannelID: "123", Suspended: true,
 			Questions: []modules.PanelQuestion{
@@ -458,6 +640,7 @@ func TestTicketsPanelsCardRenders(t *testing.T) {
 				{Label: "Q2", Style: "short", Value: "v"},
 			},
 		}},
+		ChannelNames: map[string]string{"123": "help-desk"},
 	}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_tickets", d); err != nil {
@@ -465,10 +648,13 @@ func TestTicketsPanelsCardRenders(t *testing.T) {
 	}
 	out := sb.String()
 	for _, want := range []string{
+		`id="tickets-settings"`,
+		`id="tickets-types"`,
 		`id="tickets-panels"`,
 		`data-name="p1"`,
 		`data-action="resume"`, // suspended panel offers Resume, not Suspend
-		`tk-qeditor`, `tk-qrow-tpl`, `value="v"`,
+		`#help-desk`,           // channel name resolved from ChannelNames
+		`id="tk-panel-modal"`, `id="tk-type-modal"`,
 		`<template id="tk-qrow-tpl">`,
 	} {
 		if !strings.Contains(out, want) {
@@ -554,6 +740,9 @@ func TestTicketsListPageRendersProviderRows(t *testing.T) {
 			{ID: "staff-0002", Type: "staff", GuildID: "1", OpenerID: "43", ClosedAt: now},
 		},
 		types:  []modules.TypeSummary{{Key: "staff", Label: "Staff", Enabled: true}},
+		typeDetails: []modules.TypeDetail{
+			{Key: "staff", Label: "Staff", Enabled: true, Category: "123"},
+		},
 		panels: []modules.PanelSummary{{Name: "p1", TypeKey: "staff", ChannelID: "123"}},
 	}
 	m, cookie := ticketsTestModule(t, stub)

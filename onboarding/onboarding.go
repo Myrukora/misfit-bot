@@ -82,12 +82,16 @@ func Run(dir string) (*config.Config, error) {
 	cfg.Logging.FilePath = "logs/bot.log"
 	cfg.Logging.Level = "info"
 
+	if err := config.WriteEnvToken(dir, cfg.Bot.Token); err != nil {
+		return nil, fmt.Errorf("failed to save the bot token to .env: %w", err)
+	}
 	if err := config.Save(cfg, dir); err != nil {
 		return nil, fmt.Errorf("failed to save config: %w", err)
 	}
 
 	fmt.Println()
 	fmt.Println("✅ Configuration saved to config.yml")
+	fmt.Println("   The bot token was written to .env (DISCORD_BOT_TOKEN, mode 0600).")
 	fmt.Println("   Make sure to enable these Privileged Intents in Discord Developer Portal:")
 	fmt.Println("   - MESSAGE_CONTENT")
 	fmt.Println("   - GUILD_MEMBERS")

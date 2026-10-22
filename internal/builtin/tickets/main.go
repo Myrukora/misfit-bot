@@ -42,9 +42,9 @@ func New() modules.Module {
 }
 
 func (m *TicketsModule) Name() string    { return "tickets" }
-func (m *TicketsModule) Version() string { return "3.0.0" }
+func (m *TicketsModule) Version() string { return "4.0.0" }
 func (m *TicketsModule) Description() string {
-	return "Grouped ticket system: button panel, claim/close, transcripts in the dashboard"
+	return "Ticket system: dashboard-managed panels/types, in-channel claim/close, transcripts in the dashboard"
 }
 func (m *TicketsModule) Author() string { return "misfit-bot" }
 func (m *TicketsModule) Dependencies() []string {
@@ -52,12 +52,11 @@ func (m *TicketsModule) Dependencies() []string {
 }
 
 func (m *TicketsModule) Commands() []commands.Command {
-	out := make([]commands.Command, 0, len(m.prefixCommands())+len(m.inChannelCommands()))
-	out = append(out, m.prefixCommands()...)
-	out = append(out, m.inChannelCommands()...)
-	return out
+	// Configuration lives entirely on the dashboard (TicketAdmin). The only
+	// commands are the end-user actions usable inside an open ticket channel.
+	return m.inChannelCommands()
 }
-func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return m.slashCommands() }
+func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return nil }
 
 // OnLoad stores context, migrates legacy config, loads module + store state
 // and registers event hooks (button router, modal, conversation logging,

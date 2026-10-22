@@ -1277,6 +1277,35 @@ code {
     border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+/* Ticket management editors reuse the gear modal chrome; they are wider
+   because the type form carries three role pickers and a 3-up field grid. */
+#tk-type-modal .gear-panel,
+#tk-panel-modal .gear-panel {
+    width: min(760px, 100%);
+}
+
+/* One open-time question row inside the panel editor. Wraps in the modal so
+   every control stays usable at narrow widths. */
+.tk-qrow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tk-qrow .tk-q-label { flex: 1 1 160px; }
+.tk-qrow .tk-q-style { flex: 0 0 120px; }
+.tk-qrow .tk-q-placeholder { flex: 1 1 160px; }
+.tk-qrow .tk-q-value { flex: 1 1 160px; }
+
+/* Color picker: keep the field shape without the default inner padding. */
+input[type="color"].field-input {
+    padding: 4px;
+    height: 42px;
+}
+
 /* Checkbox group (multi) shared by gear pickers and multi fields */
 .multi {
     display: flex;

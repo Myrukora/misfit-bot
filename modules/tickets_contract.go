@@ -133,9 +133,9 @@ type GroupSummary struct {
 }
 
 // TicketAdmin is the OPTIONAL interface the tickets module implements for the
-// dashboard's per-guild panel surface: listing panels with their open-time
-// question forms and replacing those forms. Every other panel/type mutation is
-// performed by the [p]tickets / /tickets commands (web-exec), not here.
+// dashboard's per-guild management surface. The dashboard is the ONLY place
+// ticket types, panels and per-guild settings are managed; the in-channel
+// commands are limited to end-user actions (claim/close/add/remove).
 //
 // The dashboard resolves the admin at request time (same pattern as
 // TicketProvider / ImageFilterAdmin):
@@ -144,13 +144,70 @@ type GroupSummary struct {
 //	    if adm, ok := mod.(TicketAdmin); ok { ... }
 //	}
 //
-// A module that does not implement it simply has no panel surface: the
-// questions route answers 404 and the page renders no panels table.
+// A module that does not implement it simply has no management surface: the
+// types/panels routes answer 404 and the page renders a stub.
 type TicketAdmin interface {
+	// Panels.
 	ListPanels(guildID string) ([]PanelSummary, error)
-	// SetPanelQuestions replaces the panel's questions (nil/empty = instant open).
-	// Validates; the error is shown verbatim in the browser.
-	SetPanelQuestions(guildID, panel string, questions []PanelQuestion) error
+	GetPanel(guildID, name string) (PanelSummary, error)
+	CreatePanel(guildID string, in PanelInput) (PanelSummary, error)
+	// UpdatePanel replaces the panel's fields and question form. The name is
+	// the identity and cannot change; a channel change reposts the panel.
+	UpdatePanel(guildID, name string, in PanelInput) (PanelSummary, error)
+	DeletePanel(guildID, name string) error
+	// PanelAction performs suspend | resume | resend on one panel.
+	PanelAction(guildID, name, action string) (PanelSummary, error)
+
+	// Types.
+	ListTypeDetails(guildID string) ([]TypeDetail, error)
+	GetType(guildID, key string) (TypeDetail, error)
+	CreateType(guildID string, in TypeDetail) (TypeDetail, error)
+	// UpdateType replaces the type's fields; the key is immutable.
+	UpdateType(guildID, key string, in TypeDetail) (TypeDetail, error)
+	DeleteType(guildID, key string) error
+
+	// Per-guild settings (the transcript log channel).
+	GetGuildSettings(guildID string) (TicketGuildSettings, error)
+	SetGuildSettings(guildID string, in TicketGuildSettings) error
+}
+
+// TicketGuildSettings is the per-guild ticket configuration the dashboard
+// edits. Global settings (retention, modals, dashboard close) stay on the
+// module's WebConfigurable panel.
+type TicketGuildSettings struct {
+	LogChannel string `json:"log_channel"` // "" = don't post transcripts to Discord
+}
+
+// TypeDetail is the full ticket-type shape the dashboard editor reads and
+// writes. Key is immutable on update (the path key wins). Enabled + Category
+// are validated together: a type cannot be enabled without a category.
+type TypeDetail struct {
+	Key            string   `json:"key"`
+	Label          string   `json:"label"`
+	Enabled        bool     `json:"enabled"`
+	Category       string   `json:"category"`
+	PingRoles      []string `json:"ping_roles"`
+	HelperRoles    []string `json:"helper_roles"`
+	AccessRoles    []string `json:"access_roles"`
+	WelcomeMessage string   `json:"welcome_message"`
+	EmbedBody      string   `json:"embed_body"`
+	ButtonLabel    string   `json:"button_label"`
+	ButtonEmoji    string   `json:"button_emoji"`
+	Color          int      `json:"color"`
+	AllowClaim     bool     `json:"allow_claim"`
+	AllowClose     bool     `json:"allow_close"`
+}
+
+// PanelInput is the write shape for creating/updating a panel. Name is the
+// identity (immutable on update); Questions replace the open-time modal form.
+type PanelInput struct {
+	Name        string          `json:"name"`
+	ChannelID   string          `json:"channel_id"`
+	TypeKey     string          `json:"type"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	ModalTitle  string          `json:"modal_title"`
+	Questions   []PanelQuestion `json:"questions"`
 }
 
 // PanelSummary is one posted panel as the dashboard renders it.

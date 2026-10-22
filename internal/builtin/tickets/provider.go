@@ -179,56 +179,9 @@ func (m *TicketsModule) ListPanels(guildID string) ([]modules.PanelSummary, erro
 	panels := m.panelsSnapshot(guildID)
 	out := make([]modules.PanelSummary, 0, len(panels))
 	for _, p := range panels {
-		qs := make([]modules.PanelQuestion, 0, len(p.Questions))
-		for _, q := range p.Questions {
-			qs = append(qs, modules.PanelQuestion{
-				Label: q.Label, Placeholder: q.Placeholder, Style: q.Style,
-				Required: q.Required, Value: q.Value,
-			})
-		}
-		out = append(out, modules.PanelSummary{
-			Name: p.Name, TypeKey: p.TypeKey, ChannelID: p.ChannelID,
-			Title: p.Title, Description: p.Description, ModalTitle: p.ModalTitle,
-			Suspended: p.Suspended, Questions: qs,
-		})
+		out = append(out, panelSummary(p))
 	}
 	return out, nil
-}
-
-// SetPanelQuestions replaces a panel's open-time questions (empty = instant
-// open). Validates; the error is shown verbatim in the browser.
-func (m *TicketsModule) SetPanelQuestions(guildID, panel string, questions []modules.PanelQuestion) error {
-	if !m.isLoaded() {
-		return fmt.Errorf("tickets module is not loaded")
-	}
-	if !validGuildID(guildID) {
-		return fmt.Errorf("invalid guildID")
-	}
-	qs := make([]QuestionConfig, 0, len(questions))
-	for _, q := range questions {
-		qs = append(qs, QuestionConfig{
-			Label: q.Label, Placeholder: q.Placeholder, Style: q.Style,
-			Required: q.Required, Value: q.Value,
-		})
-	}
-	if err := validateQuestions(qs); err != nil {
-		return err
-	}
-	cfg := m.guildConfig(guildID)
-	m.mu.Lock()
-	p, ok := cfg.Panels[panel]
-	if !ok {
-		m.mu.Unlock()
-		return fmt.Errorf("unknown panel %q", panel)
-	}
-	p.Questions = qs
-	if len(qs) == 0 {
-		p.ModalTitle = ""
-	}
-	cfg.Panels[panel] = p
-	err := m.saveGuildLocked(guildID)
-	m.mu.Unlock()
-	return err
 }
 
 // memberName resolves a display name via REST.

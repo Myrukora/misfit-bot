@@ -485,7 +485,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
 		),
 		sec("Secrets", "Credentials. Owner only — elevated users see them locked.",
-			fieldRender{Key: "token", Label: "Bot token", Help: "Discord bot token from the Developer Portal. Never displayed — leave blank to keep the current value. Restart required.", Type: "secret", Value: vals["token"], OwnerOnly: true},
+			fieldRender{Key: "token", Label: "Bot token", Help: "Discord bot token from the Developer Portal. Stored in .env (DISCORD_BOT_TOKEN), never in config.yml. Never displayed — leave blank to keep the current value. Restart required.", Type: "secret", Value: vals["token"], OwnerOnly: true},
 			fieldRender{Key: "oauth_client_secret", Label: "OAuth client secret", Help: "Discord app OAuth2 secret (shared with the dashboard login). Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["oauth_client_secret"], OwnerOnly: true},
 		),
 	}

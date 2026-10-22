@@ -94,32 +94,31 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"channels": []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}},
 			"roles":    []entityOpt{{ID: "r1", Name: "@everyone"}, {ID: "r2", Name: "Staff"}},
 		}, true},
-		{"tickets.html", "gtickets", "rd_tickets", map[string]any{
-			"GuildID": "1",
-			"Types": []struct{ Key, Label string }{
-				{Key: "support", Label: "Support"},
-				{Key: "report", Label: "Report a member"},
+		{"tickets.html", "gtickets", "rd_tickets", ticketsPageData{
+			GuildID: "1",
+			TypeDetails: []modules.TypeDetail{
+				{Key: "support", Label: "Support", Enabled: true, Category: "c3", PingRoles: []string{"r2"}, HelperRoles: []string{"r2"}, Color: 0x5865F2, AllowClaim: true, AllowClose: true, ButtonLabel: "Support"},
+				{Key: "report", Label: "Report a member", Enabled: false, AllowClaim: true, AllowClose: true},
 			},
-			"Open": []struct {
-				ID, Type, OpenerID, ClaimerID string
-				OpenedAt                      time.Time
-			}{
-				{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour)},
+			Panels: []modules.PanelSummary{{
+				Name: "support_panel", TypeKey: "support", ChannelID: "c1",
+				Title: "Need help?", Description: "Open a ticket below.",
+				Questions: []modules.PanelQuestion{{Label: "What happened?", Style: "paragraph", Required: true}},
+			}},
+			Settings:     modules.TicketGuildSettings{LogChannel: "c2"},
+			Channels:     []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}},
+			Categories:   []entityOpt{{ID: "c3", Name: "Tickets"}},
+			Roles:        []entityOpt{{ID: "r1", Name: "@everyone"}, {ID: "r2", Name: "Staff"}},
+			ChannelNames: map[string]string{"c1": "general", "c2": "mod-log", "c3": "Tickets"},
+			Open: []modules.TicketSummary{
+				{ID: "support-0012", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour)},
 			},
-			"Closed": []struct {
-				ID, Type, OpenerID string
-				ClosedAt           time.Time
-			}{
-				{ID: "11", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour)},
+			Closed: []modules.TicketSummary{
+				{ID: "report-0011", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour)},
 			},
 		}, true},
-		{"tickets-empty.html", "gtickets", "rd_tickets", map[string]any{
-			"GuildID": "1", "Types": []struct{ Key, Label string }{},
-			"Open": nil, "Closed": nil,
-		}, true},
-		{"tickets-error.html", "gtickets", "rd_tickets", map[string]any{
-			"GuildID": "", "Error": "tickets module is not loaded",
-		}, true},
+		{"tickets-empty.html", "gtickets", "rd_tickets", ticketsPageData{GuildID: "1"}, true},
+		{"tickets-error.html", "gtickets", "rd_tickets", ticketsPageData{GuildID: "", Error: "tickets module is not loaded"}, true},
 		{"modules.html", "modules", "rd_modules", settingsPageData{Manage: true, MgmtRows: []moduleView{
 			{Name: "cleanup", Loaded: true, Description: "Bulk message cleanup"},
 			{Name: "tickets", Loaded: true},

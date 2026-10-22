@@ -48,7 +48,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   ├── python_ipc.go         # IPC protocol (stdin/stdout JSON messaging)
 │   ├── python_venv.go        # Per-module venv + pip install management
 │   ├── voice.go              # VoiceManager handed to modules (join/leave/play/volume via FFmpeg)
-│   ├── tickets_contract.go   # TicketProvider/TicketTranscript interfaces for the dashboard
+│   ├── tickets_contract.go   # TicketProvider/TicketAdmin/TicketTranscript interfaces for the dashboard
 │   └── imagefilter_contract.go # ImageFilterAdmin interface for the dashboard
 ├── sdk/python/misfit/     # Python SDK for module authors
 │   ├── module.py             # Module ABC (name, version, on_load, commands, etc.)
@@ -77,6 +77,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 ├── go.sum
 ├── bot                       # Compiled binary
 ├── config.yml                # Runtime config
+├── .env                      # Secrets (DISCORD_BOT_TOKEN, 0600, gitignored)
 ├── modules/                  # Dynamic (Lua/Python) loader infra + compiled-in builtin data dirs
 │   ├── module.go             # Module interface, Manager (Lua/Python dynamic loading + builtin registration)
 │   ├── lua_loader.go         # Lua module loader
@@ -103,7 +104,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   │   ├── commands.go       # Command catalog filtered via canUse (mirrors [p]help)
 │   │   ├── metrics.go        # Live metrics snapshot from cache + runtime
 │   │   ├── api.go/api2.go/api3.go # Tiered JSON API (+ imagefilter integration)
-│   │   ├── tickets.go        # Tickets module integration (lists, transcripts, files; transcript regeneration via modules.TicketTranscript)
+│   │   ├── tickets.go        # Tickets integration (lists, transcripts, files; dashboard-only type/panel/settings management via modules.TicketAdmin)
 │   │   ├── templates.go      # go:embed templates + render()/FuncMap
 │   │   ├── web/templates/    # rd_*.html only (rd_header/rd_footer chrome, rd_field partial)
 │   │   └── web/static/       # style.css (token system) + app.js (page-activation) + discord.svg
@@ -452,7 +453,7 @@ Helpers: `Success(title, desc)`, `Error(title, desc)`, `Info(title, desc)`, `War
 
 ```yaml
 bot:
-  token: "your-bot-token"
+  # token: never here — the bot token lives in .env (DISCORD_BOT_TOKEN, 0600)
   prefix: "?"
   owner_id: "123456789"
   elevated_ids: []
@@ -490,8 +491,10 @@ mcp:                      # built-in MCP server mounted at /mcp on the dashboard
   token: ""               # bearer token; empty = auto-generated on first start and saved here
 ```
 
+**The Discord bot token is not in `config.yml`**: it lives in `<bot dir>/.env` as `DISCORD_BOT_TOKEN` (mode 0600, gitignored), read by `config.Load` and written by `Config.Set("token", …)` / onboarding. On the first start after upgrading from a token-in-config.yml build, `config.MigrateTokenToEnv` moves it and rewrites `config.yml` without it (an existing `.env` token wins over the stale plaintext copy). The OAuth client secret, updater PAT and MCP bearer token still live in `config.yml`.
+
 `Config.Set(key, value)` with validation (the full accepted-key set; anything else is `unknown config key`):
-- `prefix` (rejected if empty), `token`, `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
+- `prefix` (rejected if empty), `token` (written to `.env` as `DISCORD_BOT_TOKEN`, never `config.yml`), `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
 - `log_level` — must be `debug`, `info`, `warn`, or `error`; `log_enabled` — accepts `true`/`1`/`yes`; `log_file_path` — rejected if empty
 - `modules_auto_load` (strict bool); `enabled_modules` — comma/space-separated `name` or `name=true|false` entries (bare name = enable). Enable DELETES the map entry (missing key = enabled), disable writes `name=false`. This is the key behind `[p]modules enable|disable`.
 - `dashboard_listen`, `dashboard_public_url` — write the optional top-level `dashboard:` section (non-secret infra fields the dashboard module reads to pin its bind port / public URL from the main config — used when the default `127.0.0.1:8080` is taken and the web UI can't start). `dashboard_listen` is normalized to a bare `host:port` via `NormalizeListen`, `dashboard_public_url` must start with `http://` or `https://` (see `config.go`).
@@ -643,7 +646,7 @@ streamable-HTTP transport.
 
 ### Onboarding (`onboarding/`)
 
-Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS URL, Privacy URL.
+Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS URL, Privacy URL. The token is written to `.env` (`DISCORD_BOT_TOKEN`, 0600), not `config.yml`.
 
 ### Build & Run
 
@@ -737,7 +740,7 @@ privileged ones must be enabled in the Dev Portal:
 - Self-updater (`updater/` package): poll loop (default 300s), PR + commit notification embeds (author row → bold title → markdown description; merge commits skipped; first poll silent), auto pull (refused unless the working tree is on the tracked branch) → rebuild the single binary → binary swap → `syscall.Exec` self-restart, `[p]update check|now|status|test|set`, `updater_state.json` persistence, live config via `[p]update set` / the dashboard / MCP
 - GitHub repo `Myrukora/misfit-bot` (public since 2026-08-06) + branch/PR workflow (owner review & approval for collaborator PRs; GitHub-side branch rules enforced via the `main-protection` ruleset)
 - Cleanup module (9 subcommands, pagination via `fetchMessages`)
-- Tickets module (v3, per-guild): per-server config files (`config.yml` module config + `guilds/<id>.yml`), open-time question modals, continuous local mirroring of ticket media, opened + closed log-channel posts, HTML transcripts, deleted-channel finalize (via `AddGuildChannelDelete`), and a retention sweep that runs every 24h (pruning closed tickets older than the configured window — 30 days by default, 0 = keep forever). The uploaded HTML transcript is a **cache** of that stored log, not a frozen close-time snapshot: close re-renders it from a fresh read and the close tail then re-checks the log (bounded, up to 3 passes) so an entry/edit/delete landing mid-render is reconciled before the upload, and `modules.TicketTranscript.RefreshTranscript` regenerates the file on demand — previously a message or edit arriving after the close snapshot stayed in the ticket JSON but was permanently missing from the `.html`, with no way to regenerate it.
+- Tickets module (v3, per-guild): per-server config files (`config.yml` module config + `guilds/<id>.yml`), open-time question modals, continuous local mirroring of ticket media, opened + closed log-channel posts, HTML transcripts, deleted-channel finalize (via `AddGuildChannelDelete`), and a retention sweep that runs every 24h (pruning closed tickets older than the configured window — 30 days by default, 0 = keep forever). **Management is dashboard-only** — types, panels, questions and the per-server log channel are edited on `/g/<id>/tickets` through `modules.TicketAdmin`; the former `[p]tickets` / `/tickets` configuration command tree was removed, leaving only the in-channel `close`/`claim`/`add`/`remove` commands (plus the panel/claim/close buttons). The uploaded HTML transcript is a **cache** of that stored log, not a frozen close-time snapshot: close re-renders it from a fresh read and the close tail then re-checks the log (bounded, up to 3 passes) so an entry/edit/delete landing mid-render is reconciled before the upload, and `modules.TicketTranscript.RefreshTranscript` regenerates the file on demand — previously a message or edit arriving after the close snapshot stayed in the ticket JSON but was permanently missing from the `.html`, with no way to regenerate it.
 - Cache methods on Interface (GetCachedMember/Guild/Role/Channel, GetMemberRoles)
 - Event hook system (19 event types, safeDispatch panic recovery)
 - Hooks always cleaned up on unload even on error
@@ -802,7 +805,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 19. **Subcommand args** — `cmd/bot/main.go` builds `ctx.Args` via `commands.SlashArgs`, which walks the command's declared options and emits `[group, sub, …values in declared order]` (flat subcommand: `[sub, …values]`; absent optional options are skipped so an omitted argument shifts nothing; values are stringified by type — channel/role/user/mentionable become the snowflake string). The subcommand's position depends on whether it lives in a group; the vector is produced in core, not by each handler.
 20. **Config changes** — `[p]update set <key> <value>` and the dashboard/MCP write through `Config.Set`, which persists immediately; `log_level`, `log_enabled` and `enabled_modules` take effect only after a restart. There is no core `set` or `logs` command. Discord-channel logging is not implemented in core at all.
 21. **DM permission behavior** — In DMs, `GetUserPermissions` returns 0 and `GetGuildOwnerID` returns "". Only owner/elevated can use commands with `RequiredPerm` in DMs.
-22. **Config security** — `config.yml` contains the bot token **and** the Discord OAuth `client_secret` (the `oauth:` section, used by the dashboard's user-login flow) in plaintext, plus the updater PAT and the MCP bearer token. Ensure it's in `.gitignore` and never committed to version control. Back it up owner-only from the dashboard (`POST /api/backups`, backed by `config.BackupService`) — the former `[p]backup` command is gone. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
+22. **Config security** — the Discord **bot token lives in `.env`** (`DISCORD_BOT_TOKEN`, mode 0600, gitignored), never in `config.yml`; `Config.Load` reads it from there, `Config.Set("token", …)` / onboarding write it there, and `BotConfig.Token` is `yaml:"-"` so `Save` cannot leak it back. A legacy `config.yml` token is migrated once on startup (`MigrateTokenToEnv`), with an existing `.env` value winning. `config.yml` still contains the Discord OAuth `client_secret` (the `oauth:` section, used by the dashboard's user-login flow) in plaintext, plus the updater PAT and the MCP bearer token. Ensure both files are in `.gitignore` and never committed. Config backups (`POST /api/backups`) copy `config.yml` only — they no longer include the bot token. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
 23. **Python module venvs** — Each Python module gets a `.venv/` directory inside its module folder. These are gitignored (`modules/*/.venv/`). The venv is created on first load and `pip install` runs only when `requirements.txt` hash changes.
 24. **Python runner script** — Go launches `python3 sdk/python/misfit/runner.py <module_main_path>`, NOT the user's `main.py` directly. The runner imports `main.py`, extracts the `module` global, and manages IPC. `PYTHONPATH` is set to `sdk/python` so `import misfit` works.
 25. **Python command responses are async** — Python command `Execute` closures send the command via IPC and return nil immediately. The Python process sends `respond`/`reply_text` back asynchronously. No auto-delete for Python module responses (unlike core commands).

@@ -103,8 +103,8 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_commands", map[string]any{"groups": []moduleGroup{}, "guild": "", "count": 0, "canRaw": true}},
 		{"rd_commands", commandsContent},
 		// Tickets list (redesign): populated, empty and module-missing.
-		{"rd_tickets", map[string]any{"GuildID": "1", "Types": []struct{ Key, Label string }{{"support", "Support"}}, "Open": nil, "Closed": nil}},
-		{"rd_tickets", map[string]any{"GuildID": "", "Error": "tickets module is not loaded"}},
+		{"rd_tickets", ticketsPageData{GuildID: "1"}},
+		{"rd_tickets", ticketsPageData{GuildID: "", Error: "tickets module is not loaded"}},
 		// Modules (redesign): owner management view + guild settings view
 		// (both empty-panel variants).
 		{"rd_modules", settingsPageData{Manage: true, MgmtRows: []moduleView{
@@ -400,17 +400,17 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 	d.GuildID = "1"
 	d.GuildName = "My Server"
 	now := time.Now()
-	d.Content = map[string]any{
-		"GuildID": "1",
-		"Types":   []struct{ Key, Label string }{{"support", "Support"}},
-		"Open": []struct {
-			ID, Type, OpenerID, ClaimerID string
-			OpenedAt                      time.Time
-		}{{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: now}},
-		"Closed": []struct {
-			ID, Type, OpenerID string
-			ClosedAt           time.Time
-		}{{ID: "11", Type: "report", OpenerID: "222", ClosedAt: now}},
+	d.Content = ticketsPageData{
+		GuildID: "1",
+		TypeDetails: []modules.TypeDetail{
+			{Key: "support", Label: "Support"},
+		},
+		Open: []modules.TicketSummary{
+			{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: now},
+		},
+		Closed: []modules.TicketSummary{
+			{ID: "11", Type: "report", OpenerID: "222", ClosedAt: now},
+		},
 	}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_tickets", d); err != nil {

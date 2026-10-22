@@ -1,29 +1,61 @@
+{{define "tk_role_checks"}}{{range .Content.Roles}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}{{end}}
+
 {{define "rd_tickets"}}{{template "rd_header" .}}
         {{if .Content.Error}}
         <section class="card"><p class="muted">{{.Content.Error}}</p></section>
         {{else if .Content.GuildID}}
-        <section class="card">
-          <h2>Ticket types</h2>
-          {{if .Content.Types}}
-          <ul class="user-list">
-            {{range .Content.Types}}
-            <li class="user-row">
-              <div class="user-identity">
-                <span class="user-name">{{.Label}}</span>
-                <span class="user-id muted">{{.Key}}</span>
-              </div>
-            </li>
-            {{end}}
-          </ul>
-          {{else}}
-          <p class="muted">No ticket types configured yet — run <code>tickets type add &lt;key&gt;</code> in Discord.</p>
-          {{end}}
-          <p class="muted" style="margin-top:12px">Panel questions are edited here; everything else is configured with <code>/tickets</code> or <code>[p]tickets</code>.</p>
+        <!-- ===== Settings: transcript log channel ===== -->
+        <section class="card" id="tickets-settings" data-guild="{{.Content.GuildID}}">
+          <h2>Ticket settings</h2>
+          <p class="muted">Closed-ticket transcripts and close notices are posted to the log channel. Retention and modal behaviour live in the module's global settings on the Configuration page.</p>
+          <div class="field">
+            <label class="field-label" for="tk-log-channel">Log channel</label>
+            <p class="muted field-help">Leave empty to skip posting to Discord — transcripts stay available in the dashboard.</p>
+            <select class="field-input" id="tk-log-channel">
+              <option value="">— none —</option>
+              {{$log := .Content.Settings.LogChannel}}
+              {{range .Content.Channels}}<option value="{{.ID}}" {{if eq .ID $log}}selected{{end}}>#{{.Name}}</option>{{end}}
+            </select>
+          </div>
+          <button type="button" class="btn btn-primary" id="tk-settings-save">Save settings</button>
         </section>
 
-        {{if .Content.Panels}}
+        <!-- ===== Ticket types ===== -->
+        <section class="card" id="tickets-types" data-guild="{{.Content.GuildID}}">
+          <h2>Ticket types</h2>
+          <p class="muted">A type defines where its tickets are created, who can open and help, and how its panel button looks. Types that are disabled (or have no category) cannot be opened.</p>
+          {{if .Content.TypeDetails}}
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th>Key</th><th>Label</th><th>Category</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                {{range .Content.TypeDetails}}
+                <tr data-key="{{.Key}}">
+                  <td><code>{{.Key}}</code></td>
+                  <td>{{.Label}}</td>
+                  {{$cat := index $.Content.ChannelNames .Category}}
+                  <td>{{if .Category}}{{if $cat}}#{{$cat}}{{else}}<code>{{.Category}}</code>{{end}}{{else}}<span class="muted">—</span>{{end}}</td>
+                  <td>{{if .Enabled}}<span class="tag ok">enabled</span>{{else}}<span class="tag">disabled</span>{{end}}</td>
+                  <td>
+                    <button type="button" class="btn btn-small tk-type-edit" data-key="{{.Key}}">Edit</button>
+                    <button type="button" class="btn btn-small btn-danger tk-type-delete" data-key="{{.Key}}">Delete</button>
+                  </td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted">No ticket types yet — create one to get started.</p>
+          {{end}}
+          <button type="button" class="btn btn-primary" id="tk-type-add">Add type</button>
+        </section>
+
+        <!-- ===== Panels ===== -->
         <section class="card" id="tickets-panels" data-guild="{{.Content.GuildID}}">
           <h2>Panels</h2>
+          <p class="muted">A panel is a posted embed with an Open button bound to one type. Questions asked when a ticket is opened are configured per panel.</p>
+          {{if .Content.Panels}}
           <div class="tbl-wrap">
             <table class="tbl">
               <thead><tr><th>Panel</th><th>Type</th><th>Channel</th><th>Questions</th><th>Actions</th></tr></thead>
@@ -31,72 +63,33 @@
                 {{range .Content.Panels}}
                 <tr>
                   <td><code>{{.Name}}</code>{{if .Suspended}} <span class="tag">suspended</span>{{end}}</td>
-                  <td>{{if .TypeKey}}{{.TypeKey}}{{else}}—{{end}}</td>
-                  <td>{{if .ChannelID}}<code>&lt;#{{.ChannelID}}&gt;</code>{{else}}—{{end}}</td>
+                  <td>{{if .TypeKey}}<code>{{.TypeKey}}</code>{{else}}—{{end}}</td>
+                  {{$ch := index $.Content.ChannelNames .ChannelID}}
+                  <td>{{if .ChannelID}}{{if $ch}}#{{$ch}}{{else}}<code>{{.ChannelID}}</code>{{end}}{{else}}—{{end}}</td>
                   <td>{{if .Questions}}{{len .Questions}}{{else}}—{{end}}</td>
                   <td>
+                    <button type="button" class="btn btn-small tk-panel-edit" data-name="{{.Name}}">Edit</button>
                     {{if .Suspended}}
-                    <button class="btn btn-small tk-panel-action" data-action="resume" data-name="{{.Name}}">Resume</button>
+                    <button type="button" class="btn btn-small tk-panel-action" data-action="resume" data-name="{{.Name}}">Resume</button>
                     {{else}}
-                    <button class="btn btn-small tk-panel-action" data-action="suspend" data-name="{{.Name}}">Suspend</button>
+                    <button type="button" class="btn btn-small tk-panel-action" data-action="suspend" data-name="{{.Name}}">Suspend</button>
                     {{end}}
-                    <button class="btn btn-small tk-panel-action" data-action="resend" data-name="{{.Name}}">Resend</button>
-                    <button class="btn btn-small tk-qtoggle" data-name="{{.Name}}">Questions</button>
-                  </td>
-                </tr>
-                <tr class="tk-qeditor-row">
-                  <td colspan="5">
-                    <div class="tk-qeditor" data-name="{{.Name}}" hidden>
-                      <div class="tk-qrows">
-                        {{range .Questions}}
-                        <div class="tk-qrow">
-                          <input class="field-input tk-q-label" placeholder="Question label" maxlength="45" value="{{.Label}}">
-                          <select class="field-input tk-q-style">
-                            <option value="short"{{if eq .Style "short"}} selected{{end}}>short</option>
-                            <option value="paragraph"{{if eq .Style "paragraph"}} selected{{end}}>paragraph</option>
-                          </select>
-                          <label class="tk-q-req"><input type="checkbox" class="tk-q-required"{{if .Required}} checked{{end}}> required</label>
-                          <input class="field-input tk-q-placeholder" placeholder="Placeholder (optional)" maxlength="100" value="{{.Placeholder}}">
-                          <input class="field-input tk-q-value" placeholder="Prefill value (optional)" maxlength="4000" value="{{.Value}}">
-                          <button type="button" class="btn btn-small tk-qremove">Remove</button>
-                        </div>
-                        {{end}}
-                      </div>
-                      <div class="card-actions" style="margin-top:10px">
-                        <button type="button" class="btn btn-small tk-qadd">Add question</button>
-                        <button type="button" class="btn btn-small btn-primary tk-qsave">Save questions</button>
-                      </div>
-                      <p class="muted" style="margin-top:8px">Up to 5 questions. No questions means the panel opens the ticket immediately.</p>
-                    </div>
+                    <button type="button" class="btn btn-small tk-panel-action" data-action="resend" data-name="{{.Name}}">Resend</button>
+                    <button type="button" class="btn btn-small btn-danger tk-panel-delete" data-name="{{.Name}}">Delete</button>
                   </td>
                 </tr>
                 {{end}}
               </tbody>
             </table>
           </div>
+          {{else}}
+          <p class="muted">No panels yet — add one once a type exists.</p>
+          {{end}}
+          <button type="button" class="btn btn-primary" id="tk-panel-add">Add panel</button>
           <p class="muted" id="tickets-panels-msg" hidden></p>
         </section>
-        {{else}}
-        <section class="card" id="tickets-panels">
-          <h2>Panels</h2>
-          <p class="muted">No panels posted yet — create one with <code>/tickets panel create</code>.</p>
-        </section>
-        {{end}}
 
-        <template id="tk-qrow-tpl">
-          <div class="tk-qrow">
-            <input class="field-input tk-q-label" placeholder="Question label" maxlength="45">
-            <select class="field-input tk-q-style">
-              <option value="short">short</option>
-              <option value="paragraph">paragraph</option>
-            </select>
-            <label class="tk-q-req"><input type="checkbox" class="tk-q-required"> required</label>
-            <input class="field-input tk-q-placeholder" placeholder="Placeholder (optional)" maxlength="100">
-            <input class="field-input tk-q-value" placeholder="Prefill value (optional)" maxlength="4000">
-            <button type="button" class="btn btn-small tk-qremove">Remove</button>
-          </div>
-        </template>
-
+        <!-- ===== Open tickets ===== -->
         <section class="card">
           <h2>Open tickets</h2>
           {{if .Content.Open}}
@@ -122,6 +115,7 @@
           {{end}}
         </section>
 
+        <!-- ===== Closed tickets ===== -->
         <section class="card">
           <h2>Closed tickets (archive)</h2>
           {{if .Content.Closed}}
@@ -144,6 +138,139 @@
           <p class="muted">Nothing archived yet.</p>
           {{end}}
         </section>
+
+        <!-- ===== Type editor (shared modal) ===== -->
+        <div class="gear-modal" id="tk-type-modal" hidden>
+          <div class="gear-backdrop"></div>
+          <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Ticket type editor">
+            <div class="gear-head">
+              <h4 id="tk-type-heading">New ticket type</h4>
+              <button type="button" class="gear-close" id="tk-type-close" aria-label="Close">✕</button>
+            </div>
+            <div class="gear-body">
+              <div class="field">
+                <label class="field-label" for="tk-type-key">Key</label>
+                <input class="field-input" id="tk-type-key" placeholder="support" maxlength="64">
+                <p class="muted field-help">Lowercase letters, digits, - and _. Immutable after creation.</p>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-type-label">Label</label>
+                <input class="field-input" id="tk-type-label" placeholder="Support" maxlength="100">
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-type-category">Category</label>
+                <select class="field-input" id="tk-type-category">
+                  <option value="">— none —</option>
+                  {{range .Content.Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                </select>
+                <p class="muted field-help">Tickets of this type are created as channels inside this category.</p>
+              </div>
+              <div class="field">
+                <span class="field-label">Ping roles</span>
+                <div class="multi" id="tk-type-ping">{{template "tk_role_checks" .}}</div>
+                <p class="muted field-help">Roles pinged when a ticket of this type opens.</p>
+              </div>
+              <div class="field">
+                <span class="field-label">Helper roles</span>
+                <div class="multi" id="tk-type-helper">{{template "tk_role_checks" .}}</div>
+                <p class="muted field-help">Helpers can claim, close and add members, and always see the ticket.</p>
+              </div>
+              <div class="field">
+                <span class="field-label">Access roles</span>
+                <div class="multi" id="tk-type-access">{{template "tk_role_checks" .}}</div>
+                <p class="muted field-help">Who may open this type. Empty = everyone.</p>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-type-welcome">Welcome message</label>
+                <textarea class="field-input" id="tk-type-welcome" rows="2"></textarea>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-type-body">Embed body</label>
+                <textarea class="field-input" id="tk-type-body" rows="3"></textarea>
+              </div>
+              <div class="field-grid">
+                <div class="field"><label class="field-label" for="tk-type-button">Button label</label><input class="field-input" id="tk-type-button" maxlength="80" placeholder="Support"></div>
+                <div class="field"><label class="field-label" for="tk-type-emoji">Button emoji</label><input class="field-input" id="tk-type-emoji" placeholder="🎫 or &lt;:name:id&gt;"></div>
+                <div class="field"><label class="field-label" for="tk-type-color">Color</label><input class="field-input" type="color" id="tk-type-color" value="#5865f2"></div>
+              </div>
+              <div class="field-grid">
+                <label class="toggle"><input type="checkbox" id="tk-type-enabled"><span class="toggle-track"></span><span class="toggle-label">Enabled</span></label>
+                <label class="toggle"><input type="checkbox" id="tk-type-claim" checked><span class="toggle-track"></span><span class="toggle-label">Allow claim</span></label>
+                <label class="toggle"><input type="checkbox" id="tk-type-close" checked><span class="toggle-track"></span><span class="toggle-label">Allow close</span></label>
+              </div>
+            </div>
+            <div class="gear-foot">
+              <button type="button" class="btn btn-small btn-primary" id="tk-type-save">Save type</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ===== Panel editor (shared modal) ===== -->
+        <div class="gear-modal" id="tk-panel-modal" hidden>
+          <div class="gear-backdrop"></div>
+          <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Panel editor">
+            <div class="gear-head">
+              <h4 id="tk-panel-heading">New panel</h4>
+              <button type="button" class="gear-close" id="tk-panel-close" aria-label="Close">✕</button>
+            </div>
+            <div class="gear-body">
+              <div class="field-grid">
+                <div class="field">
+                  <label class="field-label" for="tk-panel-name">Name</label>
+                  <input class="field-input" id="tk-panel-name" placeholder="support_panel" maxlength="64">
+                  <p class="muted field-help">Letters, digits, - and _. Immutable after creation.</p>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="tk-panel-type">Type</label>
+                  <select class="field-input" id="tk-panel-type">
+                    {{range .Content.TypeDetails}}<option value="{{.Key}}">{{.Label}} ({{.Key}})</option>{{end}}
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="field-label" for="tk-panel-channel">Channel</label>
+                  <select class="field-input" id="tk-panel-channel">
+                    {{range .Content.Channels}}<option value="{{.ID}}">#{{.Name}}</option>{{end}}
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-panel-title">Title</label>
+                <input class="field-input" id="tk-panel-title" maxlength="256" placeholder="Leave empty for the type's default title">
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-panel-description">Description</label>
+                <textarea class="field-input" id="tk-panel-description" rows="3" maxlength="4096"></textarea>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-panel-modal-title">Question modal title</label>
+                <input class="field-input" id="tk-panel-modal-title" maxlength="45" placeholder="Tell us about your issue">
+              </div>
+              <div class="gear-field">
+                <span class="field-label">Open-time questions <span class="muted">(max 5, optional)</span></span>
+                <div class="tk-qrows" id="tk-panel-questions"></div>
+                <button type="button" class="btn btn-small" id="tk-panel-qadd">Add question</button>
+              </div>
+              <p class="muted gear-hint" id="tk-panel-hint">Panels post immediately and update in place when saved.</p>
+            </div>
+            <div class="gear-foot">
+              <button type="button" class="btn btn-small btn-primary" id="tk-panel-save">Save panel</button>
+            </div>
+          </div>
+        </div>
+
+        <template id="tk-qrow-tpl">
+          <div class="tk-qrow">
+            <input class="field-input tk-q-label" placeholder="Question label" maxlength="45">
+            <select class="field-input tk-q-style">
+              <option value="short">short</option>
+              <option value="paragraph">paragraph</option>
+            </select>
+            <label class="tk-q-req"><input type="checkbox" class="tk-q-required"> required</label>
+            <input class="field-input tk-q-placeholder" placeholder="Placeholder (optional)" maxlength="100">
+            <input class="field-input tk-q-value" placeholder="Prefill value (optional)" maxlength="4000">
+            <button type="button" class="btn btn-small tk-qremove">Remove</button>
+          </div>
+        </template>
         {{else}}
         <section class="card"><p class="muted">No manageable servers found.</p></section>
         {{end}}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
+	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/modules"
 	"gopkg.in/yaml.v3"
 )
@@ -338,7 +339,7 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"modules_auto_load":      m.cfgValue(cfg, "modules", "auto_load"),
 		"dashboard_listen":       m.cfgValue(cfg, "dashboard", "listen"),
 		"dashboard_public_url":   m.cfgValue(cfg, "dashboard", "public_url"),
-		"token":                  redactedIfSet(m.cfgValue(cfg, "bot", "token")),
+		"token":                  redactedIfSet(config.ReadEnvToken(m.bot.GetConfigDir())),
 		"oauth_client_secret":    redactedIfSet(m.cfgValue(cfg, "oauth", "client_secret")),
 		"updater_enabled":        m.cfgValue(cfg, "updater", "enabled"),
 		"updater_repo":           m.cfgValue(cfg, "updater", "repo"),
