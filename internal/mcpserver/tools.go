@@ -318,8 +318,8 @@ func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, in str
 }
 
 // formatNotifyChannels renders the updater's notify channels for get_config:
-// the per-server map as "guildID=channelID" pairs (sorted) plus the legacy
-// global when set; empty when nothing is configured.
+// the per-server map as "guildID=channelID" pairs (sorted); empty when nothing
+// is configured.
 func formatNotifyChannels(u config.UpdaterConfig) string {
 	guilds := make([]string, 0, len(u.NotifyChannels))
 	for g, ch := range u.NotifyChannels {
@@ -328,9 +328,6 @@ func formatNotifyChannels(u config.UpdaterConfig) string {
 		}
 	}
 	sort.Strings(guilds)
-	if u.NotifyChannel != "" {
-		guilds = append(guilds, "global="+u.NotifyChannel)
-	}
 	return strings.Join(guilds, ",")
 }
 

@@ -113,9 +113,9 @@ type LoggingConfig struct {
 // The token lives here in core config.yml (which is gitignored) so it never
 // reaches the repository. The repo must be private (the bot's own code).
 type UpdaterConfig struct {
-	Enabled       bool   `yaml:"enabled"`        // master switch; false = updater does nothing
-	Repo          string `yaml:"repo"`           // owner/name of the bot's GitHub repository; empty = feature off
-	Branch        string `yaml:"branch"`         // branch to track; default "main"
+	Enabled bool   `yaml:"enabled"` // master switch; false = updater does nothing
+	Repo    string `yaml:"repo"`    // owner/name of the bot's GitHub repository; empty = feature off
+	Branch  string `yaml:"branch"`  // branch to track; default "main"
 	// Token is a SECRET and deliberately not serialized: it lives in
 	// <dir>/.env as UPDATER_GITHUB_TOKEN (0600). Empty = anonymous /
 	// credential-helper fallback.
@@ -127,30 +127,23 @@ type UpdaterConfig struct {
 	// embeds posted to its own channel, so multiple servers can watch the repo
 	// in their own dedicated channels. Empty = no notifications.
 	NotifyChannels map[string]string `yaml:"notify_channels,omitempty"`
-	// NotifyChannel is the legacy single global channel. It is kept so existing
-	// installs keep notifying until the per-server map is populated (the bot
-	// migrates it into NotifyChannels on startup when it can resolve the
-	// channel's guild). New configuration uses NotifyChannels only.
-	NotifyChannel string `yaml:"notify_channel,omitempty"`
 }
 
 // NotifyTargets returns the distinct channel IDs that receive update
-// notifications: every per-server channel in NotifyChannels plus the legacy
-// global NotifyChannel (for backward compatibility with pre-migration
-// installs). Sorted for deterministic delivery order.
+// notifications (one per configured server), sorted for deterministic
+// delivery order.
 //
-// notifyMu guards NotifyChannels + NotifyChannel against concurrent access:
-// the updater's poll loop reads them (NotifyTargets) while owner actions —
-// dashboard, MCP and the one-time startup migration — write them through
-// Set. Package-level rather than a Config field because Config is
-// value-copied (Load, &Config{} literals in tests), which would make an
-// embedded mutex a copylocks hazard; the live bot config is a single
+// notifyMu guards NotifyChannels against concurrent access: the updater's poll
+// loop reads them (NotifyTargets) while owner actions — dashboard and MCP —
+// write them through Set. Package-level rather than a Config field because
+// Config is value-copied (Load, &Config{} literals in tests), which would make
+// an embedded mutex a copylocks hazard; the live bot config is a single
 // long-lived *Config.
 var notifyMu sync.RWMutex
 
 func (u *UpdaterConfig) NotifyTargets() []string {
 	notifyMu.RLock()
-	seen := make(map[string]bool, len(u.NotifyChannels)+1)
+	seen := make(map[string]bool, len(u.NotifyChannels))
 	var out []string
 	for _, ch := range u.NotifyChannels {
 		if ch == "" || seen[ch] {
@@ -158,9 +151,6 @@ func (u *UpdaterConfig) NotifyTargets() []string {
 		}
 		seen[ch] = true
 		out = append(out, ch)
-	}
-	if u.NotifyChannel != "" && !seen[u.NotifyChannel] {
-		out = append(out, u.NotifyChannel)
 	}
 	sort.Strings(out)
 	notifyMu.RUnlock()
@@ -184,56 +174,12 @@ func (u *UpdaterConfig) SetNotifyChannel(guildID, value string) {
 	u.NotifyChannels[guildID] = value
 }
 
-// SetLegacyNotifyChannel updates the legacy global channel under the same
-// guard, keeping the scalar write race-free next to the map.
-func (u *UpdaterConfig) SetLegacyNotifyChannel(value string) {
-	notifyMu.Lock()
-	defer notifyMu.Unlock()
-	u.NotifyChannel = value
-}
-
-// LegacyNotifyChannel returns the legacy global channel ("" = unset).
-func (u *UpdaterConfig) LegacyNotifyChannel() string {
-	notifyMu.RLock()
-	defer notifyMu.RUnlock()
-	return u.NotifyChannel
-}
-
 // NotifyChannelFor returns the update-notification channel configured for one
 // server ("" = this server gets no update notifications).
 func (u *UpdaterConfig) NotifyChannelFor(guildID string) string {
 	notifyMu.RLock()
 	defer notifyMu.RUnlock()
 	return u.NotifyChannels[guildID]
-}
-
-// MigrateLegacyNotifyChannel folds the pre-redesign single global notify
-// channel into the per-server map once: resolveGuild reports which guild owns
-// the channel (the caller supplies the Discord lookup — config has no gateway
-// access), then the value moves under that guild and the legacy field is
-// cleared. It returns migrated=true only when the config actually changed.
-//
-// Best effort by design: when the guild cannot be resolved the legacy value is
-// left untouched, where NotifyTargets still uses it as a fallback, and the
-// caller retries on the next startup. A nil resolveGuild never migrates.
-func MigrateLegacyNotifyChannel(c *Config, dir string, resolveGuild func(channelID string) (string, bool)) (bool, error) {
-	if c == nil {
-		return false, nil
-	}
-	legacy := c.Updater.LegacyNotifyChannel()
-	if legacy == "" || resolveGuild == nil {
-		return false, nil
-	}
-	guildID, ok := resolveGuild(legacy)
-	if !ok || guildID == "" {
-		return false, nil
-	}
-	c.Updater.SetNotifyChannel(guildID, legacy)
-	c.Updater.SetLegacyNotifyChannel("")
-	if err := Save(c, dir); err != nil {
-		return false, fmt.Errorf("saving migrated notify channel: %w", err)
-	}
-	return true, nil
 }
 
 // MCPConfig controls the built-in MCP server mounted at /mcp on the
@@ -339,8 +285,7 @@ func Exists(dir string) bool {
 func (c *Config) Set(key, value string) error {
 	// Per-server update notify channel: "updater_notify_channel:<guild_id>"
 	// sets one server's channel (an empty value clears it). Handled before the
-	// switch because the key carries a guild ID suffix; the bare key below
-	// still writes the legacy global channel.
+	// switch because the key carries a guild ID suffix.
 	if guildID, ok := strings.CutPrefix(key, "updater_notify_channel:"); ok {
 		guildID = strings.TrimSpace(guildID)
 		if guildID == "" {
@@ -501,15 +446,6 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid updater_auto_pull: %v", err)
 		}
 		c.Updater.AutoPull = v
-	case "updater_notify_channel":
-		// Legacy global channel: kept as a NotifyTargets fallback and as the
-		// [p]update set notify_channel escape hatch. Per-server channels use
-		// the composite key handled above.
-		v, err := normalizeChannelID(value)
-		if err != nil {
-			return fmt.Errorf("invalid updater_notify_channel: %v", err)
-		}
-		c.Updater.SetLegacyNotifyChannel(v)
 	case "mcp_enabled":
 		v, err := parseBool(value)
 		if err != nil {

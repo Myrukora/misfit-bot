@@ -78,34 +78,6 @@ func isErrorResponse(embeds []discord.Embed) bool {
 	return len(embeds) > 0 && embeds[0].Color == embed.ColorError
 }
 
-// migrateFromPluginEra performs the one-time cleanup after the Go-plugin →
-// compiled-in-core migration: removes any stale modules/Go/<name>/<name>.so
-// files left by non-builtin plugins. The builtins' data dirs are adopted to
-// modules/<name>/ (their data home) by AdoptLegacyBuiltinData, which drops
-// their .so files; this sweep covers what that adoption did not.
-func migrateFromPluginEra() {
-	modulesDir := filepath.Join(Dir, Cfg.Modules.Path, "Go")
-	entries, err := os.ReadDir(modulesDir)
-	if err != nil {
-		return // no Go dir = nothing to migrate
-	}
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		so := filepath.Join(modulesDir, e.Name(), e.Name()+".so")
-		if _, err := os.Stat(so); err == nil {
-			os.Remove(so)
-			if Log != nil {
-				Log.Info("migrated builtin %s from plugin to compiled-in (removed %s)", e.Name(), so)
-			}
-		}
-	}
-	if Log != nil {
-		Log.Info("migration complete: dashboard + feature modules are compiled into the binary")
-	}
-}
-
 // mcpLogPaths resolves logging.file_path from the loaded config into a
 // directory and a file basename (e.g. "logs/bot.log" → "logs", "bot"),
 // defaulting to <Dir>/logs/bot.log. Mirrors the dashboard's logFileBase so
@@ -208,17 +180,6 @@ func main() {
 	if logErr != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", logErr)
 		os.Exit(1)
-	}
-
-	// One-time secrets migration: the bot token, OAuth client secret and
-	// updater PAT used to live in config.yml. They now live in <Dir>/.env
-	// (mode 0600, gitignored) — move them and strip the plaintext copies.
-	// Idempotent: a config.yml without them is a no-op, and an existing .env
-	// value always wins.
-	if migrated, err := config.MigrateSecretsToEnv(Cfg, Dir); err != nil {
-		Log.Error("Failed to migrate plaintext secrets to .env: %v", err)
-	} else if migrated {
-		Log.Info("Moved plaintext secrets from config.yml to .env (bot token, OAuth client secret, updater token)")
 	}
 
 	// Per-command override store (global + per-guild enable/disable/restrict).
@@ -376,14 +337,6 @@ func run() bool {
 
 	loadCoreModules(ba)
 
-	// Adopt plugin-era builtin data dirs (modules/Go/<name>/ → modules/<name>/)
-	// so a 0.1.0 → 0.2.0 update does not silently lose state. Must run before
-	// the builtins' OnLoad (tickets' migrateToV3 only finds the legacy config
-	// if it is already at the new DataDir).
-	for _, name := range []string{"cleanup", "tickets", "imagefilter"} {
-		modules.AdoptLegacyBuiltinData(filepath.Join(Dir, Cfg.Modules.Path), name, Log)
-	}
-
 	// Register the compiled-in feature modules (cleanup, tickets) gated by
 	// enabled_modules in config (missing key = enabled) BEFORE slash commands
 	// are registered, so builtin slash commands (/cleanup, /tickets) are
@@ -402,10 +355,6 @@ func run() bool {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()
-
-	// One-time migration: remove stale plugin-era .so files now that the
-	// dashboard + feature modules are compiled into the binary.
-	migrateFromPluginEra()
 
 	// MCP server: a bearer-token-gated Model Context Protocol endpoint that
 	// exposes the bot's commands + config to an agent. Always constructed; the
@@ -486,42 +435,6 @@ func run() bool {
 
 func onReady(event *events.Ready) {
 	Log.Info("Logged in as %s (ID: %s)", event.User.Username, event.User.ID)
-	migrateLegacyNotifyChannel()
-}
-
-// migrateLegacyNotifyChannel folds the pre-redesign single global update
-// notification channel into the per-server map once. It runs from onReady (not
-// startup) because it resolves the channel's owning guild through the Discord
-// REST client, which only exists after the client is built. Best effort: an
-// unresolvable channel keeps the legacy value, where NotifyTargets still uses
-// it as a fallback, and the next startup retries.
-func migrateLegacyNotifyChannel() {
-	if Client == nil || Cfg.Updater.LegacyNotifyChannel() == "" {
-		return
-	}
-	migrated, err := config.MigrateLegacyNotifyChannel(Cfg, Dir, func(channelID string) (string, bool) {
-		cid, err := snowflake.Parse(channelID)
-		if err != nil {
-			return "", false
-		}
-		ch, err := Client.Rest.GetChannel(cid)
-		if err != nil {
-			Log.Warn("Updater: cannot resolve the legacy notify channel %s yet (%v) — keeping it as a fallback", channelID, err)
-			return "", false
-		}
-		gch, ok := ch.(discord.GuildChannel)
-		if !ok {
-			return "", false
-		}
-		return gch.GuildID().String(), true
-	})
-	if err != nil {
-		Log.Error("Failed to migrate the legacy notify channel: %v", err)
-		return
-	}
-	if migrated {
-		Log.Info("Migrated the global update notify channel to per-server config")
-	}
 }
 
 func onGuildJoin(event *events.GuildJoin) {

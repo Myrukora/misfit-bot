@@ -3,9 +3,7 @@
 The compiled-in feature modules were Go plugins in 0.1.0. As of 0.2.0 they are
 built into the binary and their data home moved with them: each builtin's
 `ctx.DataDir` is now **`modules/<name>/`**, not the plugin-era
-`modules/Go/<name>/`. The first 0.2.0 start adopts the old folders forward (see
-below), so nothing is lost on upgrade — but the paths in the table are the ones
-the code writes from now on.
+`modules/Go/<name>/`. The paths in the table are the ones the code writes.
 
 | Module | Data home | What lives there |
 |---|---|---|
@@ -16,23 +14,9 @@ the code writes from now on.
 
 ## Notes
 
-- **Adoption on upgrade.** Before the builtins' `OnLoad`,
-  `cmd/bot/main.go`'s `run()` calls `modules.AdoptLegacyBuiltinData(baseDir,
-  name, Log)` for `cleanup`, `tickets` and `imagefilter`; it moves
-  `modules/Go/<name>/` → `modules/<name>/` — `os.Rename` when atomic, a
-  recursive copy dropping `*.so` at every depth when the two paths are on
-  different filesystems. It must run first: tickets' own v1/v2 → v3 migration
-  (`internal/builtin/tickets/migrate.go` `migrateToV3`) only finds the legacy
-  single-file config once it sits at the new data dir. When **both** directories
-  hold state it only WARNs and moves nothing — the owner reconciles by hand. A
-  legacy dir with nothing but `.so` files (or nothing at all) is a no-op, and
-  the whole thing is idempotent.
 - **Dashboard is the exception.** It is core infrastructure, not a module, and
   `run()` constructs it with `DataDir: filepath.Join(Dir, Cfg.Modules.Path,
-  "Go", "dashboard")`. Its older pre-restructure migration still applies:
-  `migrateLegacyConfig` copies `<config dir>/module_configs/dashboard/config.yml`
-  to the pinned folder (only when the destination is absent, created `O_EXCL`
-  0600, and the legacy file is never deleted).
+  "Go", "dashboard")`.
 - **`.gitignore` covers the runtime state, not the source.** The relevant
   rules are `modules/tickets/` and `modules/imagefilter/` (whole builtin data
   dirs), `modules/Go/*/{guilds,tickets,spam_images}/` and
@@ -46,7 +30,7 @@ the code writes from now on.
   release; a full copy of the backup lives in the gitignored
   `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`. Its data dir
   (`modules/Python/image_spam_filter/`, now explicitly gitignored) is orphaned
-  on disk and is **not** adopted: its gallery was a flat `spam_images/` file
+  on disk and is read by nothing: its gallery was a flat `spam_images/` file
   dump whose guild mapping lived inside `config.json`'s `guilds` map, which does
   not map unambiguously onto the builtin's per-guild
   `spam_images/<guildID>/` layout. Re-add those references for a guild through
@@ -54,5 +38,4 @@ the code writes from now on.
 - `setupDirs()` at startup still creates `modules/Go`, `modules/Lua` and
   `modules/Python`. `modules/Go` is now only the dashboard's data home (plus any
   legacy straggler the owner never reconciled); no `.so` is built or loaded from
-  it — `migrateFromPluginEra()` removes stale plugin binaries, and
-  `Manager.Load` rejects a Go plugin path outright.
+  it — `Manager.Load` rejects a Go plugin path outright.

@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // secrets.go — secrets live in <dir>/.env (mode 0600), NOT in config.yml:
@@ -58,71 +56,6 @@ func ReadEnvToken(dir string) string { return ReadEnvValue(dir, EnvBotToken) }
 
 // WriteEnvToken stores (or clears) the bot token in <dir>/.env.
 func WriteEnvToken(dir, token string) error { return WriteEnvValue(dir, EnvBotToken, token) }
-
-// MigrateSecretsToEnv moves legacy plaintext secrets (bot token, OAuth client
-// secret, updater PAT) from config.yml into <dir>/.env and rewrites
-// config.yml without them. Returns migrated=true only when the file actually
-// contained one of them (idempotent on later starts).
-//
-// Per key, an existing .env value wins — a rotated secret must never be
-// overwritten by a stale plaintext copy — but the plaintext copy is still
-// stripped.
-//
-// TEMPORARY: delete this function (and its tests + the main() call) once every
-// deployment has started at least once on a build containing it.
-func MigrateSecretsToEnv(cfg *Config, dir string) (bool, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, "config.yml"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	var file struct {
-		Bot struct {
-			Token string `yaml:"token"`
-		} `yaml:"bot"`
-		OAuth struct {
-			ClientSecret string `yaml:"client_secret"`
-		} `yaml:"oauth"`
-		Updater struct {
-			Token string `yaml:"token"`
-		} `yaml:"updater"`
-	}
-	if err := yaml.Unmarshal(raw, &file); err != nil {
-		return false, fmt.Errorf("parsing config.yml for legacy secrets: %w", err)
-	}
-	legacy := []struct{ key, value string }{
-		{EnvBotToken, strings.TrimSpace(file.Bot.Token)},
-		{EnvOAuthClientSecret, strings.TrimSpace(file.OAuth.ClientSecret)},
-		{EnvUpdaterToken, strings.TrimSpace(file.Updater.Token)},
-	}
-	found := false
-	for _, s := range legacy {
-		if s.value == "" {
-			continue
-		}
-		found = true
-		if existing := ReadEnvValue(dir, s.key); existing != "" {
-			continue // existing secret wins
-		}
-		if err := WriteEnvValue(dir, s.key, s.value); err != nil {
-			return false, err
-		}
-	}
-	if !found {
-		return false, nil
-	}
-	// Reflect the effective (env-backed) values in the live config, then
-	// rewrite config.yml — the yaml:"-" fields disappear from the file.
-	cfg.Bot.Token = ReadEnvValue(dir, EnvBotToken)
-	cfg.OAuth.ClientSecret = ReadEnvValue(dir, EnvOAuthClientSecret)
-	cfg.Updater.Token = ReadEnvValue(dir, EnvUpdaterToken)
-	if err := Save(cfg, dir); err != nil {
-		return false, fmt.Errorf("rewriting config.yml without the plaintext secrets: %w", err)
-	}
-	return true, nil
-}
 
 // readEnvFile parses KEY=VALUE lines. Comments/blanks are ignored; an optional
 // "export " prefix and matching single/double quotes are stripped.

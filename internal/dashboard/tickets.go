@@ -526,10 +526,10 @@ type ticketsPageData struct {
 	TypeDetails  []modules.TypeDetail
 	Panels       []modules.PanelSummary
 	Settings     modules.TicketGuildSettings
-	Channels     []entityOpt          // text/announcement: panel + log targets
-	Categories   []entityOpt          // category channels (type category)
-	Roles        []entityOpt          // role pickers + role-name display
-	ChannelNames map[string]string    // channel ID → name for table rows
+	Channels     []entityOpt       // text/announcement: panel + log targets
+	Categories   []entityOpt       // category channels (type category)
+	Roles        []entityOpt       // role pickers + role-name display
+	ChannelNames map[string]string // channel ID → name for table rows
 	Error        string
 }
 

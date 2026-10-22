@@ -97,15 +97,6 @@ func New(deps Deps) *DashboardModule {
 // dashboard stays up so the owner can rebind via config — it never crashes
 // the bot.
 func (m *DashboardModule) Start() {
-	// One-time migration: pre-restructure installs kept the dashboard config
-	// at <config dir>/module_configs/dashboard/config.yml. Move it into the
-	// data home so session_secret / allowed_guilds survive.
-	if migrated, err := migrateLegacyConfig(m.dataDir, m.bot.GetConfigDir()); err != nil {
-		m.logger.Warn("Dashboard: legacy config migration failed (continues with defaults): %v", err)
-	} else if migrated {
-		m.logger.Info("Dashboard: migrated config from module_configs/dashboard/config.yml to %s", cfgPath(m.dataDir))
-	}
-
 	cfg, err := loadConfig(m.dataDir)
 	if err != nil {
 		m.logger.Error("Dashboard: load config failed: %v", err)

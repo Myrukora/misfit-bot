@@ -38,7 +38,7 @@ type fieldRender struct {
 }
 
 type moduleConfigView struct {
-	Name   string
+	Name string
 	// Label overrides the card heading (Name stays the form's data-module
 	// identifier used by the save endpoint). Empty = use Name.
 	Label  string

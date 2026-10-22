@@ -1,81 +1,13 @@
 package tickets
 
-import (
-	"fmt"
-	"strconv"
-	"strings"
+// groups.go — the template-rendering view of a ticket type plus the type/panel
+// registry helpers. The dashboard-managed TypeConfig is the source of truth;
+// GroupConfig only feeds the {group} / {ticket.group} template tokens.
 
-	"gopkg.in/yaml.v3"
-)
-
-// groups.go — v1 legacy shims kept ONLY for migrateV1 (parse old groups_yaml)
-// and the v1 dashboard textarea setter, which now routes into v2 types.
-// New code should use TypeConfig + the CLI/webconfig v2 paths.
-
-// GroupConfig is the v1 ticket group shape.
+// GroupConfig is the template view of a ticket type.
 type GroupConfig struct {
-	Key           string     `yaml:"key" json:"key"`
-	Label         string     `yaml:"label" json:"label"`
-	Enabled       bool       `yaml:"enabled" json:"enabled"`
-	ParentChannel string     `yaml:"parent_channel" json:"parent_channel"`
-	PingRoles     []string   `yaml:"ping_roles" json:"ping_roles"`
-	EmbedTemplate string     `yaml:"embed_template" json:"embed_template"`
-	Color         colorValue `yaml:"color" json:"color"`
-	AllowClaim    *bool      `yaml:"allow_claim" json:"allow_claim"` // nil = default true
-	AllowClose    *bool      `yaml:"allow_close" json:"allow_close"`
-
-	Seq int `yaml:"seq,omitempty" json:"-"`
-}
-
-func (g GroupConfig) AllowClaimOn() bool { return g.AllowClaim == nil || *g.AllowClaim }
-func (g GroupConfig) AllowCloseOn() bool { return g.AllowClose == nil || *g.AllowClose }
-
-// parseGroupsYAML validates + parses the legacy groups textarea. Structural
-// errors reject the WHOLE list — callers keep the previous value.
-func parseGroupsYAML(in string) ([]GroupConfig, error) {
-	var groups []GroupConfig
-	s := strings.TrimSpace(in)
-	if s == "" {
-		return nil, nil
-	}
-	if err := yaml.Unmarshal([]byte(s), &groups); err != nil {
-		return nil, fmt.Errorf("groups_yaml is not valid YAML: %w", err)
-	}
-	seen := map[string]bool{}
-	for i := range groups {
-		g := &groups[i]
-		if strings.TrimSpace(g.Key) == "" {
-			return nil, fmt.Errorf("group #%d: key is required", i+1)
-		}
-		g.Key = strings.ToLower(strings.TrimSpace(g.Key))
-		if seen[g.Key] {
-			return nil, fmt.Errorf("duplicate group key %q", g.Key)
-		}
-		seen[g.Key] = true
-		if g.Label == "" {
-			g.Label = g.Key
-		}
-		if g.Enabled && strings.TrimSpace(g.ParentChannel) == "" {
-			return nil, fmt.Errorf("group %q: parent_channel is required while enabled", g.Key)
-		}
-		if g.EmbedTemplate == "" {
-			g.EmbedTemplate = "{user} opened a **{group}** ticket."
-		}
-		if g.Color == 0 {
-			g.Color = colorValue(defaultTicketColor)
-		}
-	}
-	return groups, nil
-}
-
-// colorFromHex parses user-typed "#5865F2"/"0x5865F2"/"5865F2" forms.
-func colorFromHex(s string) (int, error) {
-	s = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSpace(s), "#"), "0x")
-	v, err := strconv.ParseInt(s, 16, 32)
-	if err != nil || v < 0 || v > 0xFFFFFF {
-		return 0, fmt.Errorf("invalid color %q", s)
-	}
-	return int(v), nil
+	Key   string
+	Label string
 }
 
 // ── Type registry helpers (on TicketsModule) ─────────────────────────────

@@ -27,10 +27,6 @@ type TicketsModule struct {
 	reconcileDelay      time.Duration // reconcileOpenTickets startup delay
 	retentionFirstDelay time.Duration // retentionLoop first-run delay
 	retentionInterval   time.Duration // retentionLoop ticker interval
-
-	// channelGuild resolves a channel ID to its owning guild. A function
-	// field so tests can stub it; nil falls back to resolveChannelGuild.
-	channelGuild func(channelID string) (string, bool)
 }
 
 // interface type — the loader asserts the exact signature func() Module,
@@ -58,18 +54,12 @@ func (m *TicketsModule) Commands() []commands.Command {
 }
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return nil }
 
-// OnLoad stores context, migrates legacy config, loads module + store state
-// and registers event hooks (button router, modal, conversation logging,
-// channel-delete finalization).
+// OnLoad stores context, loads module + store state and registers event hooks
+// (button router, modal, conversation logging, channel-delete finalization).
 func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.mu.Lock()
 	m.ctx = ctx
 	m.mu.Unlock()
-
-	// Migrate legacy single-file config to per-guild files (idempotent).
-	if err := m.migrateToV3(ctx.DataDir); err != nil {
-		return err
-	}
 
 	mod, err := loadModuleConfig(ctx.DataDir)
 	if err != nil {

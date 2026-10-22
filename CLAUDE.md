@@ -89,7 +89,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   ├── python_bridge.go      # Go-Python bridge (IPC callbacks → Discord Rest)
 │   ├── python_ipc.go         # IPC protocol (stdin/stdout JSON messaging)
 │   ├── python_venv.go        # Per-module venv + pip install management
-│   ├── Go/                   # (legacy plugin dir — feature modules are compiled-in now)
+│   ├── Go/                   # dashboard data home (pinned historical path; no plugins)
 │   ├── Lua/                  # Lua modules (each a folder: <name>/<name>.lua, optional <name>.dashboard.lua)
 │   ├── Python/               # Python modules (each a folder with main.py, optional dashboard.py)
 │   ├── cleanup/              # cleanup builtin runtime data (DataDir)
@@ -132,14 +132,12 @@ Startup sequence:
 4. Initializes the voice manager
 5. Registers the Lua and Python loaders with the module manager
 6. `loadCoreModules(ba)` — loads saved modules (from `loaded_modules.json`) or AutoLoad-scans `modules/Lua/` + `modules/Python/`
-7. `modules.AdoptLegacyBuiltinData` for cleanup/tickets/imagefilter — migrates plugin-era `modules/Go/<name>/` data forward
-8. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter), gated by `enabled_modules`
-9. `registerSlashCommands()` — registers all slash commands with Discord
-10. `migrateFromPluginEra()` — one-time cleanup of stale plugin-era `.so` files
-11. MCP token generation (if empty) + `mcpserver.New`
-12. `dashboard.New` + `dash.Start()` — the dashboard gets `Deps.MCP` (the MCP handler)
-13. Applies the persisted presence status
-14. Waits on SIGINT/SIGTERM/SIGHUP (shutdown → `dash.Stop()` + `Client.Close()`), `shutdownCh` (`[p]shutdown`), or `restartCh` (`[p]restart` / updater hand-off); on restart the `main()` loop re-enters `run()` and `syscall.Exec`s the new binary if the updater applied one
+7. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter), gated by `enabled_modules`
+8. `registerSlashCommands()` — registers all slash commands with Discord
+9. MCP token generation (if empty) + `mcpserver.New`
+10. `dashboard.New` + `dash.Start()` — the dashboard gets `Deps.MCP` (the MCP handler)
+11. Applies the persisted presence status
+12. Waits on SIGINT/SIGTERM/SIGHUP (shutdown → `dash.Stop()` + `Client.Close()`), `shutdownCh` (`[p]shutdown`), or `restartCh` (`[p]restart` / updater hand-off); on restart the `main()` loop re-enters `run()` and `syscall.Exec`s the new binary if the updater applied one
 
 **`command.go`** — core types:
 
@@ -485,13 +483,12 @@ updater:                   # self-update integration with the bot's own GitHub r
   check_interval: 300      # seconds between polls (min 30)
   auto_pull: true          # automatically pull + rebuild + restart on new commits
   notify_channels: {}      # per-server PR/commit channels: {guild_id: channel_id}; configured per server on the dashboard
-  notify_channel: ""       # legacy single global channel; migrated into notify_channels at startup, kept as a fallback
 mcp:                      # built-in MCP server mounted at /mcp on the dashboard listener
   enabled: true           # enabled by default; per-request live kill switch via mcp_enabled
   token: ""               # bearer token; empty = auto-generated on first start and saved here
 ```
 
-**Three secrets are not in `config.yml`** — they live in `<bot dir>/.env` (mode 0600, gitignored): `DISCORD_BOT_TOKEN` (bot token), `DISCORD_OAUTH_CLIENT_SECRET` (OAuth2 client secret), `UPDATER_GITHUB_TOKEN` (updater PAT). `config.Load` reads them, `Config.Set("token" | "oauth_client_secret" | "updater_token", …)` and onboarding write them, and their struct fields are `yaml:"-"` so `Save` cannot write them back. On the first start after upgrading from a secrets-in-config.yml build, `config.MigrateSecretsToEnv` moves them and rewrites `config.yml` without them (an existing `.env` value wins over the stale plaintext copy). The MCP bearer token still lives in `config.yml`.
+**Three secrets are not in `config.yml`** — they live in `<bot dir>/.env` (mode 0600, gitignored): `DISCORD_BOT_TOKEN` (bot token), `DISCORD_OAUTH_CLIENT_SECRET` (OAuth2 client secret), `UPDATER_GITHUB_TOKEN` (updater PAT). `config.Load` reads them, `Config.Set("token" | "oauth_client_secret" | "updater_token", …)` and onboarding write them, and their struct fields are `yaml:"-"` so `Save` cannot write them back. The MCP bearer token still lives in `config.yml`.
 
 `Config.Set(key, value)` with validation (the full accepted-key set; anything else is `unknown config key`):
 - `prefix` (rejected if empty), `token` (written to `.env` as `DISCORD_BOT_TOKEN`, never `config.yml`), `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
@@ -519,11 +516,11 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
 - `update` / `update check` — fetch + report the release first when the repo is tagged (`v0.1.0 → v0.2.0 (3 new commits)`), otherwise "N new commit(s) available" / "Up to date".
 - `update now` — force apply (pull → rebuild → swap → restart).
 - `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error, plus **Running Version** (this build) and **Latest Release** (newest tag seen, once a check has found one).
-- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to every configured notify channel (the per-server map plus the legacy global), deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + notify-target set + version, so a live config change re-announces instead of being silenced by the old entry.
+- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to every configured notify channel, deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + notify-target set + version, so a live config change re-announces instead of being silenced by the old entry.
 - `update test` — **temporary embed tester**: posts one sample PR + one sample commit embed to every configured notify channel (markdown-rich bodies — bold/italic/code block/link/list — so the owner can verify markdown renders; the author row uses the real authenticated GitHub user when a token is set).
-- `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull, notify_channel` (routes to `Config.Set`, takes effect without restart; token value is never echoed back). `notify_channel` here is the legacy global channel — per-server channels are set on each server's dashboard Modules page.
+- `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull` (routes to `Config.Set`, takes effect without restart; token value is never echoed back). Per-server notify channels are set on each server's dashboard Modules page.
 
-**Security notes:** the GitHub token lives only in gitignored `config.yml`; `updater_state.json` is gitignored; merge commits are skipped in notifications; the first poll is silent. The repo is public (since 2026-08-06); `main` is protected by the `main-protection` ruleset (free for public repos). The updater token and the bot's runtime state must never be committed.
+**Security notes:** the GitHub token lives only in gitignored `.env` (`UPDATER_GITHUB_TOKEN`); `updater_state.json` is gitignored; merge commits are skipped in notifications; the first poll is silent. The repo is public (since 2026-08-06); `main` is protected by the `main-protection` ruleset (free for public repos). The updater token and the bot's runtime state must never be committed.
 
 ### Logger (`logger/`)
 
@@ -805,7 +802,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 19. **Subcommand args** — `cmd/bot/main.go` builds `ctx.Args` via `commands.SlashArgs`, which walks the command's declared options and emits `[group, sub, …values in declared order]` (flat subcommand: `[sub, …values]`; absent optional options are skipped so an omitted argument shifts nothing; values are stringified by type — channel/role/user/mentionable become the snowflake string). The subcommand's position depends on whether it lives in a group; the vector is produced in core, not by each handler.
 20. **Config changes** — `[p]update set <key> <value>` and the dashboard/MCP write through `Config.Set`, which persists immediately; `log_level`, `log_enabled` and `enabled_modules` take effect only after a restart. There is no core `set` or `logs` command. Discord-channel logging is not implemented in core at all.
 21. **DM permission behavior** — In DMs, `GetUserPermissions` returns 0 and `GetGuildOwnerID` returns "". Only owner/elevated can use commands with `RequiredPerm` in DMs.
-22. **Config security** — three secrets live in `.env` (mode 0600, gitignored), never in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET`, `UPDATER_GITHUB_TOKEN`; `Config.Load` reads them from there, `Config.Set(…)` / onboarding write them there, and their struct fields are `yaml:"-"` so `Save` cannot leak them back. A legacy `config.yml` copy is migrated once on startup (`MigrateSecretsToEnv`), with an existing `.env` value winning per key. `config.yml` still holds the MCP bearer token (plus non-secret config). Ensure both files are in `.gitignore` and never committed. Config backups (`POST /api/backups`) copy `config.yml` only — they no longer include those three secrets. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
+22. **Config security** — three secrets live in `.env` (mode 0600, gitignored), never in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET`, `UPDATER_GITHUB_TOKEN`; `Config.Load` reads them from there, `Config.Set(…)` / onboarding write them there, and their struct fields are `yaml:"-"` so `Save` cannot leak them back. `config.yml` still holds the MCP bearer token (plus non-secret config). Ensure both files are in `.gitignore` and never committed. Config backups (`POST /api/backups`) copy `config.yml` only — they do not include those three secrets. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
 23. **Python module venvs** — Each Python module gets a `.venv/` directory inside its module folder. These are gitignored (`modules/*/.venv/`). The venv is created on first load and `pip install` runs only when `requirements.txt` hash changes.
 24. **Python runner script** — Go launches `python3 sdk/python/misfit/runner.py <module_main_path>`, NOT the user's `main.py` directly. The runner imports `main.py`, extracts the `module` global, and manages IPC. `PYTHONPATH` is set to `sdk/python` so `import misfit` works.
 25. **Python command responses are async** — Python command `Execute` closures send the command via IPC and return nil immediately. The Python process sends `respond`/`reply_text` back asynchronously. No auto-delete for Python module responses (unlike core commands).

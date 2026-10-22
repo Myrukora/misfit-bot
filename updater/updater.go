@@ -338,8 +338,8 @@ func (m *Manager) syncClient(cfg *config.UpdaterConfig) {
 // send (e.g. REST client not ready at startup) is retried on the next poll —
 // and survives restarts, since the state file never records it as delivered.
 
-// sendAll posts an embed to every configured notify channel (the union of
-// per-server channels and the legacy global). It returns the first error if
+// sendAll posts an embed to every configured notify channel. It returns the
+// first error if
 // any channel fails, so the caller keeps the event un-acknowledged and
 // retries the whole batch on the next poll. Delivery is at-least-once: a
 // channel that already received the embed may get a duplicate on a
@@ -654,9 +654,9 @@ func (m *Manager) Status() map[string]string {
 		// status panel). notify_channel carries the mention form for the
 		// [p]update status embed, where <#id> renders as the channel name.
 		"notify_channels": strings.Join(targets, ","),
-		"last_sha":       lastSHA,
-		"last_check":     lastCheck.Format("2006-01-02 15:04:05"),
-		"last_error":     lastErr,
+		"last_sha":        lastSHA,
+		"last_check":      lastCheck.Format("2006-01-02 15:04:05"),
+		"last_error":      lastErr,
 		// Version reporting: what this build is, and the newest release tag seen
 		// on the tracked branch ("" until a check finds one, and always the scoped
 		// read — a version cached for another repo@branch is not this one's).

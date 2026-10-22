@@ -63,7 +63,9 @@ func testCfg() *config.UpdaterConfig {
 		Branch:        "main",
 		CheckInterval: 300,
 		AutoPull:      false, // tests never touch git
-		NotifyChannel: "1234567890",
+		NotifyChannels: map[string]string{
+			"111": "1234567890",
+		},
 	}
 }
 

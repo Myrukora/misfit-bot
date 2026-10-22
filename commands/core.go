@@ -660,7 +660,7 @@ func init() {
 				return ctx.Respond(embed.Success("✅ Test Sent", "Sample PR + commit embeds posted to the configured notify channel(s)."))
 			case "set":
 				if len(ctx.Args) < 3 {
-					return ctx.Respond(embed.Warning("⚠️ Usage", "update set <key> <value>\nKeys: enabled, repo, branch, token, interval, auto_pull, notify_channel"))
+					return ctx.Respond(embed.Warning("⚠️ Usage", "update set <key> <value>\nKeys: enabled, repo, branch, token, interval, auto_pull"))
 				}
 				key := ctx.Args[1]
 				value := strings.Join(ctx.Args[2:], " ")

@@ -89,13 +89,13 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		// rd_imagefilter with a saved log channel that is no longer listed
 		// (deleted): the stale option must render without a template error.
 		{"rd_imagefilter", map[string]any{
-			"admin":    true,
-			"guild":    "1",
-			"config":   map[string]string{"enabled": "false", "log_channel": "99"},
-			"images":   []string{},
-			"status":   modules.ImageFilterStatus{Variant: "b32"},
-			"enabled":  false,
-			"channels": []entityOpt{},
+			"admin":        true,
+			"guild":        "1",
+			"config":       map[string]string{"enabled": "false", "log_channel": "99"},
+			"images":       []string{},
+			"status":       modules.ImageFilterStatus{Variant: "b32"},
+			"enabled":      false,
+			"channels":     []entityOpt{},
 			"staleChannel": &entityOpt{ID: "99", Name: "99"},
 		}},
 		{"rd_imagefilter", map[string]any{"admin": false, "guild": "1", "config": map[string]string{}, "images": []string{}, "enabled": false}},
@@ -185,8 +185,8 @@ func TestSettingsFieldEveryType(t *testing.T) {
 		}
 	}
 	content := settingsPageData{
-		GuildID:   "1",
-		GuildName: "G",
+		GuildID:     "1",
+		GuildName:   "G",
 		ModulesView: []moduleConfigView{{Name: "dashboard", Fields: fields}},
 	}
 	d := mkData(lvlOwner)

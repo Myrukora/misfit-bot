@@ -65,7 +65,7 @@ Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks fo
 
 ## Configuration
 
-All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** and must never be committed. **Three secrets live in `.env` instead** (mode 0600, also gitignored), not in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET` and `UPDATER_GITHUB_TOKEN` — written by onboarding or the dashboard/settings API and migrated out of `config.yml` automatically on the first start after upgrading. The MCP bearer token stays in `config.yml`.
+All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** and must never be committed. **Three secrets live in `.env` instead** (mode 0600, also gitignored), not in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET` and `UPDATER_GITHUB_TOKEN` — written by onboarding or the dashboard/settings API. The MCP bearer token stays in `config.yml`.
 
 | Section | Keys |
 |---|---|
@@ -74,7 +74,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
 | `oauth` | *(the client secret lives in `.env` as `DISCORD_OAUTH_CLIENT_SECRET`)* |
-| `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; `notify_channel` is the legacy global fallback; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
+| `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
 Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
@@ -103,7 +103,7 @@ The web dashboard and the cleanup/tickets/imagefilter builtins are **compiled in
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
-Each Lua/Python module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The compiled-in feature modules get a per-module data directory at `modules/<name>/` — the dashboard is the pinned exception, still using `modules/Go/dashboard/` (with a fallback to `module_configs/dashboard/`). A 0.1.0 → 0.2.0 upgrade adopts the plugin-era `modules/Go/<name>/` directories for cleanup/tickets/imagefilter automatically; when both locations hold state the bot refuses to merge and logs a warning, so reconcile by hand. See [docs/builtin-data-paths.md](docs/builtin-data-paths.md).
+Each Lua/Python module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The compiled-in feature modules get a per-module data directory at `modules/<name>/` — the dashboard is the pinned exception, still using `modules/Go/dashboard/`. See [docs/builtin-data-paths.md](docs/builtin-data-paths.md).
 
 In-repo examples of authorable (hot-loadable) modules: `examples/lua/sample.lua` and `examples/python/samplepy/`. The compiled-in Go sources — not user-loadable — live in `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/` (the ticket system), `internal/builtin/imagefilter/` (the CLIP image filter) and `internal/dashboard/` (the web dashboard — core subsystem); `modules/voice.go` is the module-facing `VoiceManager` API.
 
@@ -177,7 +177,7 @@ its tag already there and does nothing.
 
 The bot polls its own GitHub repository every `check_interval` seconds (default 300):
 
-1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to every configured notify channel: each server picks its own channel on the dashboard's per-server **Modules** page (`updater.notify_channels`), and the legacy global `notify_channel` is kept as a fallback. Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
+1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to every configured notify channel: each server picks its own channel on the dashboard's per-server **Modules** page (`updater.notify_channels`). Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
 2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
 
 The GitHub token lives **only** in the gitignored `.env` (`UPDATER_GITHUB_TOKEN`) and never appears in any commit.

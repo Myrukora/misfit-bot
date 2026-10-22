@@ -739,7 +739,7 @@ func TestTicketsListPageRendersProviderRows(t *testing.T) {
 		closedTickets: []modules.TicketSummary{
 			{ID: "staff-0002", Type: "staff", GuildID: "1", OpenerID: "43", ClosedAt: now},
 		},
-		types:  []modules.TypeSummary{{Key: "staff", Label: "Staff", Enabled: true}},
+		types: []modules.TypeSummary{{Key: "staff", Label: "Staff", Enabled: true}},
 		typeDetails: []modules.TypeDetail{
 			{Key: "staff", Label: "Staff", Enabled: true, Category: "123"},
 		},

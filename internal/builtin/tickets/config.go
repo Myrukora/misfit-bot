@@ -282,54 +282,6 @@ func validateQuestions(qs []QuestionConfig) error {
 	return nil
 }
 
-// ── legacy migration ───────────────────────────────────────────────────────
-
-// legacyConfig is the v1/v2 single-file config shape (all guilds in one file).
-type legacyConfig struct {
-	Version        int                    `yaml:"version"`
-	GroupsYAML     string                 `yaml:"groups_yaml"`
-	Types          map[string]*TypeConfig `yaml:"types"`
-	Panels         map[string]PanelConfig `yaml:"panels"`
-	LogChannel     string                 `yaml:"log_channel"`
-	Retention      retentionDays          `yaml:"storage_retention_days"`
-	AllowDashClose bool                   `yaml:"allow_dashboard_close"`
-}
-
-// isV1Config reports whether a raw config file is the v1 groups_yaml shape.
-func isV1Config(raw []byte) bool {
-	var probe struct {
-		Version    int    `yaml:"version"`
-		GroupsYAML string `yaml:"groups_yaml"`
-	}
-	if err := yaml.Unmarshal(raw, &probe); err != nil {
-		return false
-	}
-	return probe.Version < 2 && probe.GroupsYAML != ""
-}
-
-// migrateV1 converts a v1 groups_yaml config into per-type entries.
-func migrateV1(cfg *legacyConfig) error {
-	groups, err := parseGroupsYAML(cfg.GroupsYAML)
-	if err != nil {
-		return fmt.Errorf("parse legacy groups: %w", err)
-	}
-	cfg.Types = map[string]*TypeConfig{}
-	for _, g := range groups {
-		cfg.Types[g.Key] = &TypeConfig{
-			Key:        g.Key,
-			Label:      g.Label,
-			Enabled:    g.Enabled,
-			Category:   g.ParentChannel,
-			PingRoles:  g.PingRoles,
-			EmbedBody:  g.EmbedTemplate,
-			Color:      g.Color,
-			AllowClaim: g.AllowClaim,
-			AllowClose: g.AllowClose,
-		}
-	}
-	return nil
-}
-
 // validPanelName accepts letters, digits, '-' and '_' (<=64 chars) — the
 // charset shared by panel names, type keys, and custom_id payloads.
 func validPanelName(name string) bool {
