@@ -210,14 +210,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// One-time secrets migration: the bot token used to live in config.yml.
-	// It now lives in <Dir>/.env (DISCORD_BOT_TOKEN, 0600, gitignored) — move
-	// it and strip the plaintext copy. Idempotent: a config.yml without
-	// bot.token is a no-op, and an existing .env token always wins.
-	if migrated, err := config.MigrateTokenToEnv(Cfg, Dir); err != nil {
-		Log.Error("Failed to migrate the bot token to .env: %v", err)
+	// One-time secrets migration: the bot token, OAuth client secret and
+	// updater PAT used to live in config.yml. They now live in <Dir>/.env
+	// (mode 0600, gitignored) — move them and strip the plaintext copies.
+	// Idempotent: a config.yml without them is a no-op, and an existing .env
+	// value always wins.
+	if migrated, err := config.MigrateSecretsToEnv(Cfg, Dir); err != nil {
+		Log.Error("Failed to migrate plaintext secrets to .env: %v", err)
 	} else if migrated {
-		Log.Info("Moved the bot token from config.yml to .env (DISCORD_BOT_TOKEN)")
+		Log.Info("Moved plaintext secrets from config.yml to .env (bot token, OAuth client secret, updater token)")
 	}
 
 	// Per-command override store (global + per-guild enable/disable/restrict).
@@ -997,20 +998,27 @@ func registerSlashCommands() {
 		return
 	}
 
-	var cmds []discord.ApplicationCommandCreate
+	// Validate every registered slash tree BEFORE the REST call. Discord
+	// rejects the entire SetGlobalCommands batch with 50035 when any one
+	// command is malformed (most commonly "Required options must be placed
+	// before non-required options"), which would silently unregister ALL
+	// slash commands. Fail loudly with the exact path instead.
+	cmds := make([]discord.ApplicationCommandCreate, 0, len(commands.CoreSlashCommands)+len(ModMgr.AllSlashCommands()))
+	register := func(name, description string, opts []discord.ApplicationCommandOption) {
+		if errs := commands.ValidateSlashOptions(opts); len(errs) > 0 {
+			for _, e := range errs {
+				Log.Error("slash schema %q: %s", name, e)
+			}
+			Log.Error("skipping slash registration of %q (invalid schema)", name)
+			return
+		}
+		cmds = append(cmds, discord.SlashCommandCreate{Name: name, Description: description, Options: opts})
+	}
 	for _, scmd := range commands.CoreSlashCommands {
-		cmds = append(cmds, discord.SlashCommandCreate{
-			Name:        scmd.Name,
-			Description: scmd.Description,
-			Options:     scmd.Options,
-		})
+		register(scmd.Name, scmd.Description, scmd.Options)
 	}
 	for _, scmd := range ModMgr.AllSlashCommands() {
-		cmds = append(cmds, discord.SlashCommandCreate{
-			Name:        scmd.Name,
-			Description: scmd.Description,
-			Options:     scmd.Options,
-		})
+		register(scmd.Name, scmd.Description, scmd.Options)
 	}
 
 	_, err := Client.Rest.SetGlobalCommands(Client.ApplicationID, cmds)

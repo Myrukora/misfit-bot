@@ -65,7 +65,7 @@ Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks fo
 
 ## Configuration
 
-All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** — it holds secrets (GitHub token, OAuth client secret) and must never be committed. The **Discord bot token is not in `config.yml`**: it lives in `.env` as `DISCORD_BOT_TOKEN` (mode 0600, also gitignored), written by onboarding or the dashboard/settings API and migrated out of `config.yml` automatically on the first start after upgrading.
+All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** and must never be committed. **Three secrets live in `.env` instead** (mode 0600, also gitignored), not in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET` and `UPDATER_GITHUB_TOKEN` — written by onboarding or the dashboard/settings API and migrated out of `config.yml` automatically on the first start after upgrading. The MCP bearer token stays in `config.yml`.
 
 | Section | Keys |
 |---|---|
@@ -73,8 +73,8 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
-| `oauth` | `client_secret` (Discord app OAuth2 secret, shared with the dashboard) |
-| `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; `notify_channel` is the legacy global fallback) |
+| `oauth` | *(the client secret lives in `.env` as `DISCORD_OAUTH_CLIENT_SECRET`)* |
+| `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; `notify_channel` is the legacy global fallback; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
 Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
@@ -180,14 +180,14 @@ The bot polls its own GitHub repository every `check_interval` seconds (default 
 1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to every configured notify channel: each server picks its own channel on the dashboard's per-server **Modules** page (`updater.notify_channels`), and the legacy global `notify_channel` is kept as a fallback. Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
 2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
 
-The GitHub token lives **only** in the gitignored `config.yml` and never appears in any commit.
+The GitHub token lives **only** in the gitignored `.env` (`UPDATER_GITHUB_TOKEN`) and never appears in any commit.
 
 ## Dashboard
 
 The web dashboard runs in-process (compiled into the single binary). Setup:
 
 1. Create a Discord application and note the OAuth2 **client secret** (Dev Portal → OAuth2 → General).
-2. Set `oauth.client_secret` in `config.yml` (or from the dashboard's Admin page).
+2. Set the OAuth client secret from the dashboard's Admin page (it is written to `.env` as `DISCORD_OAUTH_CLIENT_SECRET`).
 3. Open the dashboard and complete the **Login with Discord** flow; register the redirect URI it shows in the Dev Portal.
 4. The default bind is `http://127.0.0.1:8080` (expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
 

@@ -93,6 +93,26 @@ func registerTools(s *Server) {
 		Name:        "update_action",
 		Description: "Drive the self-updater. action is one of: status, check, apply, test.",
 	}, s.updateAction)
+
+	mcp.AddTool(s.srv, &mcp.Tool{
+		Name:        "get_messages",
+		Description: "Read recent messages from a channel (the agent's chat-story eyes): newest-first with author, content, embeds, attachments, reactions + reply references. Use before_id to page backwards (give the oldest message you already saw).",
+	}, s.getMessages)
+
+	mcp.AddTool(s.srv, &mcp.Tool{
+		Name:        "get_message",
+		Description: "Fetch one message by ID with full detail (content, embeds, attachments, reactions, reply reference).",
+	}, s.getMessage)
+
+	mcp.AddTool(s.srv, &mcp.Tool{
+		Name:        "edit_message",
+		Description: "Edit a message the bot posted (content and/or embed). Discord forbids editing other users' messages.",
+	}, s.editMessage)
+
+	mcp.AddTool(s.srv, &mcp.Tool{
+		Name:        "delete_message",
+		Description: "Delete a message. Use for moderation/cleanup (e.g. the bot's own error embeds or rule-breaking posts).",
+	}, s.deleteMessage)
 }
 
 // ── read tools ─────────────────────────────────────────────────────────────
@@ -270,28 +290,28 @@ func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, in str
 		return "••••••••"
 	}
 	out := map[string]string{
-		"prefix":                 cfg.Bot.Prefix,
-		"owner_id":               cfg.Bot.OwnerID,
-		"tos_url":                cfg.Bot.ToS,
-		"privacy_url":            cfg.Bot.Privacy,
-		"status":                 cfg.Bot.Status,
-		"log_level":              cfg.Logging.Level,
-		"log_enabled":            strconv.FormatBool(cfg.Logging.Enabled),
-		"log_file_path":          cfg.Logging.FilePath,
-		"modules_auto_load":      strconv.FormatBool(cfg.Modules.AutoLoad),
-		"dashboard_listen":       cfg.Dashboard.Listen,
-		"dashboard_public_url":   cfg.Dashboard.PublicURL,
-		"token":                  redact(cfg.Bot.Token),
-		"oauth_client_secret":    redact(cfg.OAuth.ClientSecret),
-		"updater_enabled":        strconv.FormatBool(cfg.Updater.Enabled),
-		"updater_repo":           cfg.Updater.Repo,
-		"updater_branch":         cfg.Updater.Branch,
-		"updater_token":          redact(cfg.Updater.Token),
-		"updater_interval":       strconv.Itoa(cfg.Updater.CheckInterval),
-		"updater_auto_pull":      strconv.FormatBool(cfg.Updater.AutoPull),
+		"prefix":                  cfg.Bot.Prefix,
+		"owner_id":                cfg.Bot.OwnerID,
+		"tos_url":                 cfg.Bot.ToS,
+		"privacy_url":             cfg.Bot.Privacy,
+		"status":                  cfg.Bot.Status,
+		"log_level":               cfg.Logging.Level,
+		"log_enabled":             strconv.FormatBool(cfg.Logging.Enabled),
+		"log_file_path":           cfg.Logging.FilePath,
+		"modules_auto_load":       strconv.FormatBool(cfg.Modules.AutoLoad),
+		"dashboard_listen":        cfg.Dashboard.Listen,
+		"dashboard_public_url":    cfg.Dashboard.PublicURL,
+		"token":                   redact(cfg.Bot.Token),
+		"oauth_client_secret":     redact(cfg.OAuth.ClientSecret),
+		"updater_enabled":         strconv.FormatBool(cfg.Updater.Enabled),
+		"updater_repo":            cfg.Updater.Repo,
+		"updater_branch":          cfg.Updater.Branch,
+		"updater_token":           redact(cfg.Updater.Token),
+		"updater_interval":        strconv.Itoa(cfg.Updater.CheckInterval),
+		"updater_auto_pull":       strconv.FormatBool(cfg.Updater.AutoPull),
 		"updater_notify_channels": formatNotifyChannels(cfg.Updater),
-		"mcp_enabled":            strconv.FormatBool(cfg.MCP.Enabled),
-		"mcp_token":              redact(cfg.MCP.Token),
+		"mcp_enabled":             strconv.FormatBool(cfg.MCP.Enabled),
+		"mcp_token":               redact(cfg.MCP.Token),
 	}
 	res, err := jsonResult(out)
 	return res, nil, err
@@ -455,6 +475,243 @@ func (s *Server) sendMessage(ctx context.Context, req *mcp.CallToolRequest, in *
 		return nil, nil, err
 	}
 	return textResult("sent message " + msg.ID.String()), nil, nil
+}
+
+// ── chat read/write tools ──────────────────────────────────────────────────
+
+// messageView is the agent-facing shape of a Discord message: enough context
+// to read a chat story without dragging in raw disgo types.
+type messageView struct {
+	ID          string           `json:"id"`
+	ChannelID   string           `json:"channel_id"`
+	Author      userView         `json:"author"`
+	Content     string           `json:"content"`
+	CreatedAt   string           `json:"created_at"`
+	EditedAt    string           `json:"edited_at,omitempty"`
+	Pinned      bool             `json:"pinned"`
+	Embeds      []embedView      `json:"embeds,omitempty"`
+	Attachments []attachmentView `json:"attachments,omitempty"`
+	Reactions   []reactionView   `json:"reactions,omitempty"`
+	ReplyTo     *string          `json:"reply_to_message_id,omitempty"`
+}
+
+type userView struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Bot      bool   `json:"bot,omitempty"`
+}
+
+type embedView struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
+}
+
+type attachmentView struct {
+	ID          string `json:"id"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type,omitempty"`
+	Size        int    `json:"size"`
+	URL         string `json:"url"`
+}
+
+type reactionView struct {
+	Emoji string `json:"emoji"`
+	Count int    `json:"count"`
+	Me    bool   `json:"me"`
+}
+
+// messageViewFrom converts a disgo message into the agent-facing view.
+func messageViewFrom(m discord.Message) messageView {
+	v := messageView{
+		ID:        m.ID.String(),
+		ChannelID: m.ChannelID.String(),
+		Author: userView{
+			ID:       m.Author.ID.String(),
+			Username: m.Author.Username,
+			Bot:      m.Author.Bot,
+		},
+		Content:   m.Content,
+		CreatedAt: m.CreatedAt.Format(time.RFC3339),
+		Pinned:    m.Pinned,
+	}
+	if m.EditedTimestamp != nil {
+		v.EditedAt = m.EditedTimestamp.Format(time.RFC3339)
+	}
+	for _, e := range m.Embeds {
+		v.Embeds = append(v.Embeds, embedView{Title: e.Title, Description: e.Description, URL: e.URL})
+	}
+	for _, a := range m.Attachments {
+		ct := ""
+		if a.ContentType != nil {
+			ct = *a.ContentType
+		}
+		v.Attachments = append(v.Attachments, attachmentView{
+			ID: a.ID.String(), Filename: a.Filename, ContentType: ct, Size: a.Size, URL: a.URL,
+		})
+	}
+	for _, r := range m.Reactions {
+		v.Reactions = append(v.Reactions, reactionView{Emoji: emojiName(r.Emoji), Count: r.Count, Me: r.Me})
+	}
+	if m.MessageReference != nil && m.MessageReference.MessageID != nil {
+		id := m.MessageReference.MessageID.String()
+		v.ReplyTo = &id
+	}
+	return v
+}
+
+// emojiName renders a reaction emoji as its name, or <:name:id> for custom.
+func emojiName(e discord.Emoji) string {
+	if e.Name == "" {
+		return "(emoji id " + e.ID.String() + ")"
+	}
+	if e.ID != 0 {
+		return "<:" + e.Name + ":" + e.ID.String() + ">"
+	}
+	return e.Name
+}
+
+// GetMessagesIn is the input for get_messages.
+type GetMessagesIn struct {
+	ChannelID string `json:"channel_id" jsonschema:"The channel ID to read from"`
+	Limit     int    `json:"limit,omitempty" jsonschema:"Max messages to return (default 20, max 100)"`
+	BeforeID  string `json:"before_id,omitempty" jsonschema:"Only messages strictly older than this message ID (paging backwards)"`
+	AfterID   string `json:"after_id,omitempty" jsonschema:"Only messages strictly newer than this message ID"`
+	AroundID  string `json:"around_id,omitempty" jsonschema:"Messages around this message ID (half before, half after)"`
+}
+
+// getMessages returns a channel's recent messages as JSON, newest-first. The
+// channel must be in the bot's cache; the fetch itself is a REST call so the
+// result includes messages sent after the cache snapshot.
+func (s *Server) getMessages(ctx context.Context, req *mcp.CallToolRequest, in *GetMessagesIn) (*mcp.CallToolResult, any, error) {
+	ch := s.deps.Bot.GetCachedChannel(in.ChannelID)
+	if ch == nil {
+		return nil, nil, fmt.Errorf("channel not in cache: %s", in.ChannelID)
+	}
+	chID, err := snowflake.Parse(in.ChannelID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid channel id: %s", in.ChannelID)
+	}
+	var before, after, around snowflake.ID
+	if in.BeforeID != "" {
+		if before, err = snowflake.Parse(in.BeforeID); err != nil {
+			return nil, nil, fmt.Errorf("invalid before_id: %s", in.BeforeID)
+		}
+	}
+	if in.AfterID != "" {
+		if after, err = snowflake.Parse(in.AfterID); err != nil {
+			return nil, nil, fmt.Errorf("invalid after_id: %s", in.AfterID)
+		}
+	}
+	if in.AroundID != "" {
+		if around, err = snowflake.Parse(in.AroundID); err != nil {
+			return nil, nil, fmt.Errorf("invalid around_id: %s", in.AroundID)
+		}
+	}
+	limit := in.Limit
+	if limit < 1 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	msgs, err := s.deps.Rest.GetMessages(chID, around, before, after, limit)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Always newest-first for the agent, regardless of the direction Discord
+	// returned (after-fetches come back oldest-first).
+	sort.Slice(msgs, func(i, j int) bool { return msgs[i].CreatedAt.After(msgs[j].CreatedAt) })
+	views := make([]messageView, 0, len(msgs))
+	for _, m := range msgs {
+		views = append(views, messageViewFrom(m))
+	}
+	res, err := jsonResult(views)
+	return res, nil, err
+}
+
+// GetMessageIn is the input for get_message.
+type GetMessageIn struct {
+	ChannelID string `json:"channel_id" jsonschema:"The channel ID"`
+	MessageID string `json:"message_id" jsonschema:"The message ID to fetch"`
+}
+
+// getMessage fetches a single message by ID and returns the full view.
+func (s *Server) getMessage(ctx context.Context, req *mcp.CallToolRequest, in *GetMessageIn) (*mcp.CallToolResult, any, error) {
+	chID, err := snowflake.Parse(in.ChannelID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid channel id: %s", in.ChannelID)
+	}
+	msgID, err := snowflake.Parse(in.MessageID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid message id: %s", in.MessageID)
+	}
+	m, err := s.deps.Rest.GetMessage(chID, msgID)
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := jsonResult(messageViewFrom(*m))
+	return res, nil, err
+}
+
+// EditMessageIn is the input for edit_message.
+type EditMessageIn struct {
+	ChannelID        string `json:"channel_id" jsonschema:"The channel ID"`
+	MessageID        string `json:"message_id" jsonschema:"The message ID to edit"`
+	Content          string `json:"content,omitempty" jsonschema:"New plain-text content"`
+	EmbedTitle       string `json:"embed_title,omitempty" jsonschema:"New embed title (optional)"`
+	EmbedDescription string `json:"embed_description,omitempty" jsonschema:"New embed description (optional)"`
+}
+
+// editMessage edits a message the bot posted (Discord forbids editing other
+// users' messages). At least one of content / embed fields is required.
+func (s *Server) editMessage(ctx context.Context, req *mcp.CallToolRequest, in *EditMessageIn) (*mcp.CallToolResult, any, error) {
+	chID, err := snowflake.Parse(in.ChannelID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid channel id: %s", in.ChannelID)
+	}
+	msgID, err := snowflake.Parse(in.MessageID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid message id: %s", in.MessageID)
+	}
+	var update discord.MessageUpdate
+	if in.Content != "" {
+		update.Content = &in.Content
+	}
+	if in.EmbedTitle != "" || in.EmbedDescription != "" {
+		embeds := []discord.Embed{{Title: in.EmbedTitle, Description: in.EmbedDescription}}
+		update.Embeds = &embeds
+	}
+	if update.Content == nil && update.Embeds == nil {
+		return nil, nil, fmt.Errorf("nothing to edit — provide content and/or embed fields")
+	}
+	if _, err := s.deps.Rest.UpdateMessage(chID, msgID, update); err != nil {
+		return nil, nil, err
+	}
+	return textResult("edited message " + msgID.String()), nil, nil
+}
+
+// DeleteMessageIn is the input for delete_message.
+type DeleteMessageIn struct {
+	ChannelID string `json:"channel_id" jsonschema:"The channel ID"`
+	MessageID string `json:"message_id" jsonschema:"The message ID to delete"`
+}
+
+// deleteMessage removes a message — moderation/cleanup (bot error embeds,
+// rule-breaking posts) straight from the agent.
+func (s *Server) deleteMessage(ctx context.Context, req *mcp.CallToolRequest, in *DeleteMessageIn) (*mcp.CallToolResult, any, error) {
+	chID, err := snowflake.Parse(in.ChannelID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid channel id: %s", in.ChannelID)
+	}
+	msgID, err := snowflake.Parse(in.MessageID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("invalid message id: %s", in.MessageID)
+	}
+	if err := s.deps.Rest.DeleteMessage(chID, msgID); err != nil {
+		return nil, nil, err
+	}
+	return textResult("deleted message " + msgID.String()), nil, nil
 }
 
 // ModuleActionIn is the input for module_action.

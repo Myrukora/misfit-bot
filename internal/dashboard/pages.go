@@ -482,11 +482,11 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "updater_branch", Label: "Branch", Help: "Branch to track.", Type: "text", Value: vals["updater_branch"], Placeholder: "main"},
 			fieldRender{Key: "updater_interval", Label: "Check interval (seconds)", Help: "How often the updater polls. Minimum 30.", Type: "number", Value: vals["updater_interval"], Min: "30", Step: "1", Placeholder: "300"},
 			fieldRender{Key: "updater_auto_pull", Label: "Auto pull", Help: "Automatically pull, rebuild and restart on new commits.", Type: "toggle", Value: vals["updater_auto_pull"]},
-			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
+			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Stored in .env (UPDATER_GITHUB_TOKEN), never in config.yml. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
 		),
 		sec("Secrets", "Credentials. Owner only — elevated users see them locked.",
 			fieldRender{Key: "token", Label: "Bot token", Help: "Discord bot token from the Developer Portal. Stored in .env (DISCORD_BOT_TOKEN), never in config.yml. Never displayed — leave blank to keep the current value. Restart required.", Type: "secret", Value: vals["token"], OwnerOnly: true},
-			fieldRender{Key: "oauth_client_secret", Label: "OAuth client secret", Help: "Discord app OAuth2 secret (shared with the dashboard login). Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["oauth_client_secret"], OwnerOnly: true},
+			fieldRender{Key: "oauth_client_secret", Label: "OAuth client secret", Help: "Discord app OAuth2 secret (shared with the dashboard login). Stored in .env (DISCORD_OAUTH_CLIENT_SECRET), never in config.yml. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["oauth_client_secret"], OwnerOnly: true},
 		),
 	}
 }

@@ -33,7 +33,9 @@ type Config struct {
 // (ctx.Bot.GetClient().(*bot.Client).ApplicationID), so there's nothing for
 // the owner to fill in.
 type OAuthConfig struct {
-	ClientSecret string `yaml:"client_secret"` // from Dev Portal → OAuth2 → General; empty = not configured
+	// ClientSecret is a SECRET and deliberately not serialized: it lives in
+	// <dir>/.env as DISCORD_OAUTH_CLIENT_SECRET (0600) — see secrets.go.
+	ClientSecret string `yaml:"-"`
 }
 
 // DashboardCoreConfig holds the non-secret, infrastructure-level dashboard
@@ -114,7 +116,10 @@ type UpdaterConfig struct {
 	Enabled       bool   `yaml:"enabled"`        // master switch; false = updater does nothing
 	Repo          string `yaml:"repo"`           // owner/name of the bot's GitHub repository; empty = feature off
 	Branch        string `yaml:"branch"`         // branch to track; default "main"
-	Token         string `yaml:"token"`          // GitHub PAT (or gh token); empty = anonymous/credential-helper fallback
+	// Token is a SECRET and deliberately not serialized: it lives in
+	// <dir>/.env as UPDATER_GITHUB_TOKEN (0600). Empty = anonymous /
+	// credential-helper fallback.
+	Token         string `yaml:"-"`
 	CheckInterval int    `yaml:"check_interval"` // seconds between polls; default 300, minimum 30
 	AutoPull      bool   `yaml:"auto_pull"`      // automatically pull + rebuild + restart on new commits
 	// NotifyChannels is the per-server map of update-notification channels:
@@ -294,11 +299,11 @@ func Load(dir string) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config.yml: %w", err)
 	}
 
-	// The bot token is a secret (see secrets.go): it comes from <dir>/.env,
-	// never from config.yml (BotConfig.Token is yaml:"-").
-	if tok := ReadEnvToken(dir); tok != "" {
-		cfg.Bot.Token = tok
-	}
+	// Secrets (see secrets.go) come from <dir>/.env, never from config.yml:
+	// the corresponding struct fields are yaml:"-".
+	cfg.Bot.Token = ReadEnvValue(dir, EnvBotToken)
+	cfg.OAuth.ClientSecret = ReadEnvValue(dir, EnvOAuthClientSecret)
+	cfg.Updater.Token = ReadEnvValue(dir, EnvUpdaterToken)
 
 	return &cfg, nil
 }
@@ -446,7 +451,14 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.Dashboard.PublicURL = v
 	case "oauth_client_secret":
-		c.OAuth.ClientSecret = strings.TrimSpace(value)
+		// A secret: write it to <dir>/.env (0600), never config.yml.
+		v := strings.TrimSpace(value)
+		if c.FilePath != "" {
+			if err := WriteEnvValue(filepath.Dir(c.FilePath), EnvOAuthClientSecret, v); err != nil {
+				return fmt.Errorf("writing the OAuth client secret to .env: %w", err)
+			}
+		}
+		c.OAuth.ClientSecret = v
 	case "updater_enabled":
 		v, err := parseBool(value)
 		if err != nil {
@@ -469,7 +481,14 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.Updater.Branch = v
 	case "updater_token":
-		c.Updater.Token = strings.TrimSpace(value)
+		// A secret: write it to <dir>/.env (0600), never config.yml.
+		v := strings.TrimSpace(value)
+		if c.FilePath != "" {
+			if err := WriteEnvValue(filepath.Dir(c.FilePath), EnvUpdaterToken, v); err != nil {
+				return fmt.Errorf("writing the updater token to .env: %w", err)
+			}
+		}
+		c.Updater.Token = v
 	case "updater_interval":
 		n, err := strconv.Atoi(strings.TrimSpace(value))
 		if err != nil || n < 30 {

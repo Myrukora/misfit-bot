@@ -9,36 +9,43 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// secrets.go — the Discord bot token lives in <dir>/.env (mode 0600), NOT in
-// config.yml. One plaintext secrets file the owner can lock down/back up
-// separately; config.yml stays shareable and can never leak the token.
+// secrets.go — secrets live in <dir>/.env (mode 0600), NOT in config.yml:
+// one plaintext secrets file the owner can lock down/back up separately, so
+// config.yml stays shareable and can never leak them.
 //
-// Key: DISCORD_BOT_TOKEN. BotConfig.Token is yaml:"-" — Save never writes it.
+// Keys:
 //
-// The other secrets (OAuth client secret, updater PAT, MCP bearer token) stay
-// in config.yml for now; the bot token is the first one moved.
-
-const envTokenKey = "DISCORD_BOT_TOKEN"
+//	DISCORD_BOT_TOKEN           — the bot token (BotConfig.Token)
+//	DISCORD_OAUTH_CLIENT_SECRET — the Discord app OAuth2 secret (OAuthConfig)
+//	UPDATER_GITHUB_TOKEN        — the self-updater's GitHub PAT (UpdaterConfig)
+//
+// The corresponding config struct fields are yaml:"-", so Save never writes
+// them. The MCP bearer token stays in config.yml for now.
+const (
+	EnvBotToken          = "DISCORD_BOT_TOKEN"
+	EnvOAuthClientSecret = "DISCORD_OAUTH_CLIENT_SECRET"
+	EnvUpdaterToken      = "UPDATER_GITHUB_TOKEN"
+)
 
 // EnvPath returns the secrets-file path for a bot directory.
 func EnvPath(dir string) string { return filepath.Join(dir, ".env") }
 
-// ReadEnvToken returns the bot token from <dir>/.env ("" when absent).
-func ReadEnvToken(dir string) string {
+// ReadEnvValue returns one key from <dir>/.env ("" when absent).
+func ReadEnvValue(dir, key string) string {
 	values, _ := readEnvFile(EnvPath(dir))
-	return values[envTokenKey]
+	return values[key]
 }
 
-// WriteEnvToken stores (or clears, when token is empty) the bot token in
+// WriteEnvValue stores (or clears, when value is empty) one key in
 // <dir>/.env at mode 0600, preserving every other line/comment/key.
-func WriteEnvToken(dir, token string) error {
-	token = strings.TrimSpace(token)
+func WriteEnvValue(dir, key, value string) error {
+	value = strings.TrimSpace(value)
 	path := EnvPath(dir)
 	lines, err := readEnvLines(path)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
-	lines = setEnvLine(lines, envTokenKey, token)
+	lines = setEnvLine(lines, key, value)
 	if err := writeEnvLines(path, lines); err != nil {
 		return err
 	}
@@ -46,13 +53,24 @@ func WriteEnvToken(dir, token string) error {
 	return os.Chmod(path, 0o600)
 }
 
-// MigrateTokenToEnv moves a legacy plaintext bot.token from config.yml into
-// <dir>/.env and rewrites config.yml without it. Returns migrated=true only
-// when the file actually contained a token (idempotent on later starts).
+// ReadEnvToken returns the bot token from <dir>/.env ("" when absent).
+func ReadEnvToken(dir string) string { return ReadEnvValue(dir, EnvBotToken) }
+
+// WriteEnvToken stores (or clears) the bot token in <dir>/.env.
+func WriteEnvToken(dir, token string) error { return WriteEnvValue(dir, EnvBotToken, token) }
+
+// MigrateSecretsToEnv moves legacy plaintext secrets (bot token, OAuth client
+// secret, updater PAT) from config.yml into <dir>/.env and rewrites
+// config.yml without them. Returns migrated=true only when the file actually
+// contained one of them (idempotent on later starts).
 //
-// An existing .env token wins — a rotated secret must never be overwritten by
-// a stale plaintext copy — but the plaintext copy is still stripped.
-func MigrateTokenToEnv(cfg *Config, dir string) (bool, error) {
+// Per key, an existing .env value wins — a rotated secret must never be
+// overwritten by a stale plaintext copy — but the plaintext copy is still
+// stripped.
+//
+// TEMPORARY: delete this function (and its tests + the main() call) once every
+// deployment has started at least once on a build containing it.
+func MigrateSecretsToEnv(cfg *Config, dir string) (bool, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "config.yml"))
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -64,24 +82,44 @@ func MigrateTokenToEnv(cfg *Config, dir string) (bool, error) {
 		Bot struct {
 			Token string `yaml:"token"`
 		} `yaml:"bot"`
+		OAuth struct {
+			ClientSecret string `yaml:"client_secret"`
+		} `yaml:"oauth"`
+		Updater struct {
+			Token string `yaml:"token"`
+		} `yaml:"updater"`
 	}
 	if err := yaml.Unmarshal(raw, &file); err != nil {
-		return false, fmt.Errorf("parsing config.yml for the legacy bot token: %w", err)
+		return false, fmt.Errorf("parsing config.yml for legacy secrets: %w", err)
 	}
-	legacy := strings.TrimSpace(file.Bot.Token)
-	if legacy == "" {
+	legacy := []struct{ key, value string }{
+		{EnvBotToken, strings.TrimSpace(file.Bot.Token)},
+		{EnvOAuthClientSecret, strings.TrimSpace(file.OAuth.ClientSecret)},
+		{EnvUpdaterToken, strings.TrimSpace(file.Updater.Token)},
+	}
+	found := false
+	for _, s := range legacy {
+		if s.value == "" {
+			continue
+		}
+		found = true
+		if existing := ReadEnvValue(dir, s.key); existing != "" {
+			continue // existing secret wins
+		}
+		if err := WriteEnvValue(dir, s.key, s.value); err != nil {
+			return false, err
+		}
+	}
+	if !found {
 		return false, nil
 	}
-	effective := legacy
-	if envTok := ReadEnvToken(dir); envTok != "" {
-		effective = envTok
-	} else if err := WriteEnvToken(dir, legacy); err != nil {
-		return false, err
-	}
-	cfg.Bot.Token = effective
-	// Save serializes BotConfig.Token as "-" → the plaintext copy disappears.
+	// Reflect the effective (env-backed) values in the live config, then
+	// rewrite config.yml — the yaml:"-" fields disappear from the file.
+	cfg.Bot.Token = ReadEnvValue(dir, EnvBotToken)
+	cfg.OAuth.ClientSecret = ReadEnvValue(dir, EnvOAuthClientSecret)
+	cfg.Updater.Token = ReadEnvValue(dir, EnvUpdaterToken)
 	if err := Save(cfg, dir); err != nil {
-		return false, fmt.Errorf("rewriting config.yml without the bot token: %w", err)
+		return false, fmt.Errorf("rewriting config.yml without the plaintext secrets: %w", err)
 	}
 	return true, nil
 }

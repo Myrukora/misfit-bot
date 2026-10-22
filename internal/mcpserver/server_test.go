@@ -3,10 +3,12 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -84,17 +86,70 @@ func (f *fakeBot) ExecuteCommand(name string, args []string, guildID, channelID,
 	return f.execResult, f.execErr
 }
 
-// fakeRest records CreateMessage calls.
+// fakeRest records CreateMessage calls and backs the message read/edit/delete
+// tools with an in-memory store keyed by message ID.
 type fakeRest struct {
 	rest.Rest
 	channelIDs []snowflake.ID
 	messages   []discord.MessageCreate
+	store      map[snowflake.ID]*discord.Message
 }
 
 func (f *fakeRest) CreateMessage(channelID snowflake.ID, mc discord.MessageCreate, _ ...rest.RequestOpt) (*discord.Message, error) {
 	f.channelIDs = append(f.channelIDs, channelID)
 	f.messages = append(f.messages, mc)
-	return &discord.Message{ID: snowflake.MustParse("999")}, nil
+	return &discord.Message{ID: snowflake.MustParse("999"), ChannelID: channelID, CreatedAt: time.Now()}, nil
+}
+
+func (f *fakeRest) GetMessages(channelID snowflake.ID, around, before, after snowflake.ID, limit int, _ ...rest.RequestOpt) ([]discord.Message, error) {
+	out := make([]discord.Message, 0, len(f.store))
+	for _, m := range f.store {
+		if m.ChannelID != channelID {
+			continue
+		}
+		if before != 0 && m.ID >= before {
+			continue
+		}
+		if after != 0 && m.ID <= after {
+			continue
+		}
+		out = append(out, *m)
+	}
+	// Discord returns newest-first; the map iteration above is unordered, so
+	// sort by ID (snowflakes are time-ordered) and then take the newest N.
+	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (f *fakeRest) GetMessage(channelID snowflake.ID, messageID snowflake.ID, _ ...rest.RequestOpt) (*discord.Message, error) {
+	m, ok := f.store[messageID]
+	if !ok || m.ChannelID != channelID {
+		return nil, fmt.Errorf("Unknown Message (10008)")
+	}
+	return m, nil
+}
+
+func (f *fakeRest) UpdateMessage(channelID snowflake.ID, messageID snowflake.ID, update discord.MessageUpdate, _ ...rest.RequestOpt) (*discord.Message, error) {
+	m, ok := f.store[messageID]
+	if !ok || m.ChannelID != channelID {
+		return nil, fmt.Errorf("Unknown Message (10008)")
+	}
+	if update.Content != nil {
+		m.Content = *update.Content
+	}
+	return m, nil
+}
+
+func (f *fakeRest) DeleteMessage(channelID snowflake.ID, messageID snowflake.ID, _ ...rest.RequestOpt) error {
+	m, ok := f.store[messageID]
+	if !ok || m.ChannelID != channelID {
+		return fmt.Errorf("Unknown Message (10008)")
+	}
+	delete(f.store, messageID)
+	return nil
 }
 
 // ── setup ──────────────────────────────────────────────────────────────────
@@ -124,7 +179,7 @@ func newTestServer(t *testing.T) (*Server, *httptest.Server, *fakeBot, *fakeRest
 		manager:   modules.NewManager(),
 		channels:  map[string]discord.GuildChannel{"456": discord.GuildTextChannel{}},
 	}
-	fr := &fakeRest{}
+	fr := &fakeRest{store: map[snowflake.ID]*discord.Message{}}
 	s := New(Deps{
 		Bot:       fb,
 		Rest:      fr,
@@ -207,6 +262,7 @@ func TestListTools(t *testing.T) {
 		"bot_status", "list_guilds", "list_channels", "get_logs", "list_commands",
 		"get_config", "module_get_config", "set_config", "module_set_config",
 		"run_command", "send_message", "module_action", "update_action",
+		"get_messages", "get_message", "edit_message", "delete_message",
 	}
 	got := map[string]bool{}
 	for _, tool := range res.Tools {
@@ -277,6 +333,152 @@ func TestSendMessage(t *testing.T) {
 	}
 	if fr.channelIDs[0].String() != "456" {
 		t.Errorf("CreateMessage channelID = %q, want 456", fr.channelIDs[0].String())
+	}
+}
+
+// ── chat read/write tool tests ─────────────────────────────────────────────
+
+// seedMessages populates the fake REST store with n messages in channel "456"
+// (IDs 1000+i), newest last, so pagination order is deterministic.
+func seedMessages(fr *fakeRest, n int) {
+	for i := 1; i <= n; i++ {
+		id := snowflake.MustParse(fmt.Sprintf("1000%d", i))
+		fr.store[id] = &discord.Message{
+			ID:        id,
+			ChannelID: snowflake.MustParse("456"),
+			Content:   fmt.Sprintf("msg %d", i),
+			CreatedAt: time.Unix(int64(i), 0),
+			Author: discord.User{
+				ID: snowflake.MustParse("111"), Username: "alice", Bot: false,
+			},
+		}
+	}
+}
+
+func TestGetMessages(t *testing.T) {
+	_, ts, _, fr, _ := newTestServer(t)
+	seedMessages(fr, 5)
+	session := connectClient(t, ts, "testtoken")
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_messages",
+		Arguments: map[string]any{"channel_id": "456", "limit": 3},
+	})
+	if err != nil {
+		t.Fatalf("CallTool get_messages: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_messages returned an error: %s", toolText(t, res))
+	}
+	var views []messageView
+	if err := json.Unmarshal([]byte(toolText(t, res)), &views); err != nil {
+		t.Fatalf("get_messages result not JSON: %v", err)
+	}
+	if len(views) != 3 {
+		t.Fatalf("got %d messages, want 3", len(views))
+	}
+	// Newest-first.
+	if views[0].Content != "msg 5" || views[2].Content != "msg 3" {
+		t.Errorf("get_messages order = %q,%q,%q, want msg5,msg4,msg3", views[0].Content, views[1].Content, views[2].Content)
+	}
+	if views[0].Author.Username != "alice" {
+		t.Errorf("author = %q, want alice", views[0].Author.Username)
+	}
+}
+
+func TestGetMessagesPaging(t *testing.T) {
+	_, ts, _, fr, _ := newTestServer(t)
+	seedMessages(fr, 5)
+	session := connectClient(t, ts, "testtoken")
+	ctx := context.Background()
+
+	// Page backwards: everything strictly older than message 10003 (msg3).
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_messages",
+		Arguments: map[string]any{"channel_id": "456", "before_id": "10003"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool get_messages(page): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_messages(page) returned an error: %s", toolText(t, res))
+	}
+	var views []messageView
+	if err := json.Unmarshal([]byte(toolText(t, res)), &views); err != nil {
+		t.Fatalf("result not JSON: %v", err)
+	}
+	if len(views) != 2 || views[0].Content != "msg 2" || views[1].Content != "msg 1" {
+		t.Errorf("before_id paging = %+v, want [msg2 msg1] newest-first", views)
+	}
+}
+
+func TestGetMessageSingle(t *testing.T) {
+	_, ts, _, fr, _ := newTestServer(t)
+	seedMessages(fr, 3)
+	session := connectClient(t, ts, "testtoken")
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "get_message",
+		Arguments: map[string]any{"channel_id": "456", "message_id": "10002"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool get_message: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("get_message returned an error: %s", toolText(t, res))
+	}
+	var v messageView
+	if err := json.Unmarshal([]byte(toolText(t, res)), &v); err != nil {
+		t.Fatalf("result not JSON: %v", err)
+	}
+	if v.ID != "10002" || v.Content != "msg 2" {
+		t.Errorf("get_message = %+v, want 10002/msg 2", v)
+	}
+}
+
+func TestEditMessage(t *testing.T) {
+	_, ts, _, fr, _ := newTestServer(t)
+	seedMessages(fr, 2)
+	session := connectClient(t, ts, "testtoken")
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "edit_message",
+		Arguments: map[string]any{
+			"channel_id": "456", "message_id": "10001", "content": "edited!",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool edit_message: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("edit_message returned an error: %s", toolText(t, res))
+	}
+	if got := fr.store[snowflake.MustParse("10001")].Content; got != "edited!" {
+		t.Errorf("stored content = %q, want edited!", got)
+	}
+}
+
+func TestDeleteMessage(t *testing.T) {
+	_, ts, _, fr, _ := newTestServer(t)
+	seedMessages(fr, 2)
+	session := connectClient(t, ts, "testtoken")
+	ctx := context.Background()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "delete_message",
+		Arguments: map[string]any{"channel_id": "456", "message_id": "10001"},
+	})
+	if err != nil {
+		t.Fatalf("CallTool delete_message: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("delete_message returned an error: %s", toolText(t, res))
+	}
+	if _, ok := fr.store[snowflake.MustParse("10001")]; ok {
+		t.Error("message still in store after delete_message")
 	}
 }
 

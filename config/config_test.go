@@ -119,8 +119,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 // updater_* keys, persist them, and Load must read them back. The token lives
 // only in config.yml (gitignored) — this test writes to a temp dir.
 // TestUpdaterKeysRoundTrip guards the self-update config: Set must accept all
-// updater_* keys, persist them, and Load must read them back. The token lives
-// only in config.yml (gitignored) — this test writes to a temp dir.
+// updater_* keys, persist them, and Load must read them back. The token is a
+// secret and lives in .env (this test writes to a temp dir).
 func TestUpdaterKeysRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}

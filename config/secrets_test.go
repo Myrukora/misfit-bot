@@ -9,9 +9,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// botTokenInFile reads bot.token straight from the YAML file (empty when the
-// key is absent). Other sections legitimately carry their own token keys.
-func botTokenInFile(t *testing.T, path string) string {
+// secretsInFile reads the three secret fields straight from the YAML file
+// (all empty when the keys are absent). Other sections legitimately carry
+// their own token keys (MCP).
+func secretsInFile(t *testing.T, path string) (bot, oauth, updater string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -21,19 +22,32 @@ func botTokenInFile(t *testing.T, path string) string {
 		Bot struct {
 			Token string `yaml:"token"`
 		} `yaml:"bot"`
+		OAuth struct {
+			ClientSecret string `yaml:"client_secret"`
+		} `yaml:"oauth"`
+		Updater struct {
+			Token string `yaml:"token"`
+		} `yaml:"updater"`
 	}
 	if err := yaml.Unmarshal(raw, &file); err != nil {
 		t.Fatalf("parse %s: %v", path, err)
 	}
-	return file.Bot.Token
+	return file.Bot.Token, file.OAuth.ClientSecret, file.Updater.Token
 }
 
-// TestEnvTokenRoundTrip pins the secrets file contract: the token is written
-// 0600, Load applies it, and Save/Set never put it back into config.yml.
-func TestEnvTokenRoundTrip(t *testing.T) {
+// TestSecretsEnvRoundTrip pins the secrets-file contract: every secret is
+// written 0600, Load applies them, and Save never puts them into config.yml.
+func TestSecretsEnvRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteEnvToken(dir, "tok-123"); err != nil {
-		t.Fatalf("WriteEnvToken: %v", err)
+	values := map[string]string{
+		EnvBotToken:          "bot-123",
+		EnvOAuthClientSecret: "oauth-xyz",
+		EnvUpdaterToken:      "ghp_test",
+	}
+	for key, value := range values {
+		if err := WriteEnvValue(dir, key, value); err != nil {
+			t.Fatalf("WriteEnvValue(%s): %v", key, err)
+		}
 	}
 	info, err := os.Stat(EnvPath(dir))
 	if err != nil {
@@ -42,11 +56,13 @@ func TestEnvTokenRoundTrip(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Errorf(".env mode = %o, want 600", perm)
 	}
-	if got := ReadEnvToken(dir); got != "tok-123" {
-		t.Errorf("ReadEnvToken = %q, want tok-123", got)
+	for key, want := range values {
+		if got := ReadEnvValue(dir, key); got != want {
+			t.Errorf("ReadEnvValue(%s) = %q, want %q", key, got, want)
+		}
 	}
 
-	// A minimal config.yml + .env: Load must surface the token.
+	// A minimal config.yml + .env: Load must surface all three secrets.
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  prefix: '!'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -54,11 +70,11 @@ func TestEnvTokenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Bot.Token != "tok-123" {
-		t.Errorf("Load token = %q, want tok-123", cfg.Bot.Token)
+	if cfg.Bot.Token != "bot-123" || cfg.OAuth.ClientSecret != "oauth-xyz" || cfg.Updater.Token != "ghp_test" {
+		t.Fatalf("Load secrets = (%q, %q, %q)", cfg.Bot.Token, cfg.OAuth.ClientSecret, cfg.Updater.Token)
 	}
 
-	// Save must never serialize the token.
+	// Save must never serialize any of them.
 	if err := Save(cfg, dir); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -66,15 +82,20 @@ func TestEnvTokenRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "tok-123") || botTokenInFile(t, filepath.Join(dir, "config.yml")) != "" {
-		t.Errorf("config.yml leaked the token:\n%s", raw)
+	for _, leak := range []string{"bot-123", "oauth-xyz", "ghp_test"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("config.yml leaked %q:\n%s", leak, raw)
+		}
+	}
+	if b, o, u := secretsInFile(t, filepath.Join(dir, "config.yml")); b != "" || o != "" || u != "" {
+		t.Errorf("config.yml secret fields = (%q, %q, %q), want empty", b, o, u)
 	}
 }
 
-// TestEnvTokenPreservesFile pins that writing the token keeps comments and
-// other keys, replaces an existing value, and removes duplicates; clearing
-// removes the key entirely.
-func TestEnvTokenPreservesFile(t *testing.T) {
+// TestEnvFilePreservesOtherKeys pins that writing a key keeps comments and
+// other keys, replaces an existing value, drops duplicates; clearing removes
+// the key entirely.
+func TestEnvFilePreservesOtherKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := EnvPath(dir)
 	original := "# secrets\nexport OTHER=keep\nDISCORD_BOT_TOKEN=old\nDISCORD_BOT_TOKEN=dupe\n"
@@ -109,38 +130,55 @@ func TestEnvTokenPreservesFile(t *testing.T) {
 	}
 }
 
-// TestSetTokenWritesEnv pins the runtime path: Set("token", …) writes .env
-// and config.yml stays token-free; empty clears the secret.
-func TestSetTokenWritesEnv(t *testing.T) {
+// TestSetSecretKeysWriteEnv pins the runtime path for all three secrets:
+// Set writes .env, config.yml stays secret-free, and empty clears the key.
+func TestSetSecretKeysWriteEnv(t *testing.T) {
 	dir := t.TempDir()
 	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
 	if err := Save(cfg, dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := cfg.Set("token", "  tok-xyz  "); err != nil {
-		t.Fatalf("Set token: %v", err)
+	cases := map[string]struct {
+		value string
+		key   string
+		inCfg func() string
+	}{
+		"token":               {"bot-xyz", EnvBotToken, func() string { return cfg.Bot.Token }},
+		"oauth_client_secret": {"oauth-xyz", EnvOAuthClientSecret, func() string { return cfg.OAuth.ClientSecret }},
+		"updater_token":       {"ghp-xyz", EnvUpdaterToken, func() string { return cfg.Updater.Token }},
 	}
-	if got := ReadEnvToken(dir); got != "tok-xyz" {
-		t.Errorf("ReadEnvToken = %q, want tok-xyz (trimmed)", got)
+	for name, tc := range cases {
+		if err := cfg.Set(name, "  "+tc.value+"  "); err != nil {
+			t.Fatalf("Set(%s): %v", name, err)
+		}
+		if got := ReadEnvValue(dir, tc.key); got != tc.value {
+			t.Errorf("%s: .env value = %q, want %q (trimmed)", name, got, tc.value)
+		}
+		if got := tc.inCfg(); got != tc.value {
+			t.Errorf("%s: live value = %q, want %q", name, got, tc.value)
+		}
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "config.yml"))
-	if strings.Contains(string(raw), "tok-xyz") || botTokenInFile(t, filepath.Join(dir, "config.yml")) != "" {
-		t.Errorf("config.yml leaked the token:\n%s", raw)
+	for _, leak := range []string{"bot-xyz", "oauth-xyz", "ghp-xyz"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("config.yml leaked %q:\n%s", leak, raw)
+		}
 	}
-	if err := cfg.Set("token", ""); err != nil {
-		t.Fatalf("clear token: %v", err)
+	// Clearing removes the key.
+	if err := cfg.Set("oauth_client_secret", ""); err != nil {
+		t.Fatalf("clear oauth: %v", err)
 	}
-	if got := ReadEnvToken(dir); got != "" {
-		t.Errorf("token after clear = %q, want empty", got)
+	if got := ReadEnvValue(dir, EnvOAuthClientSecret); got != "" {
+		t.Errorf("oauth secret after clear = %q, want empty", got)
 	}
 }
 
-// TestMigrateTokenToEnv pins the production upgrade path: a legacy plaintext
-// bot.token is moved into .env, config.yml is rewritten without it, the live
-// config keeps the token in memory, and a second run is a no-op.
-func TestMigrateTokenToEnv(t *testing.T) {
+// TestMigrateSecretsToEnv pins the production upgrade path: every legacy
+// plaintext secret moves into .env, config.yml is rewritten without them, the
+// live config keeps them in memory, and a second run is a no-op.
+func TestMigrateSecretsToEnv(t *testing.T) {
 	dir := t.TempDir()
-	legacy := "bot:\n  token: legacy-tok\n  prefix: '!'\n"
+	legacy := "bot:\n  token: legacy-bot\n  prefix: '!'\noauth:\n  client_secret: legacy-oauth\nupdater:\n  token: legacy-ghp\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -148,78 +186,93 @@ func TestMigrateTokenToEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.Bot.Token != "" {
-		t.Fatalf("Load read the legacy token from config.yml: %q", cfg.Bot.Token)
+	if cfg.Bot.Token != "" || cfg.OAuth.ClientSecret != "" || cfg.Updater.Token != "" {
+		t.Fatalf("Load read legacy secrets from config.yml: (%q, %q, %q)", cfg.Bot.Token, cfg.OAuth.ClientSecret, cfg.Updater.Token)
 	}
 
-	migrated, err := MigrateTokenToEnv(cfg, dir)
+	migrated, err := MigrateSecretsToEnv(cfg, dir)
 	if err != nil || !migrated {
-		t.Fatalf("MigrateTokenToEnv = %v, %v; want true, nil", migrated, err)
+		t.Fatalf("MigrateSecretsToEnv = %v, %v; want true, nil", migrated, err)
 	}
-	if got := ReadEnvToken(dir); got != "legacy-tok" {
-		t.Errorf(".env token = %q, want legacy-tok", got)
+	if got := ReadEnvValue(dir, EnvBotToken); got != "legacy-bot" {
+		t.Errorf("bot token = %q, want legacy-bot", got)
 	}
-	if cfg.Bot.Token != "legacy-tok" {
-		t.Errorf("live config token = %q, want legacy-tok", cfg.Bot.Token)
+	if got := ReadEnvValue(dir, EnvOAuthClientSecret); got != "legacy-oauth" {
+		t.Errorf("oauth secret = %q, want legacy-oauth", got)
+	}
+	if got := ReadEnvValue(dir, EnvUpdaterToken); got != "legacy-ghp" {
+		t.Errorf("updater token = %q, want legacy-ghp", got)
+	}
+	if cfg.Bot.Token != "legacy-bot" || cfg.OAuth.ClientSecret != "legacy-oauth" || cfg.Updater.Token != "legacy-ghp" {
+		t.Errorf("live config not backfilled: (%q, %q, %q)", cfg.Bot.Token, cfg.OAuth.ClientSecret, cfg.Updater.Token)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "config.yml"))
-	if strings.Contains(string(raw), "legacy-tok") || botTokenInFile(t, filepath.Join(dir, "config.yml")) != "" {
-		t.Errorf("config.yml still contains the token:\n%s", raw)
+	for _, leak := range []string{"legacy-bot", "legacy-oauth", "legacy-ghp"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("config.yml still contains %q:\n%s", leak, raw)
+		}
 	}
-	// Prefix survives the rewrite.
+	if b, o, u := secretsInFile(t, filepath.Join(dir, "config.yml")); b != "" || o != "" || u != "" {
+		t.Errorf("config.yml secret fields = (%q, %q, %q), want empty", b, o, u)
+	}
+	// Unrelated fields survive the rewrite.
 	if !strings.Contains(string(raw), "prefix: '!'") {
 		t.Errorf("config.yml lost unrelated fields:\n%s", raw)
 	}
 
 	// Idempotent.
-	migrated, err = MigrateTokenToEnv(cfg, dir)
+	migrated, err = MigrateSecretsToEnv(cfg, dir)
 	if err != nil || migrated {
 		t.Fatalf("second migration = %v, %v; want false, nil", migrated, err)
 	}
 }
 
-// TestMigrateEnvWins pins the rotation rule: an existing .env token is never
-// overwritten by a stale plaintext copy, which is still deleted.
-func TestMigrateEnvWins(t *testing.T) {
+// TestMigrateEnvWinsPerKey pins the rotation rule: an existing .env value is
+// never overwritten by a stale plaintext copy, which is still deleted; the
+// other legacy secrets migrate normally.
+func TestMigrateEnvWinsPerKey(t *testing.T) {
 	dir := t.TempDir()
-	if err := WriteEnvToken(dir, "env-tok"); err != nil {
+	if err := WriteEnvValue(dir, EnvBotToken, "env-bot"); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  token: stale\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  token: stale-bot\noauth:\n  client_secret: stale-oauth\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := MigrateTokenToEnv(cfg, dir)
+	migrated, err := MigrateSecretsToEnv(cfg, dir)
 	if err != nil || !migrated {
 		t.Fatalf("migration = %v, %v; want true, nil", migrated, err)
 	}
-	if got := ReadEnvToken(dir); got != "env-tok" {
-		t.Errorf(".env token = %q, want env-tok (existing secret wins)", got)
+	if got := ReadEnvValue(dir, EnvBotToken); got != "env-bot" {
+		t.Errorf("bot token = %q, want env-bot (existing secret wins)", got)
 	}
-	if cfg.Bot.Token != "env-tok" {
-		t.Errorf("live token = %q, want env-tok", cfg.Bot.Token)
+	if cfg.Bot.Token != "env-bot" {
+		t.Errorf("live bot token = %q, want env-bot", cfg.Bot.Token)
+	}
+	if got := ReadEnvValue(dir, EnvOAuthClientSecret); got != "stale-oauth" {
+		t.Errorf("oauth secret = %q, want stale-oauth (migrated)", got)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "config.yml"))
-	if strings.Contains(string(raw), "stale") {
-		t.Errorf("plaintext token not stripped:\n%s", raw)
+	if strings.Contains(string(raw), "stale-bot") || strings.Contains(string(raw), "stale-oauth") {
+		t.Errorf("plaintext secrets not stripped:\n%s", raw)
 	}
 }
 
-// TestMigrateNoopWithoutToken pins the no-token path (fresh installs).
-func TestMigrateNoopWithoutToken(t *testing.T) {
+// TestMigrateNoopWithoutSecrets pins the no-secret path (fresh installs).
+func TestMigrateNoopWithoutSecrets(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  prefix: '!'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := Load(dir)
-	migrated, err := MigrateTokenToEnv(cfg, dir)
+	migrated, err := MigrateSecretsToEnv(cfg, dir)
 	if err != nil || migrated {
 		t.Fatalf("migration = %v, %v; want false, nil", migrated, err)
 	}
 	if _, err := os.Stat(EnvPath(dir)); !os.IsNotExist(err) {
-		t.Errorf(".env created without a token")
+		t.Errorf(".env created without a secret")
 	}
 }
