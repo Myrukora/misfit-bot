@@ -40,6 +40,7 @@ type restCall struct {
 	token         string
 	mentionsSet   bool
 	mentionsParse int
+	components    int
 }
 
 func (m *mockRest) record(method, path, body string) {
@@ -67,6 +68,7 @@ func (m *mockRest) CreateMessage(channelID snowflake.ID, mc discord.MessageCreat
 	m.mu.Lock()
 	m.calls[len(m.calls)-1].mentionsSet = ms
 	m.calls[len(m.calls)-1].mentionsParse = mp
+	m.calls[len(m.calls)-1].components = len(mc.Components)
 	m.mu.Unlock()
 	return &discord.Message{ID: snowflake.ID(456)}, nil
 }

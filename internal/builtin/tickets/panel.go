@@ -29,8 +29,7 @@ func buildPanelEmbed(p PanelConfig, t TypeConfig) discord.Embed {
 	return discord.NewEmbed().
 		WithTitle(title).
 		WithDescription(desc).
-		WithColor(color).
-		WithFooter("misfit-bot tickets", "")
+		WithColor(color)
 }
 
 // buildPanelRows builds the action row for ONE panel: a single Open button

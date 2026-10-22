@@ -530,7 +530,43 @@ type ticketsPageData struct {
 	Categories   []entityOpt       // category channels (type category)
 	Roles        []entityOpt       // role pickers + role-name display
 	ChannelNames map[string]string // channel ID → name for table rows
+	People       map[string]ticketPerson
 	Error        string
+}
+
+// ticketPerson is the display identity of a ticket opener/claimer, resolved
+// from the guild member cache (empty when the member is not cached).
+type ticketPerson struct {
+	Name   string
+	Avatar string
+}
+
+// ticketPeople resolves opener/claimer identities for the list rows: cached
+// members only, so a page render never fans out into REST calls.
+func (m *DashboardModule) ticketPeople(guildID string, lists ...[]modules.TicketSummary) map[string]ticketPerson {
+	out := map[string]ticketPerson{}
+	if m.bot == nil {
+		return out
+	}
+	for _, list := range lists {
+		for _, t := range list {
+			for _, id := range []string{t.OpenerID, t.ClaimerID} {
+				if id == "" {
+					continue
+				}
+				if _, ok := out[id]; ok {
+					continue
+				}
+				p := ticketPerson{}
+				if mem := m.bot.GetCachedMember(guildID, id); mem != nil {
+					p.Name = mem.User.EffectiveName()
+					p.Avatar = mem.User.EffectiveAvatarURL()
+				}
+				out[id] = p
+			}
+		}
+	}
+	return out
 }
 
 // renderTicketsList builds the tickets payload for one guild and renders the
@@ -553,7 +589,9 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 			payload.Error = err.Error()
 		} else {
 			payload.Open = open
-			payload.Closed, _ = tp.ListClosedTickets(guildID)
+			closed, _ := tp.ListClosedTickets(guildID)
+			payload.Closed = closed
+			payload.People = m.ticketPeople(guildID, open, closed)
 			if adm, ok := m.ticketAdmin(); ok {
 				payload.Panels, _ = adm.ListPanels(guildID)
 				payload.TypeDetails, _ = adm.ListTypeDetails(guildID)

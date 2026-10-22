@@ -613,7 +613,8 @@
   var typeModal = byId("tk-type-modal");
   if (typeModal && tkTypes) {
     var typeKey = byId("tk-type-key"), typeLabel = byId("tk-type-label"),
-      typeCategory = byId("tk-type-category"), typePing = byId("tk-type-ping"),
+      typeCategory = byId("tk-type-category"), typeChannel = byId("tk-type-channel"),
+      typePing = byId("tk-type-ping"),
       typeHelper = byId("tk-type-helper"), typeAccess = byId("tk-type-access"),
       typeWelcome = byId("tk-type-welcome"), typeBody = byId("tk-type-body"),
       typeButton = byId("tk-type-button"), typeEmoji = byId("tk-type-emoji"),
@@ -645,6 +646,7 @@
         typeCategory.appendChild(opt);
       }
       typeCategory.value = t && t.category ? t.category : "";
+      typeChannel.value = t ? t.channel_name || "" : "";
       tkSetChecked(typePing, t ? t.ping_roles : []);
       tkSetChecked(typeHelper, t ? t.helper_roles : []);
       tkSetChecked(typeAccess, t ? t.access_roles : []);
@@ -690,6 +692,7 @@
           label: typeLabel.value.trim(),
           enabled: typeEnabled.checked,
           category: typeCategory.value,
+          channel_name: typeChannel.value.trim(),
           ping_roles: tkChecked(typePing),
           helper_roles: tkChecked(typeHelper),
           access_roles: tkChecked(typeAccess),

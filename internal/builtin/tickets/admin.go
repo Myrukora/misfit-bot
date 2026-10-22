@@ -70,6 +70,7 @@ func typeDetail(t *TypeConfig) modules.TypeDetail {
 		PingRoles:      append([]string{}, t.PingRoles...),
 		HelperRoles:    append([]string{}, t.HelperRoles...),
 		AccessRoles:    append([]string{}, t.AccessRoles...),
+		ChannelName:    t.ChannelName,
 		WelcomeMessage: t.WelcomeMsg,
 		EmbedBody:      t.EmbedBody,
 		ButtonLabel:    t.ButtonLabel,
@@ -110,6 +111,10 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 	if err != nil {
 		return TypeConfig{}, fmt.Errorf("access roles: %w", err)
 	}
+	channelName := strings.TrimSpace(in.ChannelName)
+	if len([]rune(channelName)) > 100 {
+		return TypeConfig{}, fmt.Errorf("channel name template must be at most 100 characters")
+	}
 	if in.Color < 0 || in.Color > 0xFFFFFF {
 		return TypeConfig{}, fmt.Errorf("color must be between 0 and 16777215")
 	}
@@ -129,6 +134,7 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 		PingRoles:   ping,
 		HelperRoles: helper,
 		AccessRoles: access,
+		ChannelName: channelName,
 		WelcomeMsg:  in.WelcomeMessage,
 		EmbedBody:   in.EmbedBody,
 		ButtonLabel: button,

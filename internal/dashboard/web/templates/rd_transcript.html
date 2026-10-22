@@ -41,7 +41,7 @@
           {{range .Attachments}}
             {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
             {{if eq .Kind "image"}}
-              <a href="{{$src}}" target="_blank" rel="noopener"><img src="{{$src}}" alt="{{.Filename}}" loading="lazy" class="zoomable msg-media"></a>
+              <img src="{{$src}}" alt="{{.Filename}}" loading="lazy" class="zoomable msg-media">
             {{else if eq .Kind "video"}}
               <video controls preload="metadata" src="{{$src}}" class="msg-media msg-media-wide"></video>
             {{else if eq .Kind "audio"}}
@@ -55,7 +55,7 @@
             {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
             {{$fb := $src | fileBase}}
             {{if or (hasSuffix $fb ".png") (hasSuffix $fb ".gif")}}
-              <a href="{{$src}}" target="_blank" rel="noopener"><img src="{{$src}}" alt="sticker {{.Filename}}" loading="lazy" class="msg-sticker"></a>
+              <img src="{{$src}}" alt="sticker {{.Filename}}" loading="lazy" class="zoomable msg-sticker">
             {{else}}
               <a href="{{$src}}" target="_blank" rel="noopener" class="muted msg-attachment">🎫 {{if .Filename}}{{.Filename}}{{else}}sticker{{end}}</a>
             {{end}}
@@ -66,7 +66,7 @@
             {{$dup := false}}{{if eq $emb.Kind "link"}}{{range $entry.Attachments}}{{if and .URL (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{range $entry.Stickers}}{{if and .URL (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{range $entry.Embeds}}{{if and .URL (ne .Kind "link") (eq .URL $emb.URL)}}{{$dup = true}}{{end}}{{end}}{{end}}
             {{if not $dup}}
             {{if eq $emb.Kind "image"}}
-              <a href="{{$esrc}}" target="_blank" rel="noopener"><img src="{{$esrc}}" alt="{{$emb.Filename}}" loading="lazy" class="zoomable msg-media"></a>
+              <img src="{{$esrc}}" alt="{{$emb.Filename}}" loading="lazy" class="zoomable msg-media">
             {{else if eq $emb.Kind "video"}}
               <video controls preload="metadata" src="{{$esrc}}" class="msg-media msg-media-wide"></video>
             {{else if eq $emb.Kind "audio"}}

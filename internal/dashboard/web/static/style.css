@@ -64,8 +64,11 @@ body {
     gap: 10px;
     padding: 10px 20px;
     min-height: 44px;
-    border: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 8px;
+    background: #1a1a1e;
+    color: white;
+    text-decoration: none;
     font-family: inherit;
     font-size: 15px;
     font-weight: 600;
@@ -1517,6 +1520,115 @@ input[type="color"].field-input {
 
 .gear-panel-wide {
     width: min(640px, 100%);
+}
+
+/* ---------- Open-ticket cards ---------- */
+
+/* Each open ticket is a self-contained card: identity, media previews and
+   actions. Media previews are playable in place (no new-tab detour). */
+.ticket-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+
+.ticket-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    background: #141417;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+}
+
+.ticket-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.ticket-id {
+    color: white;
+    text-decoration: none;
+}
+
+.ticket-id:hover {
+    text-decoration: underline;
+}
+
+.ticket-people {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #d4d4d8;
+}
+
+.ticket-person {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+}
+
+.ticket-avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #0d0d0d;
+}
+
+.ticket-claimed {
+    color: #a1a1aa;
+}
+
+.ticket-unclaimed {
+    color: #71717a;
+    font-style: italic;
+}
+
+.ticket-media {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ticket-thumb {
+    display: block;
+    width: 96px;
+    height: 72px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #0d0d0d;
+}
+
+a:hover > .ticket-thumb {
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.ticket-audio {
+    width: 100%;
+    height: 34px;
+}
+
+.ticket-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 4px;
+}
+
+.ticket-foot .muted {
+    margin-right: auto;
+    font-size: 12.5px;
 }
 
 /* Native checkboxes (multi pickers: allowed channels/roles in the command

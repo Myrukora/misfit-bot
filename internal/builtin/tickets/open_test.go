@@ -14,6 +14,29 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
+// TestOpenMessageCarriesTicketButtons pins the in-channel entry point: the
+// welcome message includes the Claim/Close action row and its message ID is
+// recorded so later claims/closes can edit the buttons.
+func TestOpenMessageCarriesTicketButtons(t *testing.T) {
+	h := &wireHarness{}
+	m, r := newWireModule(t, h, map[string]*Config{"111": {Version: configVersion, Types: map[string]*TypeConfig{}}})
+	g := TypeConfig{Key: "staff", Label: "Staff", Category: "222333444555666777", AllowClaim: boolPtr(true), AllowClose: boolPtr(true)}
+	tk, err := m.openTicket(g, discord.User{ID: 42, Username: "vixen"}, "111", "panel", nil)
+	if err != nil {
+		t.Fatalf("openTicket: %v", err)
+	}
+	if tk.MessageID != "456" {
+		t.Errorf("ticket MessageID = %q, want the welcome message ID", tk.MessageID)
+	}
+	calls := r.callsFiltered("/channels/999/messages")
+	if len(calls) != 1 {
+		t.Fatalf("welcome posts = %d, want 1", len(calls))
+	}
+	if calls[0].components != 1 {
+		t.Fatalf("welcome components = %d, want the Claim/Close action row", calls[0].components)
+	}
+}
+
 // TestOpenTicketDeletesChannelOnSaveFailure is the regression guard for the
 // orphaned-channel leak: when the channel was created but the ticket could not
 // be persisted, the old code returned the error and left the channel behind —

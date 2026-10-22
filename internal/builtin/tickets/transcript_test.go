@@ -71,14 +71,33 @@ func TestTranscriptHTMLEscapesAndStructures(t *testing.T) {
 func TestBuildChannelNameCollision(t *testing.T) {
 	at := time.Date(2026, 8, 25, 3, 0, 0, 0, time.UTC)
 	taken := map[string]bool{}
-	n1 := buildChannelName("Vixen Fox", at, taken)
-	n2 := buildChannelName("Vixen Fox", at, taken)
-	n3 := buildChannelName("Vixen Fox", at, taken)
+	n1 := buildChannelName("", "Vixen Fox", TypeConfig{}, nil, at, taken)
+	n2 := buildChannelName("", "Vixen Fox", TypeConfig{}, nil, at, taken)
+	n3 := buildChannelName("", "Vixen Fox", TypeConfig{}, nil, at, taken)
 	if n1 != "vixen-fox-08-25-26" {
 		t.Fatalf("n1 = %q", n1)
 	}
 	if n2 != "vixen-fox-08-25-26-2" || n3 != "vixen-fox-08-25-26-3" {
 		t.Fatalf("collision suffixes wrong: %q %q", n2, n3)
+	}
+}
+
+func TestBuildChannelNameTemplate(t *testing.T) {
+	at := time.Date(2026, 8, 25, 15, 4, 5, 0, time.UTC)
+	tk := &modules.Ticket{ID: "support-0007", OpenerID: "42"}
+	g := TypeConfig{Key: "support", Label: "Support Desk"}
+	cases := map[string]string{
+		"{user}-{hh}-{mm}":         "vixen-fox-15-04",
+		"{type}-{user}":            "support-vixen-fox",
+		"{type.label}-{ticket.id}": "support-desk-support-0007",
+		"{user}-{yyyy}{MM}{dd}":    "vixen-fox-20260825",
+		"{user.id}":                "42",
+		"Ticket {user}!":           "ticket-vixen-fox",
+	}
+	for tmpl, want := range cases {
+		if got := buildChannelName(tmpl, "Vixen Fox", g, tk, at, map[string]bool{}); got != want {
+			t.Errorf("buildChannelName(%q) = %q, want %q", tmpl, got, want)
+		}
 	}
 }
 

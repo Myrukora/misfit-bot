@@ -334,10 +334,11 @@ type fakeTicketBot struct {
 	mod   modules.Module
 }
 
-func (f *fakeTicketBot) IsOwner(id string) bool { return id == f.owner }
-func (f *fakeTicketBot) IsElevated(string) bool { return false }
-func (f *fakeTicketBot) GetModuleManager() any  { return ticketGetter{mod: f.mod} }
-func (f *fakeTicketBot) GetVersion() string     { return "test" }
+func (f *fakeTicketBot) IsOwner(id string) bool                         { return id == f.owner }
+func (f *fakeTicketBot) IsElevated(string) bool                         { return false }
+func (f *fakeTicketBot) GetModuleManager() any                          { return ticketGetter{mod: f.mod} }
+func (f *fakeTicketBot) GetVersion() string                             { return "test" }
+func (f *fakeTicketBot) GetCachedMember(string, string) *discord.Member { return nil }
 
 // ticketsTestModule builds the dashboard module with the stub tickets module
 // loaded and a signed owner session cookie.
@@ -627,6 +628,7 @@ func TestTicketsPanelsCardRenders(t *testing.T) {
 		Categories   []entityOpt
 		Roles        []entityOpt
 		ChannelNames map[string]string
+		People       map[string]ticketPerson
 		Error        string
 	}{
 		GuildID: "1",
@@ -713,10 +715,10 @@ func TestTranscriptEmbedsAndCloseReason(t *testing.T) {
 			t.Errorf("missing %q", want)
 		}
 	}
-	// The attachment renders its URL twice (anchor href + img src); the duplicate
-	// link embed must not add any render of its own.
-	if n := strings.Count(out, "https://example.com/dup.png"); n != 2 {
-		t.Errorf("dup.png occurrences = %d, want 2 (attachment href+src only)", n)
+	// The attachment renders its URL once (img src); the duplicate link embed
+	// must not add any render of its own.
+	if n := strings.Count(out, "https://example.com/dup.png"); n != 1 {
+		t.Errorf("dup.png occurrences = %d, want 1 (attachment src only)", n)
 	}
 	if n := strings.Count(out, "🔗"); n != 1 {
 		t.Errorf("link anchors = %d, want 1 (dup link embed not deduped)", n)

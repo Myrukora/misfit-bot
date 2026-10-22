@@ -110,22 +110,46 @@
         <section class="card">
           <h2>Open tickets</h2>
           {{if .Content.Open}}
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Claimed</th><th>Opened</th><th></th></tr></thead>
-              <tbody>
-                {{range .Content.Open}}
-                <tr data-guild="{{$.Content.GuildID}}">
-                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
-                  <td>{{.Type}}</td>
-                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
-                  <td>{{if .ClaimerID}}<code>{{.ClaimerID}}</code>{{else}}—{{end}}</td>
-                  <td title="{{.OpenedAt}}">{{dateHuman .OpenedAt}}</td>
-                  <td><button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$.Content.GuildID}}">Close</button></td>
-                </tr>
+          {{$g := .Content.GuildID}}
+          <div class="ticket-grid">
+            {{range .Content.Open}}
+            {{$t := .}}
+            <article class="ticket-card" data-guild="{{$g}}">
+              <div class="ticket-top">
+                <a class="ticket-id" href="/tickets/{{$g}}/{{.ID}}"><code>{{.ID}}</code></a>
+                <span class="tag">{{.Type}}</span>
+              </div>
+              {{$op := index $.Content.People .OpenerID}}
+              <div class="ticket-people">
+                <span class="ticket-person">
+                  {{if $op.Avatar}}<img class="ticket-avatar" src="{{$op.Avatar}}" alt="" loading="lazy">{{end}}
+                  {{if $op.Name}}{{$op.Name}}{{else}}<code>{{.OpenerID}}</code>{{end}}
+                </span>
+                {{if .ClaimerID}}{{$cl := index $.Content.People .ClaimerID}}
+                <span class="ticket-claimed">· claimed by {{if $cl.Name}}{{$cl.Name}}{{else}}<code>{{.ClaimerID}}</code>{{end}}</span>
+                {{else}}<span class="ticket-unclaimed">· unclaimed</span>{{end}}
+              </div>
+              {{if .Preview}}
+              <div class="ticket-media">
+                {{range .Preview}}
+                {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
+                {{if eq .Kind "image"}}
+                <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><img class="ticket-thumb" src="{{$src}}" alt="{{.Filename}}" loading="lazy"></a>
+                {{else if eq .Kind "video"}}
+                <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><video class="ticket-thumb" src="{{$src}}" preload="metadata" muted></video></a>
+                {{else if eq .Kind "audio"}}
+                <audio class="ticket-audio" controls preload="metadata" src="{{$src}}"></audio>
                 {{end}}
-              </tbody>
-            </table>
+                {{end}}
+              </div>
+              {{end}}
+              <div class="ticket-foot">
+                <span class="muted">opened {{dateHuman .OpenedAt}}</span>
+                <a class="btn btn-small" href="/tickets/{{$g}}/{{.ID}}">View</a>
+                <button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$g}}">Close</button>
+              </div>
+            </article>
+            {{end}}
           </div>
           {{else}}
           <p class="muted">No open tickets 🎉</p>
@@ -141,10 +165,11 @@
               <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
               <tbody>
                 {{range .Content.Closed}}
+                {{$p := index $.Content.People .OpenerID}}
                 <tr>
                   <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
                   <td>{{.Type}}</td>
-                  <td>{{if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+                  <td>{{if $p.Name}}{{$p.Name}}{{else if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
                   <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
                 </tr>
                 {{end}}
@@ -182,6 +207,11 @@
                   {{range .Content.Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
                 </select>
                 <p class="muted field-help">Tickets of this type are created as channels inside this category.</p>
+              </div>
+              <div class="field">
+                <label class="field-label" for="tk-type-channel">Channel name</label>
+                <input class="field-input" id="tk-type-channel" placeholder="{user}-{hh}-{mm}" maxlength="100">
+                <p class="muted field-help">Template for new ticket channels. Tokens: {user}, {user.id}, {type}, {type.label}, {ticket.id}, {dd}/{MM}/{yyyy}, {hh}/{mm}/{ss}. Empty = {user}-{MM}-{DD}-{YY}.</p>
               </div>
 
               <h5 class="gear-section-title">Roles</h5>

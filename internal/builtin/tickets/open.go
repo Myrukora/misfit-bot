@@ -38,31 +38,74 @@ func ticketButtons(t *modules.Ticket, g TypeConfig, claimLabel string) []discord
 
 func boolPtr(b bool) *bool { return &b }
 
-// sanitizeChannelName maps an opener display name to a Discord-safe slug.
-func sanitizeChannelName(name string) string {
+// channelSlug lowercases and strips everything Discord doesn't accept in a
+// channel name (letters, digits, dash, underscore; spaces/dots become dashes).
+// No length cap: callers truncate the assembled name once.
+func channelSlug(name string) string {
 	base := strings.ToLower(strings.SplitN(name, "#", 2)[0])
 	var clean strings.Builder
 	for _, r := range base {
 		switch {
 		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
 			clean.WriteRune(r)
-		case r == ' ':
+		case r == ' ' || r == '.':
 			clean.WriteRune('-')
 		}
 	}
-	s := strings.Trim(clean.String(), "-")
+	return strings.Trim(clean.String(), "-")
+}
+
+// sanitizeChannelName makes a full channel name safe: slug + collapsed dashes
+// + a non-empty fallback, capped so the -2/-3 collision suffix still fits.
+func sanitizeChannelName(name string) string {
+	s := channelSlug(name)
+	for strings.Contains(s, "--") {
+		s = strings.ReplaceAll(s, "--", "-")
+	}
 	if s == "" {
 		s = "ticket"
 	}
-	if len(s) > 32 {
-		s = s[:32]
+	if r := []rune(s); len(r) > 80 {
+		s = strings.TrimRight(string(r[:80]), "-")
 	}
 	return s
 }
 
-// buildChannelName = "{opener}-{MM-DD-YY}"; -2/-3… suffix on same-day reuse.
-func buildChannelName(openerName string, at time.Time, taken map[string]bool) string {
-	base := fmt.Sprintf("%s-%s", sanitizeChannelName(openerName), at.Format("01-02-06"))
+// defaultChannelName is the template used when a type doesn't set one.
+const defaultChannelName = "{user}-{MM}-{DD}-{YY}"
+
+// buildChannelName renders a type's channel-name template into a Discord-safe
+// name. Tokens: {user}/{user.name}/{user.id}, {type}/{group} (key),
+// {type.label}, {ticket.id}, {dd} {MM} {yyyy} {YY}, {hh} {mm} {ss}. An empty
+// template keeps the historical {user}-{MM}-{DD}-{YY}; duplicate live names get
+// -2/-3… suffixes.
+func buildChannelName(tmpl, openerName string, g TypeConfig, tk *modules.Ticket, at time.Time, taken map[string]bool) string {
+	if strings.TrimSpace(tmpl) == "" {
+		tmpl = defaultChannelName
+	}
+	openerID, ticketID := "", ""
+	if tk != nil {
+		openerID, ticketID = tk.OpenerID, tk.ID
+	}
+	repl := strings.NewReplacer(
+		"{user.id}", openerID,
+		"{user.name}", channelSlug(openerName),
+		"{user}", channelSlug(openerName),
+		"{type.label}", g.Label,
+		"{group.label}", g.Label,
+		"{type}", g.Key,
+		"{group}", g.Key,
+		"{ticket.id}", ticketID,
+		"{dd}", at.Format("02"),
+		"{DD}", at.Format("02"),
+		"{MM}", at.Format("01"),
+		"{yyyy}", at.Format("2006"),
+		"{YY}", at.Format("06"),
+		"{hh}", at.Format("15"),
+		"{mm}", at.Format("04"),
+		"{ss}", at.Format("05"),
+	)
+	base := sanitizeChannelName(repl.Replace(tmpl))
 	name := base
 	for n := 2; taken[name]; n++ {
 		name = fmt.Sprintf("%s-%d", base, n)
@@ -145,7 +188,7 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 		return nil, fmt.Errorf("you don't have permission to open this type of ticket")
 	}
 
-	name := buildChannelName(opener.EffectiveName(), time.Now(), m.takenChannelNames())
+	name := buildChannelName(g.ChannelName, opener.EffectiveName(), g, ticket, time.Now(), m.takenChannelNames())
 	ticket.ChannelName = name
 	ch, err := m.ctx.Rest.CreateGuildChannel(snowflake.MustParse(guildID), discord.GuildTextChannelCreate{
 		Name:                 name,
@@ -165,11 +208,14 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 		firstNonEmpty(g.WelcomeMsg, "Welcome {user.mention}! Please describe your issue."),
 		ticket, groupFromType(g), fresh, guildName)
 	create := discord.MessageCreate{
-		Content: buildPingLine(g.PingRoles, ticket.OpenerID) + "\n" + welcome,
-		Embeds:  []discord.Embed{buildOpenEmbed(ticket, g, fresh, guildName)},
+		Content:    buildPingLine(g.PingRoles, ticket.OpenerID) + "\n" + welcome,
+		Embeds:     []discord.Embed{buildOpenEmbed(ticket, g, fresh, guildName)},
+		Components: ticketButtons(ticket, g, "Claim"),
 	}
-	if _, err := m.ctx.Rest.CreateMessage(ch.ID(), create); err != nil {
+	if welcomeMsg, err := m.ctx.Rest.CreateMessage(ch.ID(), create); err != nil {
 		m.ctx.Logger.Error("Tickets: welcome post failed in %s: %v", ticket.ChannelID, err)
+	} else if welcomeMsg != nil {
+		ticket.MessageID = welcomeMsg.ID.String()
 	}
 
 	// Open-time answers: post as a follow-up and record in the ticket log.

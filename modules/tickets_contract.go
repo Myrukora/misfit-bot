@@ -99,7 +99,9 @@ type Media struct {
 	Size        int    `json:"size,omitempty"`
 }
 
-// TicketSummary is the lightweight row shape for dashboard lists.
+// TicketSummary is the lightweight row shape for dashboard lists. Preview
+// carries the newest playable media (image/video/audio) for the open-ticket
+// cards; it is additive and safe for older API consumers.
 type TicketSummary struct {
 	ID        string    `json:"id"`
 	Type      string    `json:"type"`
@@ -110,6 +112,7 @@ type TicketSummary struct {
 	Status    string    `json:"status"`
 	OpenedAt  time.Time `json:"opened_at"`
 	ClosedAt  time.Time `json:"closed_at"`
+	Preview   []Media   `json:"preview,omitempty"`
 }
 
 // TypeSummary describes one configured ticket type (v2 replacement of
@@ -189,6 +192,7 @@ type TypeDetail struct {
 	PingRoles      []string `json:"ping_roles"`
 	HelperRoles    []string `json:"helper_roles"`
 	AccessRoles    []string `json:"access_roles"`
+	ChannelName    string   `json:"channel_name"`
 	WelcomeMessage string   `json:"welcome_message"`
 	EmbedBody      string   `json:"embed_body"`
 	ButtonLabel    string   `json:"button_label"`

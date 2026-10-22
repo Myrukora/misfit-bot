@@ -599,5 +599,34 @@ func summaryOf(tk *modules.Ticket) modules.TicketSummary {
 		ID: tk.ID, Type: typ, Group: typ, GuildID: tk.GuildID,
 		OpenerID: tk.OpenerID, ClaimerID: tk.ClaimerID,
 		Status: tk.Status, OpenedAt: tk.OpenedAt, ClosedAt: tk.ClosedAt,
+		Preview: recentMedia(tk.Log, 4),
 	}
+}
+
+// recentMedia returns up to max playable attachments/embeds (newest first,
+// deduped) for the dashboard's open-ticket preview cards.
+func recentMedia(log []modules.LogEntry, max int) []modules.Media {
+	var out []modules.Media
+	seen := map[string]bool{}
+	for i := len(log) - 1; i >= 0 && len(out) < max; i-- {
+		items := append(append([]modules.Media{}, log[i].Attachments...), log[i].Embeds...)
+		for _, media := range items {
+			if media.Kind != "image" && media.Kind != "video" && media.Kind != "audio" {
+				continue
+			}
+			key := media.LocalPath
+			if key == "" {
+				key = media.URL
+			}
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, media)
+			if len(out) == max {
+				break
+			}
+		}
+	}
+	return out
 }

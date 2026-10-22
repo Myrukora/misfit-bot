@@ -182,6 +182,40 @@ func TestCloseGate(t *testing.T) {
 	}
 }
 
+// TestTicketCommandSurface pins the user-facing actions in both forms: the
+// prefix commands and their slash twins, with a user option on add/remove.
+func TestTicketCommandSurface(t *testing.T) {
+	m := &TicketsModule{}
+	prefix := map[string]bool{}
+	for _, c := range m.Commands() {
+		prefix[c.Name] = c.Execute != nil
+	}
+	for _, name := range []string{"close", "claim", "add", "remove"} {
+		if !prefix[name] {
+			t.Errorf("prefix command %q missing", name)
+		}
+	}
+	slash := map[string]commands.SlashCommand{}
+	for _, c := range m.SlashCommands() {
+		slash[c.Name] = c
+	}
+	for _, name := range []string{"close", "claim", "add", "remove"} {
+		c, ok := slash[name]
+		if !ok || c.Execute == nil {
+			t.Errorf("slash command %q missing", name)
+			continue
+		}
+		if (name == "add" || name == "remove") && len(c.Options) != 1 {
+			t.Errorf("/%s options = %d, want 1 (member)", name, len(c.Options))
+		}
+		if name == "add" || name == "remove" {
+			if _, ok := c.Options[0].(discord.ApplicationCommandOptionUser); !ok {
+				t.Errorf("/%s option type = %T, want user", name, c.Options[0])
+			}
+		}
+	}
+}
+
 // TestCloseButtonRejectsStranger pins the handler wiring: a member with no
 // standing gets an ephemeral error and the ticket stays open.
 func TestCloseButtonRejectsStranger(t *testing.T) {

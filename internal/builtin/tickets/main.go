@@ -4,6 +4,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
+
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/modules"
 )
@@ -38,7 +40,7 @@ func New() modules.Module {
 }
 
 func (m *TicketsModule) Name() string    { return "tickets" }
-func (m *TicketsModule) Version() string { return "4.0.0" }
+func (m *TicketsModule) Version() string { return "4.1.0" }
 func (m *TicketsModule) Description() string {
 	return "Ticket system: dashboard-managed panels/types, in-channel claim/close, transcripts in the dashboard"
 }
@@ -52,7 +54,26 @@ func (m *TicketsModule) Commands() []commands.Command {
 	// commands are the end-user actions usable inside an open ticket channel.
 	return m.inChannelCommands()
 }
-func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return nil }
+func (m *TicketsModule) SlashCommands() []commands.SlashCommand {
+	return []commands.SlashCommand{
+		{Name: "close", Description: "Close the ticket in this channel", Category: "Tickets", Execute: m.closeTicketCommand},
+		{Name: "claim", Description: "Claim the ticket in this channel (helpers only)", Category: "Tickets", Execute: m.claimTicketCommand},
+		{
+			Name: "add", Description: "Add a member to the ticket in this channel", Category: "Tickets",
+			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionUser{
+				Name: "member", Description: "Member to add", Required: true,
+			}},
+			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, true) },
+		},
+		{
+			Name: "remove", Description: "Remove a member from the ticket in this channel", Category: "Tickets",
+			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionUser{
+				Name: "member", Description: "Member to remove", Required: true,
+			}},
+			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, false) },
+		},
+	}
+}
 
 // OnLoad stores context, loads module + store state and registers event hooks
 // (button router, modal, conversation logging, channel-delete finalization).

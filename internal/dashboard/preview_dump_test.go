@@ -110,8 +110,13 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			Categories:   []entityOpt{{ID: "c3", Name: "Tickets"}},
 			Roles:        []entityOpt{{ID: "r1", Name: "@everyone"}, {ID: "r2", Name: "Staff"}},
 			ChannelNames: map[string]string{"c1": "general", "c2": "mod-log", "c3": "Tickets"},
+			People: map[string]ticketPerson{
+				"111": {Name: "Vixen"}, "9": {Name: "Staffy"}, "222": {Name: "Nova"},
+			},
 			Open: []modules.TicketSummary{
-				{ID: "support-0012", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour)},
+				{ID: "support-0012", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour), Preview: []modules.Media{{
+					URL: "/static/discord.svg", Kind: "image", Filename: "screenshot.png",
+				}}},
 			},
 			Closed: []modules.TicketSummary{
 				{ID: "report-0011", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour)},

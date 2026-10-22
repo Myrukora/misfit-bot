@@ -32,6 +32,7 @@ type TypeConfig struct {
 	PingRoles   []string   `yaml:"ping_roles"`
 	HelperRoles []string   `yaml:"helper_roles"`
 	AccessRoles []string   `yaml:"access_roles"`
+	ChannelName string     `yaml:"channel_name"`
 	WelcomeMsg  string     `yaml:"welcome_msg"`
 	EmbedBody   string     `yaml:"embed_body"`
 	ButtonLabel string     `yaml:"button_label"`
