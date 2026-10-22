@@ -1293,6 +1293,61 @@ code {
     cursor: pointer;
 }
 
+/* Native checkboxes (multi pickers: allowed channels/roles in the command
+   modal, allowed guilds in global settings) would render as bright OS
+   squares on the dark surface. Draw our own box using the same radius
+   language as the inputs; checked = white fill with a dark checkmark.
+   The toggle switch above is unaffected: its input is visually hidden and
+   `.toggle input[type="checkbox"]` is the more specific rule. */
+input[type="checkbox"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 4px;
+    background: #0d0d0d;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+input[type="checkbox"]:hover {
+    border-color: rgba(255, 255, 255, 0.55);
+}
+
+input[type="checkbox"]:checked {
+    background-color: #ffffff;
+    border-color: #ffffff;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23141417' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6L9 17l-5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: 11px;
+}
+
+input[type="checkbox"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.18);
+}
+
+input[type="checkbox"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Ticket panel question editor: the "required" checkbox sits inline with its
+   text, so give the pair the same aligned layout as the multi pickers. */
+.tk-q-req {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: #d4d4d8;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
 /* ---------- schema-driven fields (rd_field partial) ---------- */
 
 .field-help {
