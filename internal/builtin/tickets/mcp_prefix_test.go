@@ -12,8 +12,8 @@ import (
 // correctly when invoked with flat prefix-style args (the vector MCP's
 // run_command sends), landing in the intended branch rather than the
 // "⚠️ Usage" fallback. Mirrors TestSlashParityDispatch but for the
-// raw-args path — MCP sends ExecKindPrefix with positional args, exactly
-// what a prefix-typing user would produce.
+// raw-args path — MCP sends positional args, exactly what a prefix-typing
+// user would produce.
 //
 // Soundness note: the "❌ Error" cases ARE branch-pinned. The handler
 // switch enters a specific case whose body returns embed.Error("❌ Error")

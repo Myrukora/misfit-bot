@@ -337,9 +337,44 @@ func (m *Manager) syncClient(cfg *config.UpdaterConfig) {
 // commit SHA only advances) AFTER its embed was actually sent, so a failed
 // send (e.g. REST client not ready at startup) is retried on the next poll —
 // and survives restarts, since the state file never records it as delivered.
+
+// sendAll posts an embed to every configured notify channel (the union of
+// per-server channels and the legacy global). It returns the first error if
+// any channel fails, so the caller keeps the event un-acknowledged and
+// retries the whole batch on the next poll. Delivery is at-least-once: a
+// channel that already received the embed may get a duplicate on a
+// partial-failure retry — the chosen semantics (no silent drops).
+func (m *Manager) sendAll(e discord.Embed) error {
+	targets := m.notifyTargets()
+	if len(targets) == 0 {
+		return fmt.Errorf("no notify channel configured")
+	}
+	var firstErr error
+	for _, ch := range targets {
+		if err := m.send(ch, e); err != nil {
+			m.Logger.Warn("Updater: failed to post to channel %s (%v) — will retry on the next poll", ch, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+// notifyTargets reads the live config's channel list under the config guard.
+// It is a method (not a direct cfg field read) so tests can observe/override
+// the target set without touching the package-level config mutex.
+func (m *Manager) notifyTargets() []string {
+	cfg := m.getCfg()
+	if cfg == nil {
+		return nil
+	}
+	return cfg.NotifyTargets()
+}
+
 func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterConfig) error {
-	if cfg.NotifyChannel == "" {
-		return nil // notifications disabled
+	if len(m.notifyTargets()) == 0 {
+		return nil // no notify channels configured
 	}
 	// A private copy of the bookkeeping this pass owns: it makes Discord sends
 	// between state updates and must not hold Manager.mu (Status and the version
@@ -368,8 +403,7 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 			if st.SeenPRs[pr.Number] {
 				continue
 			}
-			if err := m.send(cfg.NotifyChannel, buildPREmbed(cfg, pr)); err != nil {
-				m.Logger.Warn("Updater: failed to post PR notification #%d (%v) — will retry on the next poll", pr.Number, err)
+			if err := m.sendAll(buildPREmbed(cfg, pr)); err != nil {
 				continue // NOT marked seen → retried next poll
 			}
 			st.SeenPRs[pr.Number] = true
@@ -404,8 +438,7 @@ func (m *Manager) checkNotifications(ctx context.Context, cfg *config.UpdaterCon
 				if isMergeCommit(c.Commit.Message) {
 					continue
 				}
-				if err := m.send(cfg.NotifyChannel, buildCommitEmbed(cfg, c)); err != nil {
-					m.Logger.Warn("Updater: failed to post commit notification %s (%v) — will retry on the next poll", shortSHA(c.SHA), err)
+				if err := m.sendAll(buildCommitEmbed(cfg, c)); err != nil {
 					allSent = false
 					break
 				}
@@ -592,10 +625,19 @@ func (m *Manager) Status() map[string]string {
 	m.mu.Unlock()
 	st := m.stateSnapshot() // a private copy: the poll loop writes the shared one
 
-	enabled, repo, branch, notify, interval, autoPull := false, "", "main", "", 0, false
+	enabled, repo, branch, interval, autoPull := false, "", "main", 0, false
+	targets := []string{}
 	if cfg != nil {
-		enabled, repo, branch, notify = cfg.Enabled, cfg.Repo, cfg.Branch, cfg.NotifyChannel
+		enabled, repo, branch = cfg.Enabled, cfg.Repo, cfg.Branch
 		interval, autoPull = cfg.CheckInterval, cfg.AutoPull
+		targets = cfg.NotifyTargets()
+	}
+	// The Discord embed renders the mention form as channel names; the raw ID
+	// list is what the dashboard's status panel displays (it has no Discord
+	// renderer). Both come from the same locked read.
+	mentions := make([]string, 0, len(targets))
+	for _, ch := range targets {
+		mentions = append(mentions, "<#"+ch+">")
 	}
 	lastSHA := st.LastCommitSHA
 	if len(lastSHA) > 7 {
@@ -607,7 +649,11 @@ func (m *Manager) Status() map[string]string {
 		"branch":         branch,
 		"interval":       fmt.Sprintf("%ds", interval),
 		"auto_pull":      fmt.Sprintf("%v", autoPull),
-		"notify_channel": notify,
+		"notify_channel": strings.Join(mentions, " "),
+		// Raw IDs for consumers without a Discord renderer (the dashboard's
+		// status panel). notify_channel carries the mention form for the
+		// [p]update status embed, where <#id> renders as the channel name.
+		"notify_channels": strings.Join(targets, ","),
 		"last_sha":       lastSHA,
 		"last_check":     lastCheck.Format("2006-01-02 15:04:05"),
 		"last_error":     lastErr,
@@ -620,13 +666,13 @@ func (m *Manager) Status() map[string]string {
 }
 
 // NotifyTest is the temporary embed tester: it posts ONE sample PR embed and
-// ONE sample commit embed to the configured notify channel so the owner can
+// ONE sample commit embed to every configured notify channel so the owner can
 // preview both formats (markdown included) before real events flow. When a
 // token is configured, the sample author row uses the real authenticated user.
 func (m *Manager) NotifyTest() error {
 	cfg := m.getCfg()
-	if cfg == nil || cfg.NotifyChannel == "" {
-		return fmt.Errorf("no notify_channel configured — set it first with `update set notify_channel <channel-id>`")
+	if cfg == nil || len(m.notifyTargets()) == 0 {
+		return fmt.Errorf("no notify channel configured — set one per server on the dashboard (per-server modules page) or with `update set notify_channel <channel-id>`")
 	}
 	ctx := context.Background()
 	m.syncClient(cfg)
@@ -660,10 +706,10 @@ func (m *Manager) NotifyTest() error {
 		Author:  &user,
 	}
 
-	if err := m.send(cfg.NotifyChannel, buildPREmbed(cfg, samplePR)); err != nil {
+	if err := m.sendAll(buildPREmbed(cfg, samplePR)); err != nil {
 		return fmt.Errorf("posting sample PR embed: %w", err)
 	}
-	if err := m.send(cfg.NotifyChannel, buildCommitEmbed(cfg, sampleCommit)); err != nil {
+	if err := m.sendAll(buildCommitEmbed(cfg, sampleCommit)); err != nil {
 		return fmt.Errorf("posting sample commit embed: %w", err)
 	}
 	return nil
@@ -783,7 +829,8 @@ func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
 // auto-update is applied, deduplicated per release: a failing Apply (or several
 // polls) must not spam the channel about the same one.
 func (m *Manager) announceUpdate(cfg *config.UpdaterConfig, res *CheckResult) {
-	if cfg.NotifyChannel == "" || res.ToVersion == "" {
+	targets := m.notifyTargets()
+	if len(targets) == 0 || res.ToVersion == "" {
 		return
 	}
 	// Announce a release that is actually newer than what is running. A build on
@@ -797,12 +844,12 @@ func (m *Manager) announceUpdate(cfg *config.UpdaterConfig, res *CheckResult) {
 	// The dedupe key covers the whole target, not just the version (see
 	// releaseKey), and the Discord send happens outside Manager.mu — only the
 	// read and the mark take the lock.
-	key := releaseKey(cfg, res.ToVersion)
+	key := releaseKey(cfg, targets, res.ToVersion)
 	if m.releaseAnnounced(key) {
 		return
 	}
-	if err := m.send(cfg.NotifyChannel, buildUpdateEmbed(cfg, res)); err != nil {
-		m.Logger.Warn("Updater: failed to post the update announcement (%v) — retrying on the next poll", err)
+	if err := m.sendAll(buildUpdateEmbed(cfg, res)); err != nil {
+		m.Logger.Warn("Updater: failed to post the update announcement — retrying on the next poll")
 		return
 	}
 	m.markReleaseAnnounced(key)
@@ -840,14 +887,15 @@ func (m *Manager) markReleaseAnnounced(key string) {
 
 // releaseKey identifies an announced update. The updater's configuration is
 // live, so the version alone is not enough: repointing the bot at another repo
-// or branch, or moving the notify channel, must produce a fresh announcement
-// even when the new target happens to publish the same version number.
-func releaseKey(cfg *config.UpdaterConfig, version string) string {
+// or branch, or changing the notify target set, must produce a fresh
+// announcement even when the new target happens to publish the same version
+// number.
+func releaseKey(cfg *config.UpdaterConfig, targets []string, version string) string {
 	branch := cfg.Branch
 	if branch == "" {
 		branch = "main"
 	}
-	return cfg.Repo + "@" + branch + "#" + cfg.NotifyChannel + "@v" + version
+	return cfg.Repo + "@" + branch + "#" + strings.Join(targets, ",") + "@v" + version
 }
 
 // sendEmbed posts an embed to a Discord channel via the REST client.

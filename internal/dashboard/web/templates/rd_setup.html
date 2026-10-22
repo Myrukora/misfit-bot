@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Bot}} — Setup</title>
-<link rel="stylesheet" href="/static/redesign/style.css">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="login-page">
   <div class="login-card setup-card">
     <div class="login-brand">
-      <img src="/static/redesign/logo.png" alt="logo">
+      {{if .BotAvatar}}<img class="login-avatar" src="{{.BotAvatar}}" alt="{{.Bot}}">{{else}}<span class="login-avatar login-avatar-fallback">{{initial .Bot}}</span>{{end}}
       <h1 class="login-title">Setup</h1>
       <p class="login-sub muted">Dashboard not configured yet</p>
     </div>

@@ -292,7 +292,10 @@ func run() bool {
 		bot.WithDefaultGateway(),
 		bot.WithVoiceManagerConfigOpts(),
 		bot.WithCacheConfigOpts(
-			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles),
+			// FlagChannels: the dashboard's per-guild pages enumerate channels
+			// from the cache (imagefilter log-channel picker, command-run
+			// channel targets). Without it ChannelsForGuild is always empty.
+			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles, cache.FlagChannels),
 		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(
@@ -472,6 +475,42 @@ func run() bool {
 
 func onReady(event *events.Ready) {
 	Log.Info("Logged in as %s (ID: %s)", event.User.Username, event.User.ID)
+	migrateLegacyNotifyChannel()
+}
+
+// migrateLegacyNotifyChannel folds the pre-redesign single global update
+// notification channel into the per-server map once. It runs from onReady (not
+// startup) because it resolves the channel's owning guild through the Discord
+// REST client, which only exists after the client is built. Best effort: an
+// unresolvable channel keeps the legacy value, where NotifyTargets still uses
+// it as a fallback, and the next startup retries.
+func migrateLegacyNotifyChannel() {
+	if Client == nil || Cfg.Updater.LegacyNotifyChannel() == "" {
+		return
+	}
+	migrated, err := config.MigrateLegacyNotifyChannel(Cfg, Dir, func(channelID string) (string, bool) {
+		cid, err := snowflake.Parse(channelID)
+		if err != nil {
+			return "", false
+		}
+		ch, err := Client.Rest.GetChannel(cid)
+		if err != nil {
+			Log.Warn("Updater: cannot resolve the legacy notify channel %s yet (%v) — keeping it as a fallback", channelID, err)
+			return "", false
+		}
+		gch, ok := ch.(discord.GuildChannel)
+		if !ok {
+			return "", false
+		}
+		return gch.GuildID().String(), true
+	})
+	if err != nil {
+		Log.Error("Failed to migrate the legacy notify channel: %v", err)
+		return
+	}
+	if migrated {
+		Log.Info("Migrated the global update notify channel to per-server config")
+	}
 }
 
 func onGuildJoin(event *events.GuildJoin) {
@@ -1209,6 +1248,15 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 			}
 		}
 	}
+	// Compiled-in builtins that are currently enabled (missing enabled_modules
+	// key = enabled). They appear here so consumers see the full catalog —
+	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
+	// Lua/Python modules.
+	for _, name := range []string{"cleanup", "tickets", "imagefilter"} {
+		if enabled, ok := Cfg.Modules.EnabledModules[name]; !ok || enabled {
+			names = append(names, name)
+		}
+	}
 	return names
 }
 
@@ -1260,7 +1308,28 @@ func moduleDataDir(path string) string {
 	return filepath.Dir(path)
 }
 
+// isBuiltinModule reports whether name is one of the compiled-in feature
+// modules. Builtins come up via enabled_modules at startup; they have no
+// file to load and cannot be load/unload/reloaded at runtime. They are
+// listed by GetAvailableModuleNames so consumers see the full catalog —
+// this guard keeps every runtime action path (Discord command, dashboard,
+// MCP) from corrupting a builtin's state.
+func isBuiltinModule(name string) bool {
+	switch name {
+	case "cleanup", "tickets", "imagefilter":
+		return true
+	}
+	return false
+}
+
+func builtinModuleError(name string) error {
+	return fmt.Errorf("module '%s' is a compiled-in builtin — enable/disable it with `modules enable|disable %s`, then restart the bot", name, name)
+}
+
 func (b *botAdapter) LoadModule(name string) error {
+	if isBuiltinModule(name) {
+		return builtinModuleError(name)
+	}
 	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
 	path, err := resolveModulePath(modulesDir, name)
 	if err != nil {
@@ -1291,6 +1360,9 @@ func (b *botAdapter) LoadModule(name string) error {
 }
 
 func (b *botAdapter) UnloadModule(name string) error {
+	if isBuiltinModule(name) {
+		return builtinModuleError(name)
+	}
 	if err := ModMgr.Unload(name); err != nil {
 		return err
 	}
@@ -1301,6 +1373,9 @@ func (b *botAdapter) UnloadModule(name string) error {
 }
 
 func (b *botAdapter) ReloadModule(name string) error {
+	if isBuiltinModule(name) {
+		return builtinModuleError(name)
+	}
 	if err := ModMgr.Unload(name); err != nil {
 		return fmt.Errorf("unload failed: %w", err)
 	}
@@ -1444,7 +1519,7 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 // The Discord rate limiter is intentionally NOT applied here: the web already
 // has auth + CSRF + per-command permission checks, and sharing the command
 // budget between Discord and the web would let Discord spam block the UI.
-func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (commands.CommandResult, error) {
+func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (commands.CommandResult, error) {
 	var res commands.CommandResult
 	if asUserID == "" {
 		return res, fmt.Errorf("no user specified")
@@ -1467,11 +1542,10 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		}
 	}
 
-	// Resolve the command by the requested execution way. Slash mode prefers
-	// slash implementations (core, then module); prefix mode mirrors the
-	// prefix dispatcher (core prefix, core slash, module prefix). Either way
-	// the other kind is searched as a fallback, so commands that only exist
-	// in one form stay reachable from the web.
+	// Resolve in the prefix dispatcher's precedence: core prefix, core slash,
+	// then module prefix, module slash. A command that exists in both forms
+	// resolves to its prefix implementation; slash-only commands stay
+	// reachable.
 	type cmdInfo struct {
 		superOwnerOnly, ownerOnly bool
 		requiredPerm              discord.Permissions
@@ -1497,28 +1571,15 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		return nil
 	}
 	var ci *cmdInfo
-	if kind == commands.ExecKindSlash {
+	ci = findPrefix(commands.CoreCommands)
+	if ci == nil {
 		ci = findSlash(commands.CoreSlashCommands)
-		if ci == nil {
-			ci = findSlash(ModMgr.AllSlashCommands())
-		}
-		if ci == nil {
-			ci = findPrefix(commands.CoreCommands)
-		}
-		if ci == nil {
-			ci = findPrefix(ModMgr.AllCommands())
-		}
-	} else {
-		ci = findPrefix(commands.CoreCommands)
-		if ci == nil {
-			ci = findSlash(commands.CoreSlashCommands)
-		}
-		if ci == nil {
-			ci = findPrefix(ModMgr.AllCommands())
-		}
-		if ci == nil {
-			ci = findSlash(ModMgr.AllSlashCommands())
-		}
+	}
+	if ci == nil {
+		ci = findPrefix(ModMgr.AllCommands())
+	}
+	if ci == nil {
+		ci = findSlash(ModMgr.AllSlashCommands())
 	}
 	if ci == nil {
 		return res, fmt.Errorf("unknown command: %s", name)

@@ -468,7 +468,7 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 		writeError(w, http.StatusForbidden, "this command is not enabled for the dashboard")
 		return
 	}
-	res, err := m.bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String(), m.execMode())
+	res, err := m.bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
 	if err != nil {
 		code := http.StatusBadRequest
 		if errors.Is(err, commands.ErrWebForbidden) || errors.Is(err, commands.ErrInsufficientPerm) {

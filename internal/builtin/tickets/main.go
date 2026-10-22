@@ -59,13 +59,6 @@ func (m *TicketsModule) Commands() []commands.Command {
 }
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand { return m.slashCommands() }
 
-// WebTabs declares the dashboard tabs this module contributes: the existing
-// /tickets page (list + transcripts). Routes stay at /tickets — the sidebar
-// just points at them (Task 10 keeps route churn minimal).
-func (m *TicketsModule) WebTabs() []modules.WebTab {
-	return []modules.WebTab{{Name: "Tickets", Slug: "/tickets"}}
-}
-
 // OnLoad stores context, migrates legacy config, loads module + store state
 // and registers event hooks (button router, modal, conversation logging,
 // channel-delete finalization).

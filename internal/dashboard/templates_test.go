@@ -65,7 +65,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Icon: "https://cdn/i.png"}, {ID: "2", Name: "Second"}}}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{}}},
-		{"rd_overview", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "goroutines": 5, "gc_cycles": 2, "go_version": "go1.26.4"}, Modules: []string{"cleanup"}}},
+		{"rd_overview", metricsSnapshot{Runtime: map[string]any{"alloc_mb": uint64(1), "sys_mb": uint64(32), "goroutines": 5, "go_version": "go1.26.4"}, Modules: []string{"cleanup"}}},
 		{"rd_permissions", map[string]any{"elevated": []string{"123"}, "owner_id": "9", "names": map[string]string{"123": "sam", "9": "owner"}}},
 		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": []string{"l1"}, "note": ""}},
 		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": nil, "note": "no log file"}},
@@ -85,6 +85,18 @@ func TestTemplatesParseAndRender(t *testing.T) {
 			"status":   modules.ImageFilterStatus{Warm: true, Variant: "b32", EnabledGuilds: 2},
 			"enabled":  true,
 			"channels": []entityOpt{{ID: "c1", Name: "general"}},
+		}},
+		// rd_imagefilter with a saved log channel that is no longer listed
+		// (deleted): the stale option must render without a template error.
+		{"rd_imagefilter", map[string]any{
+			"admin":    true,
+			"guild":    "1",
+			"config":   map[string]string{"enabled": "false", "log_channel": "99"},
+			"images":   []string{},
+			"status":   modules.ImageFilterStatus{Variant: "b32"},
+			"enabled":  false,
+			"channels": []entityOpt{},
+			"staleChannel": &entityOpt{ID: "99", Name: "99"},
 		}},
 		{"rd_imagefilter", map[string]any{"admin": false, "guild": "1", "config": map[string]string{}, "images": []string{}, "enabled": false}},
 		// Command catalog (redesign): empty + populated, global and scoped.
@@ -255,31 +267,31 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 }
 
-// TestGlobalSidebarModuleGroups pins the global sidebar's per-module groups:
-// a module with declared WebTabs renders one link per tab, and NO Settings
-// sublink — global module settings live on /config, not in the sidebar.
-func TestGlobalSidebarModuleGroups(t *testing.T) {
+// TestGlobalSidebarHasNoModuleGroups pins the hub sidebar: the global nav
+// renders only the core entries (Servers/Overview/Config/Permissions/Logs).
+// Per-server module pages (like tickets) live under /g/<id>/… and are linked
+// from the server-scoped sidebar only — the hub must not grow a module group.
+func TestGlobalSidebarHasNoModuleGroups(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
 	}
 	d := mkData(lvlOwner)
-	d.ModuleNav = []moduleNavItem{
-		{Name: "tickets", Tabs: []navTabItem{{Name: "Tickets", URL: "/tickets"}}},
-	}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_header", d); err != nil {
 		t.Fatalf("render rd_header: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `nav-module-name">tickets`) {
-		t.Error("sidebar missing the tickets module group")
+	if strings.Contains(out, `nav-module`) {
+		t.Error("global sidebar must not render a module group")
 	}
-	if !strings.Contains(out, `nav-sub">Tickets`) {
-		t.Error("sidebar missing the Tickets tab link")
+	if strings.Contains(out, `href="/tickets"`) {
+		t.Error("global sidebar must not link the hub-level tickets page")
 	}
-	if strings.Contains(out, ">Settings</a>") {
-		t.Error("sidebar must not render a Settings sublink (global settings live on /config)")
+	for _, want := range []string{`href="/"`, `/overview`, `/permissions`, `/logs`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("global sidebar missing core link %s", want)
+		}
 	}
 }
 

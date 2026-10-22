@@ -74,7 +74,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
 | `oauth` | `client_secret` (Discord app OAuth2 secret, shared with the dashboard) |
-| `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channel` |
+| `updater` | `enabled`, `repo`, `branch`, `token`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; `notify_channel` is the legacy global fallback) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
 Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
@@ -177,7 +177,7 @@ its tag already there and does nothing.
 
 The bot polls its own GitHub repository every `check_interval` seconds (default 300):
 
-1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to `notify_channel`. Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
+1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to every configured notify channel: each server picks its own channel on the dashboard's per-server **Modules** page (`updater.notify_channels`), and the legacy global `notify_channel` is kept as a fallback. Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
 2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
 
 The GitHub token lives **only** in the gitignored `config.yml` and never appears in any commit.
@@ -193,7 +193,7 @@ The web dashboard runs in-process (compiled into the single binary). Setup:
 
 Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `[p]help`).
 
-The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). The **Command execution way** setting (dashboard module settings, default `prefix`) picks which implementation is shown and executed: `prefix` runs text-command logic (prefix commands require Discord's Message Content intent to be usable in Discord), `slash` prefers the slash implementations and works without the intent. Commands that only exist in one form work regardless of the setting. Slash execution from the dashboard is best-effort: slash implementations that rely on interaction-only flows beyond the standard response helpers (`ctx.Respond` / `ctx.respond`) may produce an empty result.
+The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). Execution goes through the bot's own dispatcher with the same resolution order as the prefix dispatcher, so each command runs its single canonical implementation directly in the backend — there is no prefix-vs-slash setting and no Discord round-trip. Slash-only commands (modules that define no prefix form) still resolve and run.
 
 Each command card's **Run** button executes the command in-process with **no arguments** (`POST /api/exec` takes an optional `args` array; the commands tab sends an empty one). The JSON catalog (`GET /api/commands`) does expose each command's slash-option schema — subcommand groups, typed options and their choices — for tools that want to build their own argument forms, but the dashboard page itself renders no argument inputs.
 

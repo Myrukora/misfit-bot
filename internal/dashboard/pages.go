@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/misfit/bot/internal/logutil"
 	"github.com/misfit/bot/modules"
@@ -38,6 +39,9 @@ type fieldRender struct {
 
 type moduleConfigView struct {
 	Name   string
+	// Label overrides the card heading (Name stays the form's data-module
+	// identifier used by the save endpoint). Empty = use Name.
+	Label  string
 	Fields []fieldRender
 }
 
@@ -302,7 +306,6 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 		"guild":       guildID,
 		"selectedTab": "core",
 		"count":       len(views),
-		"mode":        m.execMode(),
 		"canRaw":      false,
 		"canManage":   levelGEQ(level, lvlStaff),
 	}
@@ -320,10 +323,11 @@ func (m *DashboardModule) renderGuildCommands(w http.ResponseWriter, r *http.Req
 	m.tmpl.render(w, "rd_commands", d)
 }
 
-// renderGuildTickets renders the tickets list pinned to one guild (reuses the
-// tickets page renderer with the guild preselected).
+// renderGuildTickets renders the tickets list pinned to one guild
+// (server-scoped /g/<id>/tickets route).
 func (m *DashboardModule) renderGuildTickets(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
-	m.handleTicketsInGuild(w, r, us, guildID)
+	level := m.resolveLevel(us)
+	m.renderTicketsList(w, us, level, guildID)
 }
 
 // renderGuildModules renders this guild's module settings panels.
@@ -332,6 +336,16 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 	data := settingsPageData{GuildID: guildID}
 	if detail, err := m.buildGuildDetail(guildID); err == nil {
 		data.GuildName = detail.Name
+	}
+	// The dashboard itself is not a loaded module, so it is not in
+	// GetLoadedModuleNames — but it exposes one guild-scoped field (the
+	// per-server update notification channel). Render it first, like the
+	// global /config page does.
+	if wc, ok := m.webCfg("dashboard"); ok {
+		if mv := m.buildModuleView(wc, "dashboard", us, level, guildID, false); len(mv.Fields) > 0 {
+			mv.Label = "Update notifications"
+			data.ModulesView = append(data.ModulesView, mv)
+		}
 	}
 	for _, name := range m.bot.GetLoadedModuleNames() {
 		wc, ok := m.webCfg(name)
@@ -468,7 +482,6 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "updater_branch", Label: "Branch", Help: "Branch to track.", Type: "text", Value: vals["updater_branch"], Placeholder: "main"},
 			fieldRender{Key: "updater_interval", Label: "Check interval (seconds)", Help: "How often the updater polls. Minimum 30.", Type: "number", Value: vals["updater_interval"], Min: "30", Step: "1", Placeholder: "300"},
 			fieldRender{Key: "updater_auto_pull", Label: "Auto pull", Help: "Automatically pull, rebuild and restart on new commits.", Type: "toggle", Value: vals["updater_auto_pull"]},
-			fieldRender{Key: "updater_notify_channel", Label: "Notify channel", Help: "Discord channel for PR/commit embeds. Pick from the selected server; empty = no notifications.", Type: "channel", Value: vals["updater_notify_channel"], Placeholder: "channel ID or empty"},
 			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "PAT used to fetch from GitHub. Never displayed — leave blank to keep the current value.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
 		),
 		sec("Secrets", "Credentials. Owner only — elevated users see them locked.",
@@ -684,9 +697,22 @@ func (m *DashboardModule) handleGuildImageFilterPage(w http.ResponseWriter, r *h
 		content["images"] = []string{}
 		content["enabled"] = false
 	}
-	// Channel list for the log-channel picker (cache only; staff-visible).
+	// Channel list for the log-channel picker: only channel kinds that can
+	// actually receive a message (text/announcement) — a log embed posted to
+	// a voice or category channel is an API error. The cache flag that
+	// populates it (cache.FlagChannels) is set in cmd/bot/main.go.
+	var channelOpts []entityOpt
 	if detail, err := m.buildGuildDetail(guildID); err == nil {
-		content["channels"] = detail.Channels
+		channelOpts = logChannelOptions(detail.Channels)
+		content["channels"] = channelOpts
+	}
+	// A saved log channel may no longer exist (channel deleted) or be a type
+	// the picker no longer lists — surface it as a disabled option so saving
+	// the other detection fields cannot silently wipe the value.
+	if adm, ok := m.imageFilterAdmin(); ok {
+		if cfg, err := adm.GetGuildConfig(guildID); err == nil {
+			content["staleChannel"] = staleLogChannelOption(cfg["log_channel"], channelOpts)
+		}
 	}
 	d.Content = content
 	m.tmpl.render(w, "rd_imagefilter", d)
@@ -706,4 +732,55 @@ func mustConfig(v map[string]string, err error) map[string]string {
 		return map[string]string{}
 	}
 	return v
+}
+
+// messageableChannelTypes are the channel kinds a log embed can actually be
+// posted to. Voice/category/forum/stage threads reject CreateMessage, so the
+// imagefilter log-channel picker offers text + announcement channels only.
+var messageableChannelTypes = map[discord.ChannelType]bool{
+	discord.ChannelTypeGuildText: true,
+	discord.ChannelTypeGuildNews: true,
+}
+
+// logChannelOptions narrows the cached channel list to log-channel candidates,
+// sorted by name (the cache order is unspecified).
+func logChannelOptions(chs []entityOpt) []entityOpt {
+	out := make([]entityOpt, 0, len(chs))
+	for _, ch := range chs {
+		if messageableChannelTypes[channelTypeByName(ch.Type)] {
+			out = append(out, ch)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// channelTypeByName reverses channelTypeName (display label → type) for the
+// few kinds the picker cares about. Unknown labels map to an out-of-range
+// type (-1): never ChannelType(0), which IS ChannelTypeGuildText and would
+// let every unknown label through the messageable filter.
+func channelTypeByName(label string) discord.ChannelType {
+	switch label {
+	case "Text":
+		return discord.ChannelTypeGuildText
+	case "Announcement":
+		return discord.ChannelTypeGuildNews
+	default:
+		return discord.ChannelType(-1)
+	}
+}
+
+// staleLogChannelOption returns an option for the saved log channel when it is
+// no longer in the picker's list (deleted, or a type we stopped offering).
+// nil when the value is empty or still listed.
+func staleLogChannelOption(id string, listed []entityOpt) *entityOpt {
+	if id == "" {
+		return nil
+	}
+	for _, ch := range listed {
+		if ch.ID == id {
+			return nil
+		}
+	}
+	return &entityOpt{ID: id, Name: id}
 }

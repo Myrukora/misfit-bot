@@ -41,32 +41,12 @@ type renderData struct {
 	// ShowImageFilter: the imagefilter module is loaded — server-scoped
 	// sidebars render its tab (the page itself still guards staff access).
 	ShowImageFilter bool
-	// ModuleNav carries the per-module sidebar sections (Task 10): loaded
-	// modules that declare WebTabs get a sidebar group with one link per tab.
-	// Global module settings live on /config, not in the sidebar. Empty for
-	// standalone pages.
-	ModuleNav []moduleNavItem
 	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
 	// header.html renders the server-scoped sidebar (server name + back-to-servers
 	// + Commands/Tickets/Modules/Server info) instead of the global nav. Empty
 	// GuildID = top-level page (global sidebar).
 	GuildID   string
 	GuildName string
-}
-
-// moduleNavItem is one per-module sidebar group: the module's display name
-// plus its declared WebTab links.
-type moduleNavItem struct {
-	Name   string       // module name (display)
-	Tabs   []navTabItem // declared extra tabs
-	Active bool         // true when the current page belongs to this module
-}
-
-// navTabItem is one extra tab link inside a module's sidebar group.
-type navTabItem struct {
-	Name   string
-	URL    string
-	Active bool
 }
 
 var tmplFuncs = template.FuncMap{
@@ -215,17 +195,6 @@ func loadTemplates() (*templateBundle, error) {
 func (b *templateBundle) render(w io.Writer, page string, data renderData) error {
 	if data.Page == "" {
 		data.Page = page
-	}
-	// Per-module nav active state: a tab is active when its URL path matches
-	// the current page (e.g. /tickets vs page "tickets").
-	for i := range data.ModuleNav {
-		item := &data.ModuleNav[i]
-		for j := range item.Tabs {
-			if strings.TrimPrefix(item.Tabs[j].URL, "/") == data.Page {
-				item.Tabs[j].Active = true
-				item.Active = true
-			}
-		}
 	}
 	return b.tmpl.ExecuteTemplate(w, page, data)
 }

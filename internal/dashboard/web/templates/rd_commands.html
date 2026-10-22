@@ -1,7 +1,7 @@
 {{define "rd_commands"}}{{template "rd_header" .}}
         <section class="card">
           <h2>Commands</h2>
-          <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} in this server · shown as {{if eq .Content.mode "slash"}}<code>/slash</code>{{else}}<code>prefix</code>{{end}} commands.</p>
+          <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} in this server.</p>
 
           <!-- Toolbar: filter -->
           <div class="toolbar">

@@ -22,12 +22,6 @@ type DashboardConfig struct {
 	ClientSecret  string   `yaml:"client_secret"`
 	SessionSecret string   `yaml:"session_secret"`
 	AllowedGuilds []string `yaml:"allowed_guilds"`
-	// ExecMode picks which command implementation the dashboard's Run button
-	// executes and which kind the commands tab displays: "prefix" (default) or
-	// "slash". Prefix text commands REQUIRE Discord's Message Content intent
-	// to be usable in Discord; slash works without it and mirrors what users
-	// type natively.
-	ExecMode string `yaml:"exec_mode"`
 	// ExecAllowlist is the allowlist of command names the dashboard's Run
 	// button may execute. EMPTY BLOCKS ALL commands — the allowlist is opt-in
 	// only, so nothing is runnable from the web until names are added. This is
@@ -42,7 +36,6 @@ func defaultConfig() *DashboardConfig {
 	return &DashboardConfig{
 		Listen:        "127.0.0.1:8080", // localhost-only by default for safety
 		AllowedGuilds: []string{},
-		ExecMode:      "prefix",
 	}
 }
 
@@ -116,9 +109,6 @@ func loadConfig(dir string) (*DashboardConfig, error) {
 	if c.AllowedGuilds == nil {
 		c.AllowedGuilds = []string{}
 	}
-	if c.ExecMode != "slash" {
-		c.ExecMode = "prefix"
-	}
 	c.ExecAllowlist = normalizeAllowlist(c.ExecAllowlist)
 	return c, nil
 }
@@ -177,11 +167,6 @@ func (c *DashboardConfig) Set(key, value string) error {
 			return r == ',' || r == ' ' || r == '\n' || r == '	'
 		})
 		c.AllowedGuilds = fields
-	case "exec_mode":
-		if value != "prefix" && value != "slash" {
-			return fmt.Errorf("exec_mode must be \"prefix\" or \"slash\"")
-		}
-		c.ExecMode = value
 	default:
 		return fmt.Errorf("unknown dashboard config key: %q", key)
 	}

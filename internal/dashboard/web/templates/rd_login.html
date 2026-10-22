@@ -7,18 +7,18 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cookie&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/redesign/style.css">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="login-page">
   <div class="login-card">
     <div class="login-brand">
-      <img src="/static/redesign/logo.png" alt="logo">
+      {{if .BotAvatar}}<img class="login-avatar" src="{{.BotAvatar}}" alt="{{.Bot}}">{{else}}<span class="login-avatar login-avatar-fallback">{{initial .Bot}}</span>{{end}}
       <h1 class="login-title">{{.Bot}}</h1>
       <p class="login-sub muted">Bot dashboard</p>
     </div>
     <form class="login-form" action="/login" method="post">
       <button type="submit" class="btn login-btn">
-        <img src="/static/redesign/discord.svg" width="22" height="22" alt="" aria-hidden="true">
+        <img src="/static/discord.svg" width="22" height="22" alt="" aria-hidden="true">
         Sign in with Discord
       </button>
     </form>

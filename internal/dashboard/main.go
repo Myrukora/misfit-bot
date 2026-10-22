@@ -46,10 +46,11 @@ type DashboardModule struct {
 	logger    modules.Logger
 	lastErr   string // last server bind error, surfaced in the dashboard status view when not running
 
-	// appName caches the Developer Portal application name fetched via REST
-	// (fallback identity source when the gateway self-user cache is empty).
+	// appInfo caches the Developer Portal application identity (name + icon)
+	// fetched via REST (fallback identity source when the gateway self-user
+	// cache is empty).
 	appNameMu sync.Mutex
-	appName   string
+	appInfo   appIdentity
 	appNameAt time.Time
 
 	// coreConfig memo: config.yml is small but re-reading + re-parsing it on
@@ -617,14 +618,23 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
 		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of servers. Empty = allow all bot guilds. Checked servers stay accessible; unchecked ones are locked out of the dashboard.", Type: modules.FieldTypeMulti, Options: m.guildLabelOptions(), Scope: "global"},
-		{Key: "exec_mode", Label: "Command execution way", Help: "Which command implementation the Run buttons and commands tab use: prefix (text commands; requires Discord's Message Content intent) or slash (works without the intent, matches Discord's native UI).", Type: modules.FieldTypeSelect, Options: []string{"prefix", "slash"}, Scope: "global"},
+		// Guild-scoped: rendered only on the per-server modules page, where
+		// the picker is populated from that server's channels. Stored in the
+		// core config (updater.notify_channels) — see WebSetConfig.
+		{Key: "notify_channel", Label: "Update notification channel", Help: "Channel in this server that receives the bot's PR, commit and release embeds. Empty = this server gets no update notifications.", Type: modules.FieldTypeChannel, Scope: "guild", GuildScoped: true},
 	}
 }
 
-// WebGetConfig returns the dashboard's global config for the web UI (secrets redacted).
+// WebGetConfig returns the dashboard's config for the web UI (secrets
+// redacted). guildID == "" is the global panel; a guild ID returns that
+// server's guild-scoped fields (the update notification channel).
 func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error) {
 	if guildID != "" {
-		return map[string]string{}, nil // dashboard has only global-scoped config
+		ch := ""
+		if cc := m.coreConfig(); cc != nil {
+			ch = cc.Updater.NotifyChannelFor(guildID)
+		}
+		return map[string]string{"notify_channel": ch}, nil
 	}
 	m.mu.Lock()
 	cfg := m.cfg
@@ -636,7 +646,6 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 		"client_id":      cfg.ClientID,
 		"session_secret": redactedIfSet(cfg.SessionSecret),
 		"allowed_guilds": strings.Join(m.guildLabels(cfg.AllowedGuilds), "\n"),
-		"exec_mode":      cfg.ExecMode,
 	}
 	return v, nil
 }
@@ -689,21 +698,20 @@ func parseGuildLabels(labels []string) []string {
 	return out
 }
 
-// execMode returns the configured command execution way ("prefix" or "slash"),
-// defaulting to prefix when unset or invalid.
-func (m *DashboardModule) execMode() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cfg.ExecMode == "slash" {
-		return "slash"
-	}
-	return "prefix"
-}
-
 // WebSetConfig applies one WebConfigurable field to the dashboard config.
 func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 	if guildID != "" {
-		return fmt.Errorf("dashboard config is global-only")
+		// Guild-scoped fields: the only one is the per-server update
+		// notification channel, which lives in the core config (the updater
+		// reads it there) — not in this module's 0600 file.
+		if key != "notify_channel" {
+			return fmt.Errorf("unknown per-server setting: %q", key)
+		}
+		if err := m.bot.SetConfig("updater_notify_channel:"+guildID, value); err != nil {
+			return err
+		}
+		m.invalidateCoreConfig()
+		return nil
 	}
 	// listen & public_url live in the core bot config.yml `dashboard:` section
 	// (so the owner can pin the port from the main config — e.g. when 8080 is

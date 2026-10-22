@@ -1,4 +1,4 @@
-/* redesign/app.js — vanilla JS for the redesigned dashboard.
+/* app.js — vanilla JS for the dashboard.
  * Fetch-based, no framework. CSRF token comes from <meta name="csrf-token">.
  * Each page's script block activates only when its elements exist.
  */
@@ -93,14 +93,14 @@
   /* ---------- overview: live metrics poll ---------- */
   var latencyEl = byId("m-latency");
   if (latencyEl) {
-    var memEl = byId("m-mem"), gorosEl = byId("m-goros"), gcEl = byId("m-gc"), upEl = byId("m-uptime");
+    var memEl = byId("m-mem"), sysEl = byId("m-sys"), gorosEl = byId("m-goros"), upEl = byId("m-uptime");
     setInterval(function () {
       api("GET", "/api/metrics").then(function (s) {
         if (latencyEl) latencyEl.textContent = s.gateway_latency || latencyEl.textContent;
         if (upEl) upEl.textContent = s.uptime || upEl.textContent;
         if (memEl && s.runtime) memEl.textContent = s.runtime.alloc_mb + " MB";
+        if (sysEl && s.runtime) sysEl.textContent = s.runtime.sys_mb + " MB";
         if (gorosEl && s.runtime) gorosEl.textContent = s.runtime.goroutines;
-        if (gcEl && s.runtime) gcEl.textContent = s.runtime.gc_cycles;
       }).catch(function () { /* transient poll errors stay silent */ });
     }, 5000);
   }
@@ -199,7 +199,7 @@
         var rows = [
           statusRow((s.enabled === "true" ? "enabled" : "disabled") + " · " + (s.repo || "no repo") + "@" + s.branch,
             s.enabled === "true" ? "upd-ok" : "upd-err"),
-          statusRow("interval " + s.interval + " · auto_pull " + s.auto_pull + " · notify " + (s.notify_channel || "—")),
+          statusRow("interval " + s.interval + " · auto_pull " + s.auto_pull + " · notify " + (s.notify_channels || "—")),
           statusRow("last check " + s.last_check + " · last seen " + (s.last_sha || "—"))
         ];
         if (s.last_error) rows.push(statusRow("last error: " + s.last_error, "upd-err"));
@@ -286,8 +286,102 @@
       });
     }
 
-    /* add images (upload and/or URL) */
+    /* add images (dropzone upload and/or URL) */
+    var uploadEl = byId("if-upload");
+    var dropEl = byId("if-drop");
+    var chipsEl = byId("if-files");
     var addBtn = byId("if-add");
+
+    function fmtSize(n) {
+      if (n < 1024) return n + " B";
+      if (n < 1024 * 1024) return (n / 1024).toFixed(1) + " KB";
+      return (n / 1024 / 1024).toFixed(1) + " MB";
+    }
+
+    function refreshAddState() {
+      if (!addBtn) return;
+      var urlEl = byId("if-url");
+      var hasUrl = !!(urlEl && urlEl.value.trim());
+      addBtn.disabled = !uploadEl || (uploadEl.files.length === 0 && !hasUrl);
+    }
+
+    function renderChips() {
+      if (!uploadEl || !chipsEl) return;
+      chipsEl.innerHTML = "";
+      var files = uploadEl.files;
+      if (!files || !files.length) { chipsEl.hidden = true; return; }
+      chipsEl.hidden = false;
+      for (var i = 0; i < files.length; i++) {
+        var li = document.createElement("li");
+        li.className = "file-chip";
+        var name = document.createElement("span");
+        name.className = "file-chip-name";
+        name.textContent = files[i].name;
+        name.title = files[i].name;
+        var size = document.createElement("span");
+        size.className = "file-chip-size";
+        size.textContent = fmtSize(files[i].size);
+        var rm = document.createElement("button");
+        rm.type = "button";
+        rm.className = "file-chip-remove";
+        rm.setAttribute("aria-label", "Remove " + files[i].name);
+        rm.textContent = "×";
+        rm.addEventListener("click", function (idx) {
+          return function () {
+            var dl = uploadEl;
+            var dt = dl instanceof DataTransfer ? dl : new DataTransfer();
+            for (var k = 0; k < dl.files.length; k++) if (k !== idx) dt.items.add(dl.files[k]);
+            uploadEl.files = dt.files;
+            renderChips();
+            refreshAddState();
+          };
+        }(i));
+        li.appendChild(name);
+        li.appendChild(size);
+        li.appendChild(rm);
+        chipsEl.appendChild(li);
+      }
+    }
+
+    if (uploadEl) {
+      uploadEl.addEventListener("change", function () {
+        renderChips();
+        refreshAddState();
+      });
+    }
+    if (dropEl && uploadEl) {
+      // Keyboard activation (the hidden input cannot be focused directly).
+      dropEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          uploadEl.click();
+        }
+      });
+      ["dragenter", "dragover"].forEach(function (evt) {
+        dropEl.addEventListener(evt, function (e) {
+          e.preventDefault();
+          dropEl.classList.add("drag-over");
+        });
+      });
+      ["dragleave", "drop"].forEach(function (evt) {
+        dropEl.addEventListener(evt, function (e) {
+          e.preventDefault();
+          dropEl.classList.remove("drag-over");
+        });
+      });
+      dropEl.addEventListener("drop", function (e) {
+        if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
+        try { uploadEl.files = e.dataTransfer.files; } catch (err) { /* older browsers */ }
+        renderChips();
+        refreshAddState();
+      });
+    }
+    var urlInput = byId("if-url");
+    if (urlInput) {
+      urlInput.addEventListener("input", refreshAddState);
+    }
+    refreshAddState();
+
     if (addBtn) {
       addBtn.addEventListener("click", function () {
         var files = (byId("if-upload") || {}).files;

@@ -64,7 +64,7 @@ func registerTools(s *Server) {
 
 	mcp.AddTool(s.srv, &mcp.Tool{
 		Name:        "set_config",
-		Description: "Set one core config key (owner-trusted). The value is validated by the bot's config writer.",
+		Description: "Set one core config key (owner-trusted). The value is validated by the bot's config writer. Per-server update-notify channel: key = updater_notify_channel:<guild_id>, value = channel ID (empty clears).",
 	}, s.setConfig)
 
 	mcp.AddTool(s.srv, &mcp.Tool{
@@ -289,12 +289,29 @@ func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, in str
 		"updater_token":          redact(cfg.Updater.Token),
 		"updater_interval":       strconv.Itoa(cfg.Updater.CheckInterval),
 		"updater_auto_pull":      strconv.FormatBool(cfg.Updater.AutoPull),
-		"updater_notify_channel": cfg.Updater.NotifyChannel,
+		"updater_notify_channels": formatNotifyChannels(cfg.Updater),
 		"mcp_enabled":            strconv.FormatBool(cfg.MCP.Enabled),
 		"mcp_token":              redact(cfg.MCP.Token),
 	}
 	res, err := jsonResult(out)
 	return res, nil, err
+}
+
+// formatNotifyChannels renders the updater's notify channels for get_config:
+// the per-server map as "guildID=channelID" pairs (sorted) plus the legacy
+// global when set; empty when nothing is configured.
+func formatNotifyChannels(u config.UpdaterConfig) string {
+	guilds := make([]string, 0, len(u.NotifyChannels))
+	for g, ch := range u.NotifyChannels {
+		if ch != "" {
+			guilds = append(guilds, g+"="+ch)
+		}
+	}
+	sort.Strings(guilds)
+	if u.NotifyChannel != "" {
+		guilds = append(guilds, "global="+u.NotifyChannel)
+	}
+	return strings.Join(guilds, ",")
 }
 
 // ModuleGetConfigIn is the input for module_get_config.
@@ -387,7 +404,7 @@ type RunCommandIn struct {
 // the bearer token is the security boundary, not an allowlist. Do not "fix"
 // this by adding an allowlist check later.
 func (s *Server) runCommand(ctx context.Context, req *mcp.CallToolRequest, in *RunCommandIn) (*mcp.CallToolResult, any, error) {
-	res, err := s.deps.Bot.ExecuteCommand(in.Command, in.Args, in.GuildID, in.ChannelID, s.deps.Bot.GetOwnerID(), commands.ExecKindPrefix)
+	res, err := s.deps.Bot.ExecuteCommand(in.Command, in.Args, in.GuildID, in.ChannelID, s.deps.Bot.GetOwnerID())
 	if err != nil {
 		return nil, nil, err
 	}

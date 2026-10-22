@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
@@ -280,6 +281,14 @@ func (m *DashboardModule) apiModuleAction(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusForbidden, "invalid CSRF token")
 		return
 	}
+	// Compiled-in builtins cannot be load/unload/reloaded at runtime — they
+	// come up via enabled_modules at startup.
+	switch name {
+	case "cleanup", "tickets", "imagefilter":
+		writeError(w, http.StatusBadRequest,
+			"module '"+name+"' is a compiled-in builtin — enable/disable it via `modules enable|disable "+name+"`, then restart")
+		return
+	}
 	var err error
 	switch action {
 	case "load":
@@ -337,7 +346,6 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		"updater_token":          redactedIfSet(m.cfgValue(cfg, "updater", "token")),
 		"updater_interval":       m.cfgValue(cfg, "updater", "check_interval"),
 		"updater_auto_pull":      m.cfgValue(cfg, "updater", "auto_pull"),
-		"updater_notify_channel": m.cfgValue(cfg, "updater", "notify_channel"),
 		"mcp_enabled":            m.cfgValue(cfg, "mcp", "enabled"),
 		"mcp_token":              redactedIfSet(m.cfgValue(cfg, "mcp", "token")),
 	}
@@ -404,10 +412,21 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	owner := m.resolveLevel(sessionOf(r)) == lvlOwner
+	us := sessionOf(r)
+	owner := m.resolveLevel(us) == lvlOwner
 	results := map[string]string{}
 	anyErr := false
 	for k, v := range body {
+		// Per-server update notify channel (updater_notify_channel:<guild>)
+		// is guild-scoped even though it lives in the core config: require
+		// management rights on that specific server.
+		if gid, ok := strings.CutPrefix(k, "updater_notify_channel:"); ok {
+			if !m.canManageGuild(us, strings.TrimSpace(gid)) {
+				results[k] = "you may not manage this guild"
+				anyErr = true
+				continue
+			}
+		}
 		status, err := m.setCoreSetting(owner, k, v)
 		if err != nil {
 			results[k] = err.Error()
@@ -436,8 +455,7 @@ func (m *DashboardModule) setCoreSetting(owner bool, key, value string) (string,
 		"dashboard_listen": true, "dashboard_public_url": true,
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
 		"updater_token": true, "updater_interval": true, "updater_auto_pull": true,
-		"updater_notify_channel": true,
-		"mcp_enabled":            true,
+		"mcp_enabled": true,
 		"token":                  true, "oauth_client_secret": true, "mcp_token": true,
 	}
 	// Secrets and ownership are owner-only. Elevated users may still save their
@@ -449,7 +467,19 @@ func (m *DashboardModule) setCoreSetting(owner bool, key, value string) (string,
 		"token": true, "updater_token": true, "oauth_client_secret": true, "owner_id": true,
 		"mcp_token": true,
 	}
-	if !allowed[key] {
+	// The per-server update notify channel is addressed as
+	// "updater_notify_channel:<guild_id>" and stored in the updater section's
+	// notify_channels map (config.Set parses the composite key). The bare
+	// legacy key is not web-writable — it survives only for the one-time
+	// startup migration and the owner-only [p]update set escape hatch.
+	notifyGuild := ""
+	if gid, ok := strings.CutPrefix(key, "updater_notify_channel:"); ok {
+		notifyGuild = strings.TrimSpace(gid)
+		if notifyGuild == "" {
+			return "", fmt.Errorf("updater_notify_channel requires a guild id")
+		}
+	}
+	if !allowed[key] && notifyGuild == "" {
 		return "unknown key", nil
 	}
 	if ownerOnly[key] && !owner {

@@ -483,3 +483,114 @@ func TestMCPLoadDefaults(t *testing.T) {
 		t.Errorf("mcp token should be empty by default, got %q", cfg.MCP.Token)
 	}
 }
+
+// TestNotifyChannelPerServer pins the per-server update-notify channel store:
+// the composite Config.Set key writes/clears one server's channel, the value
+// round-trips through save/load under notify_channels, and the legacy global
+// stays a fallback target.
+func TestNotifyChannelPerServer(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+	if err := Save(cfg, dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	// Composite key sets one server's channel and makes it a notify target.
+	if err := cfg.Set("updater_notify_channel:111", "222"); err != nil {
+		t.Fatalf("set per-server notify channel: %v", err)
+	}
+	if got := cfg.Updater.NotifyChannelFor("111"); got != "222" {
+		t.Errorf("NotifyChannelFor(111) = %q, want 222", got)
+	}
+	if targets := cfg.Updater.NotifyTargets(); len(targets) != 1 || targets[0] != "222" {
+		t.Errorf("NotifyTargets() = %v, want [222]", targets)
+	}
+
+	// The value survives a save/load round trip under notify_channels.
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := loaded.Updater.NotifyChannelFor("111"); got != "222" {
+		t.Errorf("reloaded NotifyChannelFor(111) = %q, want 222", got)
+	}
+
+	// A second server gets its own channel; both are targets.
+	if err := cfg.Set("updater_notify_channel:333", "444"); err != nil {
+		t.Fatalf("set second notify channel: %v", err)
+	}
+	if targets := cfg.Updater.NotifyTargets(); len(targets) != 2 {
+		t.Errorf("NotifyTargets() = %v, want 2 channels", targets)
+	}
+
+	// Empty value clears that server's entry (and only that one).
+	if err := cfg.Set("updater_notify_channel:111", ""); err != nil {
+		t.Fatalf("clear notify channel: %v", err)
+	}
+	if got := cfg.Updater.NotifyChannelFor("111"); got != "" {
+		t.Errorf("cleared NotifyChannelFor(111) = %q, want empty", got)
+	}
+	if got := cfg.Updater.NotifyChannelFor("333"); got != "444" {
+		t.Errorf("NotifyChannelFor(333) = %q, want 444", got)
+	}
+
+	// Invalid guild ids are rejected before touching the map.
+	if err := cfg.Set("updater_notify_channel:not-a-snowflake", "222"); err == nil {
+		t.Error("expected an error for a non-numeric guild id")
+	}
+}
+
+// TestMigrateLegacyNotifyChannel pins the one-time move of the legacy global
+// channel into the per-server map: it resolves the owning guild through the
+// supplied lookup, clears the legacy field, saves, and is idempotent. An
+// unresolvable channel is left untouched (it keeps working as a fallback).
+func TestMigrateLegacyNotifyChannel(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+	if err := Save(cfg, dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	cfg.Updater.SetLegacyNotifyChannel("222")
+
+	// Unresolvable: no migration; the legacy value and its fallback target stay.
+	migrated, err := MigrateLegacyNotifyChannel(cfg, dir, func(string) (string, bool) { return "", false })
+	if err != nil || migrated {
+		t.Fatalf("unresolvable migration = (%v, %v), want (false, nil)", migrated, err)
+	}
+	if cfg.Updater.LegacyNotifyChannel() != "222" {
+		t.Error("unresolvable migration cleared the legacy channel")
+	}
+
+	// Resolvable: moves under the owning guild and clears the legacy field.
+	migrated, err = MigrateLegacyNotifyChannel(cfg, dir, func(ch string) (string, bool) { return "111", ch == "222" })
+	if err != nil || !migrated {
+		t.Fatalf("migration = (%v, %v), want (true, nil)", migrated, err)
+	}
+	if got := cfg.Updater.NotifyChannelFor("111"); got != "222" {
+		t.Errorf("NotifyChannelFor(111) = %q, want 222", got)
+	}
+	if cfg.Updater.LegacyNotifyChannel() != "" {
+		t.Error("migration did not clear the legacy channel")
+	}
+	if targets := cfg.Updater.NotifyTargets(); len(targets) != 1 || targets[0] != "222" {
+		t.Errorf("NotifyTargets() = %v, want [222] (moved, not duplicated)", targets)
+	}
+
+	// Persisted: a fresh load sees the migrated map and no legacy value.
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if got := loaded.Updater.NotifyChannelFor("111"); got != "222" {
+		t.Errorf("reloaded NotifyChannelFor(111) = %q, want 222", got)
+	}
+	if loaded.Updater.LegacyNotifyChannel() != "" {
+		t.Error("migration was not persisted")
+	}
+
+	// Idempotent: a second run is a no-op.
+	migrated, err = MigrateLegacyNotifyChannel(cfg, dir, func(string) (string, bool) { return "111", true })
+	if err != nil || migrated {
+		t.Fatalf("second migration = (%v, %v), want (false, nil)", migrated, err)
+	}
+}

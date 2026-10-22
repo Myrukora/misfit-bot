@@ -51,7 +51,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			{ID: "2", Name: "Art Server", Icon: ""},
 		}}, false},
 		{"overview.html", "index", "rd_overview", metricsSnapshot{Runtime: map[string]any{
-			"alloc_mb": uint64(128), "goroutines": 14, "gc_cycles": 42, "go_version": "go1.26.4",
+			"alloc_mb": uint64(128), "sys_mb": uint64(512), "goroutines": 14, "go_version": "go1.26.4",
 		}, Modules: []string{"cleanup", "tickets", "imagefilter"}}, false},
 		{"config.html", "config", "rd_admin", map[string]any{
 			"sections": []settingsSection{{Title: "Bot", Help: "Identity", Fields: []fieldRender{
@@ -88,7 +88,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usage: "cleanup <n>", Usable: true, CanExec: true},
 				}}}},
 			},
-			"guild": "1", "selectedTab": "core", "count": 4, "mode": "prefix",
+			"guild": "1", "selectedTab": "core", "count": 4,
 			"canRaw": false, "canManage": true, "level": lvlOwner,
 			"guilds":   []guildOpt{{ID: "1", Name: "Gaming HQ"}},
 			"channels": []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}},
@@ -127,12 +127,17 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}}, false},
 		{"gmodules.html", "gmodules", "rd_modules", settingsPageData{
 			GuildID: "1", GuildName: "Gaming HQ",
-			ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{
-				{Key: "allow_dashboard_close", Label: "Allow closing from the dashboard", Type: "toggle", Value: "false", GuildScoped: true, GuildID: "1"},
-				{Key: "transcript_channel", Label: "Transcript channel", Type: "channel", Value: "c1", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
-				{Key: "welcome_message", Label: "Welcome message", Type: "textarea", Value: "hey {user}", GuildScoped: true, GuildID: "1"},
-				{Key: "max_open", Label: "Max open tickets", Type: "number", Value: "3", Min: "1", Max: "20", Step: "1", GuildScoped: true, GuildID: "1"},
-			}}},
+			ModulesView: []moduleConfigView{
+				{Name: "dashboard", Label: "Update notifications", Fields: []fieldRender{
+					{Key: "notify_channel", Label: "Update notification channel", Help: "Channel in this server that receives the bot's PR, commit and release embeds. Empty = this server gets no update notifications.", Type: "channel", Value: "c2", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
+				}},
+				{Name: "tickets", Fields: []fieldRender{
+					{Key: "allow_dashboard_close", Label: "Allow closing from the dashboard", Type: "toggle", Value: "false", GuildScoped: true, GuildID: "1"},
+					{Key: "transcript_channel", Label: "Transcript channel", Type: "channel", Value: "c1", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
+					{Key: "welcome_message", Label: "Welcome message", Type: "textarea", Value: "hey {user}", GuildScoped: true, GuildID: "1"},
+					{Key: "max_open", Label: "Max open tickets", Type: "number", Value: "3", Min: "1", Max: "20", Step: "1", GuildScoped: true, GuildID: "1"},
+				}},
+			},
 		}, true},
 		{"transcript.html", "transcript", "rd_transcript", struct {
 			Ticket   *modules.Ticket

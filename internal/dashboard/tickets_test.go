@@ -537,14 +537,13 @@ func TestTranscriptEmbedsAndCloseReason(t *testing.T) {
 }
 
 // TestTicketsListPageRendersProviderRows is the handler-level regression for
-// renderTicketsList: it drives the real /tickets?guild=<id> route and asserts
-// the rendered page carries what the provider returned. The sibling
+// renderTicketsList: it drives the real /g/<id>/tickets route and asserts the
+// rendered page carries what the provider returned. The sibling
 // TestTicketsPanelsCardRenders builds d.Content by hand and renders the
 // template directly, so it kept passing while the handler never assigned its
 // payload to d.Content. With a nil .Content the template aborts at its first
-// .Content field access ({{if .Content.Error}}), so the pre-fix page emitted an
-// empty content section — neither the data nor the "No manageable servers
-// found." placeholder — for every provider result.
+// .Content field access ({{if .Content.Error}}), so a pre-fix page would have
+// emitted an empty content section for every provider result.
 func TestTicketsListPageRendersProviderRows(t *testing.T) {
 	now := time.Now()
 	stub := &stubTickets{
@@ -559,7 +558,7 @@ func TestTicketsListPageRendersProviderRows(t *testing.T) {
 	}
 	m, cookie := ticketsTestModule(t, stub)
 
-	w := ticketsReq(m, cookie, "GET", "/tickets?guild=1", "", "")
+	w := ticketsReq(m, cookie, "GET", "/g/1/tickets", "", "")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
 	}
@@ -578,5 +577,27 @@ func TestTicketsListPageRendersProviderRows(t *testing.T) {
 	}
 	if strings.Contains(out, "No manageable servers found.") {
 		t.Errorf("page rendered the no-guild placeholder: .Content.GuildID was empty for a guild-scoped request")
+	}
+}
+
+// TestHubTicketsRouteRedirectsPerServer pins that the hub carries no tickets
+// list of its own: bare /tickets 303s to the server-scoped page, honoring a
+// ?guild= link when the caller can manage that guild.
+func TestHubTicketsRouteRedirectsPerServer(t *testing.T) {
+	m, cookie := ticketsTestModule(t, &stubTickets{})
+
+	w := ticketsReq(m, cookie, "GET", "/tickets?guild=1", "", "")
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303 (body %s)", w.Code, w.Body.String())
+	}
+	if loc := w.Header().Get("Location"); loc != "/g/1/tickets" {
+		t.Errorf("Location = %q, want /g/1/tickets", loc)
+	}
+
+	// No guild the caller can manage → 404, not a rendered hub list page.
+	m.cfg.AllowedGuilds = []string{"999"}
+	w = ticketsReq(m, cookie, "GET", "/tickets", "", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (body %s)", w.Code, w.Body.String())
 	}
 }

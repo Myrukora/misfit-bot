@@ -3,11 +3,8 @@ package dashboard
 import (
 	"net/http"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
-
-	"github.com/misfit/bot/modules"
 )
 
 // buildHandler assembles the global middleware chain and route table.
@@ -281,49 +278,6 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		d.ShowStaff = level == lvlOwner || level == lvlElevated || level == lvlStaff
 		_, ifOK := m.imageFilterAdmin()
 		d.ShowImageFilter = ifOK
-		// Per-module sidebar sections (Task 10): every loaded module that
-		// declares WebTabs and/or is WebConfigurable gets a sidebar group.
-		d.ModuleNav = m.moduleNav(us)
 	}
 	return d
-}
-
-// moduleNav assembles the per-module sidebar groups for the current session:
-// one group per loaded module that declares WebTabs (extra tabs). Global
-// module settings live on /config and per-server settings on the
-// server-scoped Modules tab — neither appears in the global sidebar.
-func (m *DashboardModule) moduleNav(us *userSession) []moduleNavItem {
-	if m.bot == nil {
-		return nil
-	}
-	mgr, ok := m.bot.GetModuleManager().(*modules.Manager)
-	if !ok {
-		return nil
-	}
-	var out []moduleNavItem
-	for _, name := range m.bot.GetLoadedModuleNames() {
-		if name == "dashboard" {
-			continue // the dashboard itself has its own nav entries
-		}
-		mod, ok := mgr.Get(name)
-		if !ok {
-			continue
-		}
-		item := moduleNavItem{Name: name}
-		if wt, isWT := modules.IsWebTabser(mod); isWT {
-			for _, tab := range wt.WebTabs() {
-				if tab.Slug == "" {
-					continue
-				}
-				item.Tabs = append(item.Tabs, navTabItem{Name: tab.Name, URL: tab.Slug})
-			}
-		}
-		if len(item.Tabs) == 0 {
-			continue // nothing to show for this module
-		}
-		out = append(out, item)
-	}
-	// Sort groups by module name for stable nav order.
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
 }

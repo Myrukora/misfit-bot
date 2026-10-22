@@ -48,6 +48,9 @@
                 {{range .Content.channels}}
                 <option value="{{.ID}}" {{if eq .ID $lc}}selected{{end}}>#{{.Name}}</option>
                 {{end}}
+                {{with .Content.staleChannel}}
+                <option value="{{.ID}}" disabled selected>#{{.Name}} (deleted or unavailable)</option>
+                {{end}}
               </select>
             </div>
           </div>
@@ -78,15 +81,20 @@
           {{end}}
 
           <div class="add-row">
-            <div class="field" style="flex:2">
-              <label class="field-label">Upload images</label>
-              <input class="field-input" type="file" id="if-upload" accept="image/*" multiple>
+            <div class="field field-upload" style="flex:2">
+              <label class="field-label" for="if-upload">Upload images</label>
+              <div class="file-drop" id="if-drop" tabindex="0" role="button" aria-label="Add reference images: choose or drop image files">
+                <svg class="file-drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                <span class="file-drop-text"><span class="file-drop-cta">Click to choose</span> or drop images</span>
+                <input type="file" id="if-upload" accept="image/*" multiple>
+              </div>
+              <ul class="file-chips" id="if-files" hidden></ul>
             </div>
             <div class="field" style="flex:3">
-              <label class="field-label">…or paste a Discord CDN URL</label>
+              <label class="field-label" for="if-url">…or paste a Discord CDN URL</label>
               <input class="field-input" type="url" id="if-url" placeholder="https://cdn.discordapp.com/attachments/…">
             </div>
-            <button class="btn btn-primary" id="if-add">Add</button>
+            <button class="btn btn-primary" id="if-add" disabled>Add</button>
           </div>
         </section>
 {{template "rd_footer" .}}{{end}}

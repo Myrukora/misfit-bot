@@ -106,7 +106,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   │   ├── tickets.go        # Tickets module integration (lists, transcripts, files; transcript regeneration via modules.TicketTranscript)
 │   │   ├── templates.go      # go:embed templates + render()/FuncMap
 │   │   ├── web/templates/    # rd_*.html only (rd_header/rd_footer chrome, rd_field partial)
-│   │   └── web/static/redesign/ # style.css (token system) + app.js (page-activation) + logo
+│   │   └── web/static/       # style.css (token system) + app.js (page-activation) + discord.svg
 │   ├── mcpserver/            # MCP server — bearer-token endpoint mounted at /mcp on the dashboard listener
 │   │   ├── server.go         # mcp.Server + per-request bearer auth (live mcp_enabled/mcp_token read)
 │   │   └── tools.go          # the 13 tools (read + write/execute)
@@ -231,7 +231,7 @@ type Interface interface {
     GetStartTime() time.Time                    // bot process start time (uptime source)
     StatusRateLimit(userID string) (allowed bool, wait time.Duration)
     ResetRateLimit(userID string)
-    ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (CommandResult, error) // web exec: virtual captured context, nothing posted to Discord
+    ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error) // web exec: virtual captured context, nothing posted to Discord
 }
 
 type ModuleCommands struct {
@@ -253,11 +253,6 @@ type WebArg struct {
     Required bool
     Options  []string // for select
 }
-
-const (
-    ExecKindPrefix = "prefix"
-    ExecKindSlash  = "slash"
-)
 ```
 
 **`core.go`** — 13 core commands:
@@ -488,7 +483,8 @@ updater:                   # self-update integration with the bot's own GitHub r
   token: ""                # GitHub PAT (or `gh auth token`); never committed (config.yml is gitignored)
   check_interval: 300      # seconds between polls (min 30)
   auto_pull: true          # automatically pull + rebuild + restart on new commits
-  notify_channel: ""       # Discord channel ID for PR/commit embeds; empty = notifications skipped
+  notify_channels: {}      # per-server PR/commit channels: {guild_id: channel_id}; configured per server on the dashboard
+  notify_channel: ""       # legacy single global channel; migrated into notify_channels at startup, kept as a fallback
 mcp:                      # built-in MCP server mounted at /mcp on the dashboard listener
   enabled: true           # enabled by default; per-request live kill switch via mcp_enabled
   token: ""               # bearer token; empty = auto-generated on first start and saved here
@@ -500,7 +496,7 @@ mcp:                      # built-in MCP server mounted at /mcp on the dashboard
 - `modules_auto_load` (strict bool); `enabled_modules` — comma/space-separated `name` or `name=true|false` entries (bare name = enable). Enable DELETES the map entry (missing key = enabled), disable writes `name=false`. This is the key behind `[p]modules enable|disable`.
 - `dashboard_listen`, `dashboard_public_url` — write the optional top-level `dashboard:` section (non-secret infra fields the dashboard module reads to pin its bind port / public URL from the main config — used when the default `127.0.0.1:8080` is taken and the web UI can't start). `dashboard_listen` is normalized to a bare `host:port` via `NormalizeListen`, `dashboard_public_url` must start with `http://` or `https://` (see `config.go`).
 - `oauth_client_secret` — write the top-level `oauth:` section. The single shared Discord-app client secret the dashboard uses for login (and any future OAuth-using module can reuse). Takes priority over the dashboard's own 0600 config fallback.
-- `updater_enabled`, `updater_repo`, `updater_branch`, `updater_token`, `updater_interval`, `updater_auto_pull`, `updater_notify_channel` — write the top-level `updater:` section. Booleans are strict (reject ambiguous values), `updater_repo` must be `owner/name`, `updater_interval` must be a number ≥ 30. `Load()` applies `DefaultConfig` first, so a missing `updater:` section on an existing install comes up enabled with `branch: main` / 300s interval / auto_pull on.
+- `updater_enabled`, `updater_repo`, `updater_branch`, `updater_token`, `updater_interval`, `updater_auto_pull` — write the top-level `updater:` section. Booleans are strict (reject ambiguous values), `updater_repo` must be `owner/name`, `updater_interval` must be a number ≥ 30. The per-server notify channel uses the composite key `updater_notify_channel:<guild_id>` (value = channel ID; empty clears that server; the dashboard gates it on managing that guild). `Load()` applies `DefaultConfig` first, so a missing `updater:` section on an existing install comes up enabled with `branch: main` / 300s interval / auto_pull on.
 - `mcp_enabled`, `mcp_token` — write the top-level `mcp:` section. `mcp_enabled` booleans are strict (same value set as `log_enabled`), `mcp_token` is free-form trimmed.
 - All changes auto-save to disk. `log_level` / `log_enabled` and `enabled_modules` require a restart (the logger's level is fixed at `logger.New`, builtins are registered once at startup).
 
@@ -520,9 +516,9 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
 - `update` / `update check` — fetch + report the release first when the repo is tagged (`v0.1.0 → v0.2.0 (3 new commits)`), otherwise "N new commit(s) available" / "Up to date".
 - `update now` — force apply (pull → rebuild → swap → restart).
 - `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error, plus **Running Version** (this build) and **Latest Release** (newest tag seen, once a check has found one).
-- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to `notify_channel`, deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + channel + version, so a live config change re-announces instead of being silenced by the old entry.
-- `update test` — **temporary embed tester**: posts one sample PR + one sample commit embed to `notify_channel` (markdown-rich bodies — bold/italic/code block/link/list — so the owner can verify markdown renders; the author row uses the real authenticated GitHub user when a token is set).
-- `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull, notify_channel` (routes to `Config.Set`, takes effect without restart; token value is never echoed back).
+- When an auto-update is applied, `announceUpdate` posts one `Update available — vA → vB` embed (commit count + SHAs as detail) to every configured notify channel (the per-server map plus the legacy global), deduplicated per target through `state.Announced` — a bounded (20-entry) list of `releaseKey` strings covering repo + branch + notify-target set + version, so a live config change re-announces instead of being silenced by the old entry.
+- `update test` — **temporary embed tester**: posts one sample PR + one sample commit embed to every configured notify channel (markdown-rich bodies — bold/italic/code block/link/list — so the owner can verify markdown renders; the author row uses the real authenticated GitHub user when a token is set).
+- `update set <key> <value>` — config keys: `enabled, repo, branch, token, interval, auto_pull, notify_channel` (routes to `Config.Set`, takes effect without restart; token value is never echoed back). `notify_channel` here is the legacy global channel — per-server channels are set on each server's dashboard Modules page.
 
 **Security notes:** the GitHub token lives only in gitignored `config.yml`; `updater_state.json` is gitignored; merge commits are skipped in notifications; the first poll is silent. The repo is public (since 2026-08-06); `main` is protected by the `main-protection` ruleset (free for public repos). The updater token and the bot's runtime state must never be committed.
 
@@ -758,8 +754,8 @@ privileged ones must be enabled in the Dev Portal:
 - Web dashboard (`internal/dashboard/`, compiled-in core — always on, no plugin): black & white monochrome redesign (2026-09). Login → `/` server picker → `/g/<id>/…` per-server pages; `/config` = bot-wide core config (super-owner only).
   - **Pages** (all `rd_*` templates): `/`+`/login` → `rd_servers`/`rd_login`, `/overview`, `/config`, `/permissions`, `/logs`, `/modules` (owner module mgmt), `/g/<id>/{commands,tickets,modules,imagefilter}`, `/tickets/<g>/<t>` → standalone `rd_transcript` (renders the conversation live from the ticket's stored log, never the `.html`; its Download transcript link hits `GET /api/tickets/<g>/<t>/transcript` — guild-gated like `/api/ticketfiles`, a GET so no CSRF — which regenerates the file from the log and downloads it as `ticket-<id>.html`). First-run setup is NOT a route: `/login` renders `rd_setup` instead of `rd_login` while the OAuth client is unconfigured. Legacy redirects: `/guild/<id>` → `/g/<id>/commands`, `/settings` → `/configuration`, `/admin` → `/config`. JSON API under `/api/*`, tiered + CSRF.
   - **rd_* convention**: one template per page in `web/templates/rd_<name>.html`; shared chrome = `rd_header.html` (renders the hub OR guild sidebar from `d.Page`/`d.GuildID`) + `rd_footer.html`. Handler shape: `d := m.baseData(us); d.Page = "x"; d.Content = …; m.tmpl.render(w, "rd_x", d)`. Schema-driven settings render through the `rd_field` partial (fieldRender struct, unchanged data contract).
-  - **CSS**: single `web/static/redesign/style.css` — custom-property design tokens at the top, components below; extend tokens, never duplicate rules; black & white only, flat backgrounds (login/setup keep the branded gradient card). CSP lives in `server.go` (Google Fonts allowed).
-  - **JS**: single vanilla `web/static/redesign/app.js`, no framework, no inline `<script>`. Page-activation pattern: each block activates only when its elements exist (`if (!byId("x")) return;` — see the file's header comment); CSRF from `<meta name="csrf-token">`; fetch to `/api/*`.
+  - **CSS**: single `web/static/style.css` — custom-property design tokens at the top, components below; extend tokens, never duplicate rules; black & white only, flat backgrounds (login/setup keep the branded gradient card). CSP lives in `server.go` (Google Fonts allowed).
+  - **JS**: single vanilla `web/static/app.js`, no framework, no inline `<script>`. Page-activation pattern: each block activates only when its elements exist (`if (!byId("x")) return;` — see the file's header comment); CSRF from `<meta name="csrf-token">`; fetch to `/api/*`.
   - Auth: Discord OAuth2 via disgo `oauth2` (no new deps), signed session cookies (HMAC-SHA256), in-memory sessions, mutual-guild restriction. 4 RBAC tiers (`owner` > `elevated` > `staff` > `regular`) computed per request; config hidden from non-staff. Command exec `POST /api/exec` runs only names on the `exec_allowlist` (an EMPTY allowlist means nothing is runnable) and applies the dispatcher's own rules — SuperOwnerOnly is never web-reachable. Core config editable on `/config` in sections (Bot/Logging/Dashboard/Updater/Secrets — secrets owner-only, locked for elevated).
   - Backup admin: `GET /api/backups` (list) + `POST /api/backups` (create/verify/restore) — owner-only, backed by `config.BackupService`; restore requires `confirm=true`.
 - Built-in MCP server (`internal/mcpserver/`, compiled-in core — always on): MCP streamable-HTTP endpoint mounted at `/mcp` on the dashboard listener (handler injected via `dashboard.Deps.MCP`; the dashboard never imports it — follows `dashboard.listen`). Bearer-token auth (`mcp.token` in core `config.yml`, auto-generated on first start and saved, logged once); config re-read per request as a live kill switch (`mcp_enabled=false` → 404, empty token → 503, bad token → 401). Enabled by default. **13 tools**: `bot_status`, `list_guilds`, `list_channels`, `get_logs`, `list_commands`, `get_config` (secrets redacted), `module_get_config` (reads); `set_config`, `module_set_config`, `run_command` (internal dispatcher + virtual captured context — nothing posted to Discord), `send_message`, `module_action` (load/unload/reload), `update_action` (status/check/apply/test). Full owner-level access — the token is the owner identity.

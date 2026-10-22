@@ -424,7 +424,8 @@ func TestConcurrentStateAccess(t *testing.T) {
 				case 3:
 					m.updateState(func(st *state) { st.SeenPRs[n] = true })
 				case 4:
-					m.markReleaseAnnounced(releaseKey(testCfg(), fmt.Sprintf("0.%d.0", n)))
+					cfg := testCfg()
+					m.markReleaseAnnounced(releaseKey(cfg, cfg.NotifyTargets(), fmt.Sprintf("0.%d.0", n)))
 				}
 			}
 		}(w)

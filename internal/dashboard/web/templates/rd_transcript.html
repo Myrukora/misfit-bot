@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="csrf-token" content="{{.CSRF}}">
 <title>{{.Bot}} — Ticket transcript</title>
-<link rel="stylesheet" href="/static/redesign/style.css">
+<link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="transcript-page">
   <main class="transcript-wrap">
@@ -84,9 +84,9 @@
     <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
       <img id="lightbox-img" alt="">
     </div>
-    <p class="muted"><a href="/tickets?guild={{.Content.GuildID}}">← Back to tickets</a> <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a></p>
+    <p class="muted"><a href="/g/{{.Content.GuildID}}/tickets">← Back to tickets</a> <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a></p>
   </main>
-<script src="/static/redesign/app.js"></script>
+<script src="/static/app.js"></script>
 </body>
 </html>
 {{end}}

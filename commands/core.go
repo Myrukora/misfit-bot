@@ -46,6 +46,15 @@ func plural(n int) string {
 	return "s"
 }
 
+// valueOrDash renders an embed field value, substituting an em-dash for an
+// empty string so a missing value reads as "none" instead of a blank.
+func valueOrDash(v string) string {
+	if strings.TrimSpace(v) == "" {
+		return "—"
+	}
+	return v
+}
+
 // displayVersion renders a build version for an embed. Release versions get the
 // conventional "v" prefix; an unstamped build says so instead of pretending to
 // be a version (see VERSION + the -ldflags stamp in README → Versioning).
@@ -631,7 +640,7 @@ func init() {
 					{Name: "Enabled", Value: s["enabled"], Inline: util.PtrBool(true)},
 					{Name: "Interval", Value: s["interval"], Inline: util.PtrBool(true)},
 					{Name: "Auto Pull", Value: s["auto_pull"], Inline: util.PtrBool(true)},
-					{Name: "Notify Channel", Value: "`" + s["notify_channel"] + "`", Inline: util.PtrBool(true)},
+					{Name: "Notify Channels", Value: valueOrDash(s["notify_channel"]), Inline: util.PtrBool(true)},
 					{Name: "Last Seen SHA", Value: "`" + s["last_sha"] + "`", Inline: util.PtrBool(true)},
 					{Name: "Last Check", Value: s["last_check"], Inline: util.PtrBool(true)},
 					{Name: "Running Version", Value: displayVersion(s["version"]), Inline: util.PtrBool(true)},
@@ -648,7 +657,7 @@ func init() {
 				if err := upd.NotifyTest(); err != nil {
 					return ctx.Respond(embed.Error("❌ Update Test Failed", err.Error()))
 				}
-				return ctx.Respond(embed.Success("✅ Test Sent", "Sample PR + commit embeds posted to the notify channel."))
+				return ctx.Respond(embed.Success("✅ Test Sent", "Sample PR + commit embeds posted to the configured notify channel(s)."))
 			case "set":
 				if len(ctx.Args) < 3 {
 					return ctx.Respond(embed.Warning("⚠️ Usage", "update set <key> <value>\nKeys: enabled, repo, branch, token, interval, auto_pull, notify_channel"))

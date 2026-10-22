@@ -7,14 +7,14 @@ func view(name, kind string) cmdView {
 	return cmdView{Name: name, Kind: kind, ModuleOwner: "core", Category: "general"}
 }
 
-func TestDedupeForModePrefixPrefersPrefix(t *testing.T) {
+func TestDedupeCatalogPrefersPrefix(t *testing.T) {
 	views := []cmdView{
+		view("ping", "slash"), // slash first: the prefix entry must still win
 		view("ping", "prefix"),
-		view("ping", "slash"),
 		view("btest", "prefix"),
 		view("btest", "slash"),
 	}
-	out := dedupeForMode(views, "prefix")
+	out := dedupeCatalog(views)
 	if len(out) != 2 {
 		t.Fatalf("len = %d, want 2 (one entry per command)", len(out))
 	}
@@ -25,52 +25,23 @@ func TestDedupeForModePrefixPrefersPrefix(t *testing.T) {
 	}
 }
 
-func TestDedupeForModeSlashPrefersSlash(t *testing.T) {
-	views := []cmdView{
-		view("ping", "prefix"),
-		view("ping", "slash"),
-		view("btest", "slash"),
-		view("btest", "prefix"),
-	}
-	out := dedupeForMode(views, "slash")
-	if len(out) != 2 {
-		t.Fatalf("len = %d, want 2 (one entry per command)", len(out))
-	}
-	for _, v := range out {
-		if v.Kind != "slash" {
-			t.Errorf("command %q kind = %q, want slash", v.Name, v.Kind)
-		}
-	}
-}
-
-func TestDedupeForModeKeepsOnlyKind(t *testing.T) {
-	// A prefix-only command must survive in slash mode, and vice versa.
-	prefixOnly := dedupeForMode([]cmdView{view("cleanup", "prefix"), view("ping", "slash")}, "slash")
+func TestDedupeCatalogKeepsSlashOnly(t *testing.T) {
+	// A command that only exists in slash form must survive the prefix
+	// preference, so nothing disappears from the catalog.
+	out := dedupeCatalog([]cmdView{view("cleanup", "prefix"), view("ping", "slash")})
 	got := map[string]string{}
-	for _, v := range prefixOnly {
+	for _, v := range out {
 		got[v.Name] = v.Kind
-	}
-	if got["cleanup"] != "prefix" {
-		t.Errorf("prefix-only command lost in slash mode: got %q", got["cleanup"])
-	}
-	if got["ping"] != "slash" {
-		t.Errorf("slash command kind = %q, want slash", got["ping"])
-	}
-
-	slashOnly := dedupeForMode([]cmdView{view("cleanup", "prefix"), view("ping", "slash")}, "prefix")
-	got = map[string]string{}
-	for _, v := range slashOnly {
-		got[v.Name] = v.Kind
-	}
-	if got["ping"] != "slash" {
-		t.Errorf("slash-only command lost in prefix mode: got %q", got["ping"])
 	}
 	if got["cleanup"] != "prefix" {
 		t.Errorf("prefix command kind = %q, want prefix", got["cleanup"])
 	}
+	if got["ping"] != "slash" {
+		t.Errorf("slash-only command lost: got %q", got["ping"])
+	}
 }
 
-func TestDedupeForModeOrderAndDupes(t *testing.T) {
+func TestDedupeCatalogOrderAndDupes(t *testing.T) {
 	views := []cmdView{
 		view("a", "slash"),
 		view("b", "prefix"),
@@ -78,7 +49,7 @@ func TestDedupeForModeOrderAndDupes(t *testing.T) {
 		view("b", "slash"),
 		view("a", "prefix"), // duplicate registration must not duplicate rows
 	}
-	out := dedupeForMode(views, "prefix")
+	out := dedupeCatalog(views)
 	if len(out) != 2 {
 		t.Fatalf("len = %d, want 2", len(out))
 	}
@@ -90,11 +61,11 @@ func TestDedupeForModeOrderAndDupes(t *testing.T) {
 	}
 }
 
-func TestDedupeForModeMatchesDispatchPrecedence(t *testing.T) {
+func TestDedupeCatalogMatchesDispatchPrecedence(t *testing.T) {
 	// Registration order mirrors ExecuteCommand's resolution precedence:
 	// core prefix, core slash, then modules in load order. A module named
 	// "cleanup" sorts BEFORE "core" lexically, so a presentation-order dedupe
-	// would pick the module's "ping" while Run executes core's — dedupeForMode
+	// would pick the module's "ping" while Run executes core's — dedupeCatalog
 	// must follow dispatch order, not lexical owner order.
 	views := []cmdView{
 		{Name: "ping", Kind: "prefix", ModuleOwner: "core"},
@@ -102,12 +73,8 @@ func TestDedupeForModeMatchesDispatchPrecedence(t *testing.T) {
 		{Name: "ping", Kind: "prefix", ModuleOwner: "cleanup"},
 		{Name: "ping", Kind: "slash", ModuleOwner: "cleanup"},
 	}
-	out := dedupeForMode(views, "prefix")
+	out := dedupeCatalog(views)
 	if len(out) != 1 || out[0].ModuleOwner != "core" || out[0].Kind != "prefix" {
-		t.Fatalf("prefix mode: got %+v, want core prefix ping", out)
-	}
-	out = dedupeForMode(views, "slash")
-	if len(out) != 1 || out[0].ModuleOwner != "core" || out[0].Kind != "slash" {
-		t.Fatalf("slash mode: got %+v, want core slash ping", out)
+		t.Fatalf("got %+v, want core prefix ping", out)
 	}
 }

@@ -134,20 +134,11 @@ type Interface interface {
 	// Discord dispatcher: SuperOwnerOnly commands are ALWAYS denied from the
 	// web; OwnerOnly requires the requesting user to be owner or elevated.
 	// channelID is optional ("" = no channel context); when set it must be a
-	// cached channel of guildID. kind selects which implementation wins when
-	// both prefix and slash exist for a name: ExecKindPrefix (default) or
-	// ExecKindSlash; commands that only exist in the other kind still resolve.
-	ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (CommandResult, error)
+	// cached channel of guildID. Resolution mirrors the prefix dispatcher:
+	// the prefix implementation wins when a name exists in both forms, and
+	// slash-only commands still resolve.
+	ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error)
 }
-
-// ExecKind values select which command implementation ExecuteCommand resolves
-// first. Prefix mode mirrors the prefix dispatcher; slash mode prefers the
-// slash implementations (falling back to prefix for commands that only exist
-// in prefix form).
-const (
-	ExecKindPrefix = "prefix"
-	ExecKindSlash  = "slash"
-)
 
 var CoreCommands []Command
 var CoreSlashCommands []SlashCommand

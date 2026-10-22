@@ -18,7 +18,7 @@ import (
 //
 // Routes:
 //
-//	GET  /tickets                                  page: panels + open list
+//	GET  /tickets                                  redirects → /g/<guild>/tickets (the list is per-server)
 //	GET  /tickets/<guild>/<ticket>                 transcript viewer
 //	GET  /api/tickets?guild=<id>&scope=open|closed JSON lists
 //	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend
@@ -248,7 +248,7 @@ func (m *DashboardModule) ticketsPanelAction(w http.ResponseWriter, r *http.Requ
 		return false
 	}
 	res, err := m.bot.ExecuteCommand("tickets",
-		[]string{"panel", action, name}, guildID, "", us.userID.String(), m.execMode())
+		[]string{"panel", action, name}, guildID, "", us.userID.String())
 	if err != nil {
 		code := http.StatusBadRequest
 		if strings.Contains(err.Error(), "unknown panel") || strings.Contains(err.Error(), "Unknown") {
@@ -331,6 +331,10 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 
 // ── Page handlers ─────────────────────────────────────────────────────────
 
+// handleTicketsPage routes the /tickets prefix: /tickets/<guild>/<ticket>
+// is the stable standalone transcript deep link. The bare /tickets list is
+// per-server by design, so it redirects to the server-scoped page
+// (/g/<guild>/tickets) — the hub carries no tickets surface of its own.
 func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Request) {
 	us, _, ok := m.sessionFromCookie(r)
 	if !ok || us == nil {
@@ -351,42 +355,31 @@ func (m *DashboardModule) handleTicketsPage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	d := m.baseData(us)
-	d.Page = "tickets"
-	d.Level = level
+	// Bare /tickets: jump to the per-server tickets page. ?guild= keeps old
+	// links (e.g. "back to tickets" from a transcript) on their guild; without
+	// one, fall back to the first guild the user can manage.
 	guildID := r.URL.Query().Get("guild")
-	if guildID == "" && len(d.Guilds) > 0 {
-		guildID = d.Guilds[0].ID
+	if guildID == "" {
+		if guilds := m.manageableGuildIDs(us); len(guilds) > 0 {
+			guildID = guilds[0]
+		}
 	}
-	if guildID != "" && !m.allowed(guildID) {
-		http.Error(w, "403 no access to this guild", http.StatusForbidden)
+	if guildID == "" || !m.canManageGuild(us, guildID) {
+		http.NotFound(w, r)
 		return
 	}
-	m.renderTicketsList(w, us, level, guildID, false)
+	http.Redirect(w, r, "/g/"+guildID+"/tickets", http.StatusSeeOther)
 }
 
-// handleTicketsInGuild renders the tickets page pinned to one guild
-// (server-scoped /g/<id>/tickets route).
-func (m *DashboardModule) handleTicketsInGuild(w http.ResponseWriter, r *http.Request, us *userSession, guildID string) {
-	level := m.resolveLevel(us)
-	m.renderTicketsList(w, us, level, guildID, true)
-}
-
-// renderTicketsList builds the tickets payload for a fixed guild and renders
-// the list page. Shared by /tickets?guild= (top-level, global sidebar) and
-// /g/<id>/tickets (server-scoped, scoped sidebar when scoped=true).
-func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSession, level, guildID string, scoped bool) {
+// renderTicketsList builds the tickets payload for one guild and renders the
+// server-scoped list page (/g/<id>/tickets, scoped sidebar).
+func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSession, level, guildID string) {
 	d := m.baseData(us)
-	d.Page = "tickets"
-	if scoped {
-		d.Page = "gtickets"
-	}
+	d.Page = "gtickets"
 	d.Level = level
-	if scoped {
-		d.GuildID = guildID
-		d.GuildName = m.guildDisplayName(guildID, us)
-	}
-	if guildID != "" && !m.allowed(guildID) {
+	d.GuildID = guildID
+	d.GuildName = m.guildDisplayName(guildID, us)
+	if !m.allowed(guildID) {
 		http.Error(w, "403 no access to this guild", http.StatusForbidden)
 		return
 	}
@@ -399,7 +392,7 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 		Panels  any
 		Error   string
 	}{GuildID: guildID}
-	if tp, ok := m.ticketProvider(); ok && guildID != "" {
+	if tp, ok := m.ticketProvider(); ok {
 		open, err := tp.ListOpenTickets(guildID)
 		if err != nil {
 			payload.Error = err.Error()
@@ -413,7 +406,7 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 				}
 			}
 		}
-	} else if !ok {
+	} else {
 		payload.Error = "tickets module is not loaded"
 	}
 	// The template reads the whole payload off .Content — without this the

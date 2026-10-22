@@ -1343,14 +1343,12 @@ functions and `ctx.data_dir` (the module's folder) for persistence.
 - **Don't block.** Get/set functions run on HTTP goroutines inside the bot
   process (in Python's case, round-tripped through IPC with a 5s timeout), so
   keep them fast.
-- **An optional extra: sidebar tabs.** A compiled-in module can also implement
-  `modules.WebTabser` (`WebTabs() []modules.WebTab`) to contribute extra
-  dashboard pages to the sidebar — `internal/builtin/tickets/` does this with
-  `{Name: "Tickets", Slug: "/tickets"}`. This is a compiled-in-only feature;
-  Python and Lua modules get the settings panel and nothing else.
 - **Dogfooding reference.** The dashboard configures *itself* through the same
   contract: its `WebConfigSchema` declares `client_id` (text), `session_secret`
-  (secret), `allowed_guilds` (multi) and `exec_mode` (select) — all global. It
+  (secret) and `allowed_guilds` (multi) — all global — plus one guild-scoped
+  field, `notify_channel` (channel picker): the per-server update notification
+  channel, shown on each server's Modules page and stored in the core config's
+  `updater.notify_channels` map. It
   intentionally does **not** expose `listen`, `public_url` or `client_secret`
   there any more; those live on the core settings page (the `dashboard:` and
   `oauth:` sections of the main `config.yml`) as the single obvious place to

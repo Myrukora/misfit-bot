@@ -40,7 +40,6 @@ type execCall struct {
 	guildID   string
 	channelID string
 	asUserID  string
-	kind      string
 }
 
 // fakeBot implements the commands.Interface methods the MCP server uses. The
@@ -80,8 +79,8 @@ func (f *fakeBot) GetCachedChannel(id string) discord.GuildChannel {
 func (f *fakeBot) LoadModule(string) error   { return nil }
 func (f *fakeBot) UnloadModule(string) error { return nil }
 func (f *fakeBot) ReloadModule(string) error { return nil }
-func (f *fakeBot) ExecuteCommand(name string, args []string, guildID, channelID, asUserID, kind string) (commands.CommandResult, error) {
-	f.execCalls = append(f.execCalls, execCall{name, args, guildID, channelID, asUserID, kind})
+func (f *fakeBot) ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (commands.CommandResult, error) {
+	f.execCalls = append(f.execCalls, execCall{name, args, guildID, channelID, asUserID})
 	return f.execResult, f.execErr
 }
 
@@ -248,9 +247,6 @@ func TestRunCommand(t *testing.T) {
 	}
 	if call.asUserID != "123" {
 		t.Errorf("ExecuteCommand asUserID = %q, want 123 (fake owner)", call.asUserID)
-	}
-	if call.kind != commands.ExecKindPrefix {
-		t.Errorf("ExecuteCommand kind = %q, want %q", call.kind, commands.ExecKindPrefix)
 	}
 	text := toolText(t, res)
 	if !strings.Contains(text, "Pong") {

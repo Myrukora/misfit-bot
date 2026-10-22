@@ -10,10 +10,9 @@
           <div class="stat-card"><div class="stat-value">{{.Content.ModulesLoaded}}<small>/{{.Content.ModulesAvail}}</small></div><div class="stat-label">Modules loaded</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.Commands}}</div><div class="stat-label">Commands</div></div>
           <div class="stat-card"><div class="stat-value" id="m-mem">{{.Content.Runtime.alloc_mb}} MB</div><div class="stat-label">Memory</div></div>
+          <div class="stat-card"><div class="stat-value" id="m-sys">{{.Content.Runtime.sys_mb}} MB</div><div class="stat-label">Sys memory</div></div>
           <div class="stat-card"><div class="stat-value" id="m-goros">{{.Content.Runtime.goroutines}}</div><div class="stat-label">Goroutines</div></div>
-          <div class="stat-card"><div class="stat-value stat-value-sm">{{.Content.Runtime.go_version}}</div><div class="stat-label">Go runtime</div></div>
           <div class="stat-card"><div class="stat-value stat-value-sm">{{versionLabel .Content.Version .Content.LatestVersion .Content.UpdateAvailable}}</div><div class="stat-label">Version</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-gc">{{.Content.Runtime.gc_cycles}}</div><div class="stat-label">GC cycles</div></div>
         </section>
 
         <!-- ===== Loaded modules ===== -->

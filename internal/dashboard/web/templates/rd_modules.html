@@ -36,7 +36,7 @@
              global settings live on /config) ===== -->
         {{range .ModulesView}}
         <section class="card">
-          <h2>{{.Name}}</h2>
+          <h2>{{if .Label}}{{.Label}}{{else}}{{.Name}}{{end}}</h2>
           <form class="module-cfg" data-module="{{.Name}}" data-guild="{{$.GuildID}}">
             {{range .Fields}}{{template "rd_field" .}}{{end}}
             <button type="button" class="btn btn-primary save-module">Save changes</button>
