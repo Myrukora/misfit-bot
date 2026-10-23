@@ -131,6 +131,19 @@ func (m *mockRest) DeleteChannel(channelID snowflake.ID, _ ...rest.RequestOpt) e
 	return nil
 }
 
+// GetMessages returns one newest-first page: the welcome message (101) plus a
+// real user message (100). The first call has before=0; later pages are empty.
+func (m *mockRest) GetMessages(channelID snowflake.ID, around, before, after snowflake.ID, limit int, _ ...rest.RequestOpt) ([]discord.Message, error) {
+	m.record("GET", "/channels/"+channelID.String()+"/messages", "")
+	if before != 0 {
+		return nil, nil
+	}
+	return []discord.Message{
+		{ID: 101, Author: discord.User{ID: 7, Username: "bot", Bot: true}},
+		{ID: 100, Author: discord.User{ID: 42, Username: "vixen"}, Content: "hello"},
+	}, nil
+}
+
 func (m *mockRest) callsFiltered(substr string) []restCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

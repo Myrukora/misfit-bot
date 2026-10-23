@@ -741,7 +741,7 @@ func (m *DashboardModule) serveTranscriptStream(w http.ResponseWriter, r *http.R
 				if ferr == nil {
 					last = sig
 					writeSSE(w, fl, "messages", map[string]any{
-						"html": html, "count": len(tk.Log), "status": tk.Status,
+						"html": html, "count": tk.LogCount(), "status": tk.Status,
 					})
 				}
 			}

@@ -1,6 +1,31 @@
+{{define "tk_player_bar"}}
+  <div class="player-bar">
+    <button type="button" class="player-btn player-play" aria-label="Play or pause">▶</button>
+    <input type="range" class="player-seek" min="0" max="1000" step="1" value="0" aria-label="Seek">
+    <span class="player-time">0:00</span>
+    <button type="button" class="player-btn player-mute" aria-label="Mute">🔊</button>
+    <button type="button" class="player-btn player-full" aria-label="Fullscreen">⛶</button>
+    <a class="player-btn player-download" href="{{.Src}}" download aria-label="Download">⬇</a>
+  </div>
+{{end}}
+
+{{define "tk_player"}}
+<div class="player{{if eq .Kind "audio"}} player-audio{{end}}" data-player>
+  {{if eq .Kind "audio"}}<audio preload="metadata" src="{{.Src}}"></audio>{{else}}<video preload="metadata" playsinline src="{{.Src}}"></video>{{end}}
+  {{template "tk_player_bar" (dict "Src" .Src)}}
+</div>
+{{end}}
+
 {{define "tk_lightbox"}}
 <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
+  <div class="lb-tools">
+    <a id="lightbox-download" class="btn btn-small" href="#" download>⬇ Download</a>
+    <button type="button" id="lightbox-close" class="btn btn-small" aria-label="Close">✕</button>
+  </div>
   <img id="lightbox-img" alt="">
-  <video id="lightbox-video" controls playsinline hidden></video>
+  <div class="player lb-player" id="lightbox-player" data-player hidden>
+    <video id="lightbox-video" preload="metadata" playsinline></video>
+    {{template "tk_player_bar" (dict "Src" "")}}
+  </div>
 </div>
 {{end}}

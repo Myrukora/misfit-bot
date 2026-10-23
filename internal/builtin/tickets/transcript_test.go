@@ -176,14 +176,14 @@ func TestTranscriptRenderMedia(t *testing.T) {
 		t.Fatal("image attachment used CDN URL instead of LocalPath")
 	}
 
-	// Video attachment uses LocalPath and renders as a <video> element.
-	if !strings.Contains(out, "<video class='attachment' controls preload='metadata' src='files/100-1-vid.mp4'></video>") {
-		t.Fatal("video attachment not rendered as <video> with LocalPath")
+	// Video attachment uses LocalPath inside the custom player.
+	if !strings.Contains(out, "<div class='player' data-player><video preload='metadata' playsinline src='files/100-1-vid.mp4'>") {
+		t.Fatal("video attachment not rendered in the custom player with LocalPath")
 	}
 
-	// Audio attachment falls back to URL (no LocalPath) and renders as an <audio> element.
-	if !strings.Contains(out, "<audio class='attachment' controls preload='metadata' src='https://cdn.discordapp.com/att/trk.mp3'></audio>") {
-		t.Fatal("audio attachment not rendered as <audio> with URL fallback")
+	// Audio attachment falls back to URL (no LocalPath) inside the audio player.
+	if !strings.Contains(out, "<div class='player paudio' data-player><audio preload='metadata' src='https://cdn.discordapp.com/att/trk.mp3'>") {
+		t.Fatal("audio attachment not rendered in the audio player with URL fallback")
 	}
 
 	// Default-kind attachment renders as a link.
@@ -201,9 +201,9 @@ func TestTranscriptRenderMedia(t *testing.T) {
 		t.Fatal(".gif sticker not rendered as <img>")
 	}
 
-	// .json Lottie sticker → <a> (NOT <img>), carries filename.
-	if !strings.Contains(out, "<a class='attachment attlink' href='https://cdn.discordapp.com/stk/lottie.json'>🎫 lottie.json</a>") {
-		t.Fatal(".json Lottie sticker not rendered as <a> with filename")
+	// .json Lottie sticker → <a download> (NOT <img>), carries filename.
+	if !strings.Contains(out, "<a class='attachment attlink' href='https://cdn.discordapp.com/stk/lottie.json' download>🎫 lottie.json</a>") {
+		t.Fatal(".json Lottie sticker not rendered as a download link with filename")
 	}
 	if strings.Contains(out, "<img class='attachment' alt='lottie.json'") {
 		t.Fatal(".json Lottie sticker rendered as <img> (should be <a>)")
@@ -214,19 +214,19 @@ func TestTranscriptRenderMedia(t *testing.T) {
 		t.Fatal("image embed not rendered as <img>")
 	}
 
-	// Video embed → <video> element (not an anchor, not an img).
-	if !strings.Contains(out, "<video class='attachment' controls preload='metadata' src='https://cdn.discordapp.com/emb/clip.mp4'></video>") {
-		t.Fatal("video embed not rendered as <video>")
+	// Video embed → custom player (not an anchor, not an img).
+	if !strings.Contains(out, "<div class='player' data-player><video preload='metadata' playsinline src='https://cdn.discordapp.com/emb/clip.mp4'>") {
+		t.Fatal("video embed not rendered in the custom player")
 	}
 
 	// Audio embed.
-	if !strings.Contains(out, "<audio class='attachment' controls preload='metadata' src='https://cdn.discordapp.com/emb/song.mp3'></audio>") {
-		t.Fatal("audio embed not rendered as <audio>")
+	if !strings.Contains(out, "<div class='player paudio' data-player><audio preload='metadata' src='https://cdn.discordapp.com/emb/song.mp3'>") {
+		t.Fatal("audio embed not rendered in the audio player")
 	}
 
-	// Link embed with unique URL → <a>.
-	if !strings.Contains(out, "<a class='attachment attlink' href='https://example.com/page'>🔗 example.com</a>") {
-		t.Fatal("unique link embed not rendered as <a>")
+	// Link embed with unique URL → download anchor.
+	if !strings.Contains(out, "<a class='attachment attlink' href='https://example.com/page' download>🔗 example.com</a>") {
+		t.Fatal("unique link embed not rendered as a download anchor")
 	}
 
 	// Link embed duplicating the image attachment URL → skipped.
@@ -305,6 +305,51 @@ func TestMessageToEntry(t *testing.T) {
 	}
 	if e.Embeds[0].URL != "https://example.com/page" {
 		t.Fatalf("Embed URL = %q, want https://example.com/page", e.Embeds[0].URL)
+	}
+}
+
+// TestClassifyAttachmentsByExtension pins the extension fallback: clients send
+// application/octet-stream for media, so an .mp3 must still be an audio player
+// (and an .mp4 a video), never a generic file link.
+func TestClassifyAttachmentsByExtension(t *testing.T) {
+	ptr := func(s string) *string { return &s }
+	atts := []discord.Attachment{
+		{Filename: "song.mp3", ContentType: ptr("application/octet-stream")},
+		{Filename: "clip.MP4"},
+		{Filename: "art.webp", ContentType: ptr("image/webp")},
+		{Filename: "notes.txt", ContentType: ptr("text/plain")},
+		{Filename: "track.m4a"},
+	}
+	got := classifyAttachments(atts)
+	want := []string{"audio", "video", "image", "file", "audio"}
+	if len(got) != len(want) {
+		t.Fatalf("len = %d, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i].Kind != want[i] {
+			t.Errorf("%s Kind = %q, want %q", atts[i].Filename, got[i].Kind, want[i])
+		}
+	}
+}
+
+// TestFetchAllMessagesSkipsWelcome pins that the ticket's own opening message
+// (pings + embed) never enters the transcript through the history merge.
+func TestFetchAllMessagesSkipsWelcome(t *testing.T) {
+	m, _ := newWireModule(t, &wireHarness{}, map[string]*Config{})
+	entries := m.fetchAllMessages("555", "101")
+	if len(entries) != 1 || entries[0].MsgID != "100" {
+		t.Fatalf("entries = %+v, want only the non-welcome message", entries)
+	}
+}
+
+// TestLogCountSkipsWelcome pins the filtered conversation count: the ticket's
+// own opening message never counts as a conversation entry.
+func TestLogCountSkipsWelcome(t *testing.T) {
+	tk := &modules.Ticket{MessageID: "welcome", Log: []modules.LogEntry{
+		{MsgID: "welcome"}, {MsgID: "m1"}, {MsgID: "m2"},
+	}}
+	if got := tk.LogCount(); got != 2 {
+		t.Fatalf("LogCount = %d, want 2", got)
 	}
 }
 

@@ -853,6 +853,7 @@
       var p = JSON.parse(ev.data);
       var nearBottom = (window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 120;
       tkConv.innerHTML = p.html;
+      tkInitPlayers(tkConv);
       var title = byId("tk-conv-title");
       if (title) title.textContent = "Conversation (" + p.count + " entries)";
       var status = byId("tk-status");
@@ -861,31 +862,105 @@
     });
   }
 
-  /* ---------- media lightbox (transcript images + card previews) ---------- */
+  /* ---------- custom media players ---------- */
+  var tkInitPlayers = function (root) {
+    (root || document).querySelectorAll("[data-player]").forEach(function (p) {
+      if (p.dataset.playerReady) return;
+      p.dataset.playerReady = "1";
+      var media = p.querySelector("video, audio");
+      var play = p.querySelector(".player-play");
+      var seek = p.querySelector(".player-seek");
+      var time = p.querySelector(".player-time");
+      var mute = p.querySelector(".player-mute");
+      var full = p.querySelector(".player-full");
+      if (!media || !play || !seek || !time || !mute) return;
+      var fmt = function (s) {
+        if (!isFinite(s) || s < 0) s = 0;
+        var m = Math.floor(s / 60), sec = Math.floor(s % 60);
+        return m + ":" + (sec < 10 ? "0" : "") + sec;
+      };
+      var sync = function () {
+        var dur = media.duration || 0, cur = media.currentTime || 0;
+        seek.value = dur ? Math.round((cur / dur) * 1000) : 0;
+        time.textContent = fmt(cur) + " / " + fmt(dur);
+        play.textContent = media.paused ? "▶" : "❚❚";
+      };
+      var toggle = function () {
+        if (media.paused) {
+          var pr = media.play();
+          if (pr && pr.catch) pr.catch(function () {});
+        } else {
+          media.pause();
+        }
+      };
+      play.addEventListener("click", toggle);
+      media.addEventListener("click", toggle);
+      media.addEventListener("play", sync);
+      media.addEventListener("pause", sync);
+      media.addEventListener("timeupdate", sync);
+      media.addEventListener("loadedmetadata", sync);
+      seek.addEventListener("input", function () {
+        if (media.duration) media.currentTime = (seek.value / 1000) * media.duration;
+      });
+      mute.addEventListener("click", function () {
+        media.muted = !media.muted;
+        mute.textContent = media.muted ? "🔇" : "🔊";
+      });
+      if (full) {
+        full.addEventListener("click", function () {
+          if (document.fullscreenElement) {
+            document.exitFullscreen();
+          } else if (p.requestFullscreen) {
+            var fr = p.requestFullscreen();
+            if (fr && fr.catch) fr.catch(function () {});
+          }
+        });
+      }
+      sync();
+    });
+  };
+  tkInitPlayers();
+
+  /* ---------- media lightbox (zoom, pan, download) ---------- */
   var lightbox = byId("lightbox");
   if (lightbox) {
     var lightboxImg = byId("lightbox-img");
     var lightboxVideo = byId("lightbox-video");
+    var lightboxPlayer = byId("lightbox-player");
+    var lightboxDl = byId("lightbox-download");
+    var lbScale = 1, lbX = 0, lbY = 0, lbDrag = null;
+    var lbApply = function () {
+      lightboxImg.style.transform = "translate(" + lbX + "px," + lbY + "px) scale(" + lbScale + ")";
+    };
+    var lbReset = function () {
+      lbScale = 1; lbX = 0; lbY = 0;
+      lightboxImg.classList.remove("dragging");
+      lbApply();
+    };
     var closeLightbox = function () {
       lightbox.classList.remove("open");
       lightboxImg.hidden = false;
       lightboxImg.removeAttribute("src");
+      lbReset();
       if (lightboxVideo) {
         lightboxVideo.pause();
-        lightboxVideo.hidden = true;
         lightboxVideo.removeAttribute("src");
       }
+      if (lightboxPlayer) lightboxPlayer.hidden = true;
+      if (lightboxDl) lightboxDl.removeAttribute("href");
     };
     document.addEventListener("click", function (ev) {
       var img = ev.target.closest("img.zoomable");
       if (img) {
         if (lightboxVideo) {
           lightboxVideo.pause();
-          lightboxVideo.hidden = true;
           lightboxVideo.removeAttribute("src");
         }
+        if (lightboxPlayer) lightboxPlayer.hidden = true;
         lightboxImg.hidden = false;
         lightboxImg.src = img.src;
+        lbReset();
+        if (lightboxDl) lightboxDl.href = img.src;
         lightbox.classList.add("open");
         lightbox.focus();
         return;
@@ -894,16 +969,45 @@
       if (vid) {
         lightboxImg.hidden = true;
         lightboxImg.removeAttribute("src");
-        lightboxVideo.hidden = false;
+        if (lightboxPlayer) lightboxPlayer.hidden = false;
         lightboxVideo.src = vid.currentSrc || vid.src;
+        if (lightboxDl) lightboxDl.href = lightboxVideo.src;
         lightbox.classList.add("open");
-        var playing = lightboxVideo.play();
-        if (playing && playing.catch) playing.catch(function () {});
+        var pr = lightboxVideo.play();
+        if (pr && pr.catch) pr.catch(function () {});
         lightbox.focus();
       }
     });
     lightbox.addEventListener("click", function (ev) {
-      if (ev.target === lightbox || ev.target === lightboxImg) closeLightbox();
+      if (ev.target === lightbox) closeLightbox();
+    });
+    var lightboxClose = byId("lightbox-close");
+    if (lightboxClose) lightboxClose.addEventListener("click", closeLightbox);
+    lightboxImg.addEventListener("wheel", function (ev) {
+      ev.preventDefault();
+      lbScale = Math.min(6, Math.max(1, lbScale * (ev.deltaY < 0 ? 1.15 : 1 / 1.15)));
+      if (lbScale === 1) { lbX = 0; lbY = 0; }
+      lbApply();
+    }, { passive: false });
+    lightboxImg.addEventListener("mousedown", function (ev) {
+      if (lbScale <= 1) return;
+      ev.preventDefault();
+      lbDrag = { x: ev.clientX, y: ev.clientY, tx: lbX, ty: lbY };
+      lightboxImg.classList.add("dragging");
+    });
+    document.addEventListener("mousemove", function (ev) {
+      if (!lbDrag) return;
+      lbX = lbDrag.tx + (ev.clientX - lbDrag.x);
+      lbY = lbDrag.ty + (ev.clientY - lbDrag.y);
+      lbApply();
+    });
+    document.addEventListener("mouseup", function () {
+      lbDrag = null;
+      lightboxImg.classList.remove("dragging");
+    });
+    lightboxImg.addEventListener("dblclick", function (ev) {
+      ev.preventDefault();
+      if (lbScale > 1) { lbReset(); } else { lbScale = 2.5; lbApply(); }
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && lightbox.classList.contains("open")) closeLightbox();

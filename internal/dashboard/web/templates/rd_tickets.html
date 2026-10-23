@@ -65,32 +65,15 @@
 {{if .Closed}}
 <div class="tbl-wrap">
   <table class="tbl">
-    <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th><th>Media</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
     <tbody>
       {{range .Closed}}
-      {{$t := .}}
       {{$p := index $.People .OpenerID}}
       <tr>
         <td><a href="/tickets/{{$.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
         <td>{{.Type}}</td>
         <td>{{if $p.Name}}{{$p.Name}}{{else if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
         <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
-        <td>
-          {{if .Preview}}
-          <div class="ticket-media">
-            {{range .Preview}}
-            {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $.GuildID $t.ID (.LocalPath | fileBase)}}{{end}}
-            {{if eq .Kind "image"}}
-            <img class="ticket-thumb zoomable" src="{{$src}}" alt="{{.Filename}}" loading="lazy">
-            {{else if eq .Kind "video"}}
-            <video class="ticket-thumb video-thumb" src="{{$src}}" preload="metadata" playsinline></video>
-            {{else if eq .Kind "audio"}}
-            <audio class="ticket-audio" controls preload="metadata" src="{{$src}}"></audio>
-            {{end}}
-            {{end}}
-          </div>
-          {{else}}<span class="muted">—</span>{{end}}
-        </td>
       </tr>
       {{end}}
     </tbody>

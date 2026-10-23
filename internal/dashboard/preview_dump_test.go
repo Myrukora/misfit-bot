@@ -150,12 +150,19 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}{
 			Ticket: &modules.Ticket{
 				ID: "support-0012", Type: "support", GuildID: "1", OpenerID: "111", Status: "open",
-				OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"333"},
+				MessageID: "welcome",
+				OpenedAt:  time.Now().Add(-2 * time.Hour), Members: []string{"333"},
 				Log: []modules.LogEntry{
+					{MsgID: "welcome", AuthorID: "7", AuthorName: "Test Bot 2", IsBot: true, Timestamp: time.Now().Add(-2 * time.Hour), Content: "<@111> Welcome!"},
 					{MsgID: "m1", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now().Add(-2 * time.Hour), Content: "My game **crashes**.",
 						Attachments: []modules.Media{{URL: "https://cdn.discordapp.com/a.png", Kind: "image", Filename: "a.png"}}},
 					{MsgID: "m2", AuthorID: "9", AuthorName: "Sam", IsBot: false, Timestamp: time.Now().Add(-1 * time.Hour), Content: "Try a clean install.", Edited: true},
-					{MsgID: "m3", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now(), Content: "deleted msg", Deleted: true},
+					{MsgID: "m3", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now().Add(-50 * time.Minute), Attachments: []modules.Media{
+						{URL: "https://cdn.discordapp.com/clip.mp4", Kind: "video", Filename: "clip.mp4"},
+						{URL: "https://cdn.discordapp.com/song.mp3", Kind: "audio", Filename: "song.mp3"},
+						{URL: "https://cdn.discordapp.com/doc.pdf", Kind: "file", Filename: "doc.pdf"},
+					}},
+					{MsgID: "m4", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now(), Content: "deleted msg", Deleted: true},
 				},
 			},
 			GuildID: "1",

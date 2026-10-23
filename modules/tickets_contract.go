@@ -63,6 +63,19 @@ func (t *Ticket) EffectiveType() string {
 	return t.Group
 }
 
+// LogCount returns the number of conversation entries, excluding the ticket's
+// own opening message (pings + opening embed) which is a system post.
+func (t *Ticket) LogCount() int {
+	n := 0
+	for _, e := range t.Log {
+		if t.MessageID != "" && e.MsgID == t.MessageID {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
 // LogEntry is one conversation event inside a ticket. Edits overwrite Content
 // and set Edited; deletes keep the entry as an honest tombstone via Deleted.
 type LogEntry struct {

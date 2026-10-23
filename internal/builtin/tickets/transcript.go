@@ -66,9 +66,11 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 
 	// 1) Fetch full history (REST, outside the lock). Edits/deletes were
 	// already tracked live; this backfills anything the event hooks missed.
+	// The welcome message (pings + opening embed) is the ticket's own system
+	// post, not conversation: skip it by ID.
 	var history []modules.LogEntry
 	if !opts.skipHistory {
-		history = m.fetchAllMessages(tk.ChannelID)
+		history = m.fetchAllMessages(tk.ChannelID, tk.MessageID)
 	}
 	// 2) Plan the attachment mirror (downloads, outside the lock).
 	filesDir := filepath.Join(dataDir, "tickets", tk.GuildID, tk.ID, "files")
@@ -243,20 +245,25 @@ func (m *TicketsModule) lockTicketChannel(tk *modules.Ticket, g TypeConfig) {
 	}
 }
 
-// fetchAllMessages pages the entire channel history (newest→oldest).
-func (m *TicketsModule) fetchAllMessages(channelID string) []modules.LogEntry {
+// fetchAllMessages pages the entire channel history (newest→oldest), skipping
+// the ticket's welcome message (skipMsgID) when given.
+func (m *TicketsModule) fetchAllMessages(channelID, skipMsgID string) []modules.LogEntry {
 	var out []modules.LogEntry
 	before := snowflake.ID(0)
 	cid, err := snowflake.Parse(channelID)
 	if err != nil {
 		return nil
 	}
-	for i := 0; i < 200; i++ { // hard cap: 200*100 = 20k messages
-		batch, err := m.ctx.Rest.GetMessages(cid, 100, before, 0, 0)
+	for range 200 { // hard cap: 200*100 = 20k messages
+		batch, err := m.ctx.Rest.GetMessages(cid, 0, before, 0, 100)
 		if err != nil || len(batch) == 0 {
 			break
 		}
 		for _, msg := range batch {
+			if skipMsgID != "" && msg.ID.String() == skipMsgID {
+				before = msg.ID
+				continue
+			}
 			out = append(out, messageToEntry(msg))
 			before = msg.ID
 		}
@@ -364,6 +371,22 @@ func downloadAttachment(client *http.Client, url, dir, prefix, filename string, 
 
 // ── HTML builder (pure, unit-tested) ─────────────────────────────────────
 
+// archivePlayerHTML renders the standalone transcript's custom media player
+// (mirrors the dashboard's .player markup).
+func archivePlayerHTML(kind, src string) string {
+	tag, cls, extra := "video", "", " playsinline"
+	if kind == "audio" {
+		tag, cls, extra = "audio", " paudio", ""
+	}
+	return "<div class='player" + cls + "' data-player><" + tag + " preload='metadata'" + extra + " src='" + html.EscapeString(src) + "'></" + tag + ">" +
+		"<div class='pbar'><button class='pbtn pplay' type='button'>▶</button>" +
+		"<input class='pseek' type='range' min='0' max='1000' value='0'>" +
+		"<span class='ptime'>0:00</span>" +
+		"<button class='pbtn pmute' type='button'>🔊</button>" +
+		"<button class='pbtn pfull' type='button'>⛶</button>" +
+		"<a class='pbtn pdl' href='" + html.EscapeString(src) + "' download>⬇</a></div></div>"
+}
+
 // buildTranscriptHTML renders a chat-exporter-style standalone page from the
 // stored log. Attachments reference LocalPath when mirrored (relative),
 // falling back to CDN URLs.
@@ -389,7 +412,16 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 	b.WriteString("video.attachment{max-width:min(480px,100%)}audio.attachment{width:100%}")
 	b.WriteString(".attlink{color:#00aff4}")
 	b.WriteString("#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;align-items:center;justify-content:center;cursor:zoom-out}")
-	b.WriteString("#lb.open{display:flex}#lb img{max-width:92vw;max-height:92vh;border-radius:6px}")
+	b.WriteString("#lb.open{display:flex}#lb img{max-width:92vw;max-height:92vh;border-radius:6px;cursor:zoom-in;touch-action:none}")
+	b.WriteString(".lbtools{position:fixed;top:16px;right:16px;z-index:101;display:flex;gap:8px}")
+	b.WriteString(".lbbtn{background:#2f3136;color:#fff;border:1px solid #55585e;border-radius:6px;padding:6px 10px;font:inherit;font-size:13px;cursor:pointer;text-decoration:none}")
+	b.WriteString(".player{display:inline-block;width:min(480px,100%);margin-top:6px;background:#101012;border:1px solid #3a3a40;border-radius:8px;overflow:hidden}")
+	b.WriteString(".player video,.player audio{display:block;width:100%;background:#000;max-height:360px}")
+	b.WriteString(".pbar{display:flex;align-items:center;gap:8px;padding:7px 9px}")
+	b.WriteString(".pbtn{border:0;background:none;color:#dcddde;font-size:14px;line-height:1;cursor:pointer;border-radius:4px;padding:2px 4px;text-decoration:none}")
+	b.WriteString(".pseek{flex:1;min-width:60px;accent-color:#fff;height:4px}")
+	b.WriteString(".ptime{font-size:12px;color:#a1a1aa;white-space:nowrap}")
+	b.WriteString(".paudio .pfull{display:none}.paudio audio{height:40px;max-height:40px}")
 	b.WriteString("img.attachment{cursor:zoom-in}")
 	b.WriteString("</style></head><body><div class='wrap'>")
 	b.WriteString("<h1>" + esc(title) + "</h1>")
@@ -401,6 +433,11 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 		esc(guildName), esc(t.ID), status, t.OpenedAt.UTC().Format(time.RFC1123)))
 
 	for _, e := range t.Log {
+		// The ticket's own opening message (pings + embed) is a system post,
+		// not conversation; older tickets may still carry it in their log.
+		if t.MessageID != "" && e.MsgID == t.MessageID {
+			continue
+		}
 		cls := "msg"
 		if e.Deleted {
 			cls += " deleted"
@@ -439,11 +476,11 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 			case "image":
 				b.WriteString("<img class='attachment img' loading='lazy' alt='" + label + "' src='" + esc(src) + "'>")
 			case "video":
-				b.WriteString("<video class='attachment' controls preload='metadata' src='" + esc(src) + "'></video>")
+				b.WriteString(archivePlayerHTML("video", src))
 			case "audio":
-				b.WriteString("<audio class='attachment' controls preload='metadata' src='" + esc(src) + "'></audio>")
+				b.WriteString(archivePlayerHTML("audio", src))
 			default:
-				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "'>📎 " + label + "</a>")
+				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "' download>⬇ " + label + "</a>")
 			}
 		}
 		for _, s := range e.Stickers {
@@ -461,7 +498,7 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 			if ext == ".png" || ext == ".gif" {
 				b.WriteString("<img class='attachment' alt='" + label + "' src='" + esc(src) + "'>")
 			} else {
-				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "'>🎫 " + label + "</a>")
+				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "' download>🎫 " + label + "</a>")
 			}
 		}
 		for _, em := range e.Embeds {
@@ -481,11 +518,11 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 			case "image":
 				b.WriteString("<img class='attachment img' loading='lazy' alt='" + label + "' src='" + esc(src) + "'>")
 			case "video":
-				b.WriteString("<video class='attachment' controls preload='metadata' src='" + esc(src) + "'></video>")
+				b.WriteString(archivePlayerHTML("video", src))
 			case "audio":
-				b.WriteString("<audio class='attachment' controls preload='metadata' src='" + esc(src) + "'></audio>")
+				b.WriteString(archivePlayerHTML("audio", src))
 			default:
-				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "'>🔗 " + label + "</a>")
+				b.WriteString("<a class='attachment attlink' href='" + esc(src) + "' download>🔗 " + label + "</a>")
 			}
 		}
 		if e.Content == "" && len(e.Attachments) == 0 && len(e.Stickers) == 0 && len(e.Embeds) == 0 && !e.Deleted {
@@ -494,8 +531,8 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 		b.WriteString("</div></div>")
 	}
 	b.WriteString("</div>")
-	b.WriteString("<div id='lb' onclick=\"this.classList.remove('open');document.getElementById('lbi').removeAttribute('src')\"><img id='lbi' alt=''></div>")
-	b.WriteString("<script>document.querySelectorAll('img.attachment').forEach(function(i){i.addEventListener('click',function(){document.getElementById('lbi').src=this.src;document.getElementById('lb').classList.add('open');});});document.addEventListener('keydown',function(e){if(e.key==='Escape'){document.getElementById('lb').classList.remove('open');document.getElementById('lbi').removeAttribute('src');}});</script>")
+	b.WriteString("<div id='lb'><div class='lbtools'><a id='lbdl' class='lbbtn' href='#' download>⬇ Download</a><button type='button' id='lbclose' class='lbbtn'>✕</button></div><img id='lbi' alt=''></div>")
+	b.WriteString("<script>(function(){var lb=document.getElementById('lb'),im=document.getElementById('lbi'),dl=document.getElementById('lbdl'),s=1,x=0,y=0,d=null;function apply(){im.style.transform='translate('+x+'px,'+y+'px) scale('+s+')';}function close(){lb.classList.remove('open');im.removeAttribute('src');s=1;x=0;y=0;apply();}document.querySelectorAll('img.attachment').forEach(function(i){i.addEventListener('click',function(){im.src=this.src;dl.href=this.src;s=1;x=0;y=0;apply();lb.classList.add('open');});});lb.addEventListener('click',function(e){if(e.target===lb)close();});document.getElementById('lbclose').addEventListener('click',close);im.addEventListener('wheel',function(e){e.preventDefault();s=Math.min(6,Math.max(1,s*(e.deltaY<0?1.15:1/1.15)));if(s===1){x=0;y=0;}apply();},{passive:false});im.addEventListener('mousedown',function(e){if(s<=1)return;e.preventDefault();d={x:e.clientX,y:e.clientY,tx:x,ty:y};});document.addEventListener('mousemove',function(e){if(!d)return;x=d.tx+(e.clientX-d.x);y=d.ty+(e.clientY-d.y);apply();});document.addEventListener('mouseup',function(){d=null;});im.addEventListener('dblclick',function(e){e.preventDefault();if(s>1){s=1;x=0;y=0;}else{s=2.5;}apply();});document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});function fmt(t){if(!isFinite(t)||t<0)t=0;var m=Math.floor(t/60),q=Math.floor(t%60);return m+':'+(q<10?'0':'')+q;}document.querySelectorAll('[data-player]').forEach(function(p){var m=p.querySelector('video,audio'),play=p.querySelector('.pplay'),seek=p.querySelector('.pseek'),time=p.querySelector('.ptime'),mute=p.querySelector('.pmute'),full=p.querySelector('.pfull');if(!m||!play)return;function sync(){var dur=m.duration||0,cur=m.currentTime||0;seek.value=dur?Math.round(cur/dur*1000):0;time.textContent=fmt(cur)+' / '+fmt(dur);play.textContent=m.paused?'▶':'❚❚';}function toggle(){if(m.paused){var pr=m.play();if(pr&&pr.catch)pr.catch(function(){});}else{m.pause();}}play.addEventListener('click',toggle);m.addEventListener('click',toggle);['play','pause','timeupdate','loadedmetadata'].forEach(function(ev){m.addEventListener(ev,sync);});seek.addEventListener('input',function(){if(m.duration)m.currentTime=seek.value/1000*m.duration;});mute.addEventListener('click',function(){m.muted=!m.muted;mute.textContent=m.muted?'🔇':'🔊';});if(full)full.addEventListener('click',function(){if(document.fullscreenElement)document.exitFullscreen();else if(p.requestFullscreen)p.requestFullscreen();});sync();});})();</script>")
 	b.WriteString("</body></html>")
 	return b.String()
 }

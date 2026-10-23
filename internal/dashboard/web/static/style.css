@@ -1862,6 +1862,99 @@ input[type="range"].cfg-field::-moz-range-thumb {
     border-radius: 8px;
 }
 
+/* Custom media player (videos/audio in transcripts and archives) */
+.player {
+    margin-top: 8px;
+    max-width: 480px;
+    background: #101012;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.player video,
+.player audio {
+    display: block;
+    width: 100%;
+    background: black;
+}
+
+.player video {
+    max-height: 360px;
+}
+
+.player-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+}
+
+.player-btn {
+    padding: 2px 4px;
+    border: 0;
+    background: none;
+    color: #d4d4d8;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    text-decoration: none;
+}
+
+.player-btn:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.player-seek {
+    flex: 1;
+    min-width: 60px;
+    height: 4px;
+    accent-color: white;
+    cursor: pointer;
+}
+
+.player-time {
+    color: #a1a1aa;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.player-audio .player-full {
+    display: none;
+}
+
+.player-audio audio {
+    height: 40px;
+}
+
+/* Non-media attachments: an explicit download control */
+.file-download {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 7px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: #141417;
+    color: #d4d4d8;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.file-download:hover {
+    color: white;
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.transcript-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 #lightbox {
     display: none;
     position: fixed;
@@ -1881,13 +1974,45 @@ input[type="range"].cfg-field::-moz-range-thumb {
     max-width: 95vw;
     max-height: 95vh;
     border-radius: 8px;
+    cursor: zoom-in;
+    touch-action: none;
+    transition: transform 0.12s ease;
 }
 
-#lightbox video {
-    max-width: 95vw;
-    max-height: 95vh;
-    border-radius: 8px;
+#lightbox img.dragging {
+    cursor: grabbing;
+    transition: none;
+}
+
+#lightbox .lb-tools {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    display: flex;
+    gap: 8px;
+    z-index: 2;
+}
+
+#lightbox .lb-tools .btn {
+    background: rgba(20, 20, 23, 0.92);
+}
+
+#lightbox .lb-player {
+    max-width: 92vw;
+    margin: 0;
+    background: transparent;
+    border: 0;
+}
+
+#lightbox .lb-player video {
+    width: auto;
+    max-width: 92vw;
+    max-height: 82vh;
     background: black;
+}
+
+#lightbox .lb-player .player-download {
+    display: none;
 }
 
 img.ticket-thumb {

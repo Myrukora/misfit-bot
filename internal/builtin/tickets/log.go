@@ -144,8 +144,9 @@ func (m *TicketsModule) logMessageDelete(e *events.GuildMessageDelete) {
 
 // ── classification (pure functions, unit-tested) ─────────────────────────
 
-// classifyAttachments maps Discord attachments to Media records, classifying
-// by content type: image/* → image, video/* → video, else file.
+// classifyAttachments maps Discord attachments to Media records. The content
+// type is authoritative; when it is missing (or generic), the filename
+// extension decides - some clients send application/octet-stream for media.
 func classifyAttachments(atts []discord.Attachment) []modules.Media {
 	out := make([]modules.Media, 0, len(atts))
 	for _, a := range atts {
@@ -155,11 +156,14 @@ func classifyAttachments(atts []discord.Attachment) []modules.Media {
 		}
 		kind := "file"
 		lct := strings.ToLower(ct)
+		ext := strings.ToLower(filepathExt(a.Filename))
 		switch {
-		case strings.HasPrefix(lct, "image/"):
+		case strings.HasPrefix(lct, "image/") || isImageExt(ext):
 			kind = "image"
-		case strings.HasPrefix(lct, "video/"):
+		case strings.HasPrefix(lct, "video/") || isVideoExt(ext):
 			kind = "video"
+		case strings.HasPrefix(lct, "audio/") || isAudioExt(ext):
+			kind = "audio"
 		}
 		out = append(out, modules.Media{
 			URL:         a.URL,
@@ -171,6 +175,39 @@ func classifyAttachments(atts []discord.Attachment) []modules.Media {
 		})
 	}
 	return out
+}
+
+// filepathExt returns the lowercased filename extension including the dot.
+func filepathExt(name string) string {
+	// path.Ext is overkill for a bare filename; keep it allocation-light.
+	if i := strings.LastIndexByte(name, '.'); i >= 0 {
+		return name[i:]
+	}
+	return ""
+}
+
+func isImageExt(ext string) bool {
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp", ".svg":
+		return true
+	}
+	return false
+}
+
+func isVideoExt(ext string) bool {
+	switch ext {
+	case ".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi":
+		return true
+	}
+	return false
+}
+
+func isAudioExt(ext string) bool {
+	switch ext {
+	case ".mp3", ".wav", ".ogg", ".oga", ".m4a", ".flac", ".opus", ".aac", ".wma", ".weba":
+		return true
+	}
+	return false
 }
 
 // stickerAssetURL builds the CDN URL for a message sticker; Lottie stickers
