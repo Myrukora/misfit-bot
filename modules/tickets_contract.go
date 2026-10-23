@@ -22,11 +22,6 @@ type TicketProvider interface {
 	// GetTicket returns one ticket incl. its full conversation log
 	// (transcript viewer). nil, nil when the ticket does not exist.
 	GetTicket(guildID, ticketID string) (*Ticket, error)
-	// CloseTicket closes a ticket on behalf of byUserID: locks the channel,
-	// builds the HTML transcript, posts it to the log channel and stores it
-	// with all attachments under the ticket's data folder. Same code path as
-	// the in-chat [p]close command and Close button.
-	CloseTicket(guildID, ticketID, byUserID string) error
 	// ListTypes returns configured ticket types (dashboard editors).
 	ListTypes(guildID string) ([]TypeSummary, error)
 	// TicketFilePath returns the absolute path of one mirrored media file of a

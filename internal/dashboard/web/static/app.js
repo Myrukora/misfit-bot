@@ -587,20 +587,6 @@
 
   document.querySelectorAll("[data-picker]").forEach(tkInitPicker);
 
-  /* ---------- tickets: close from list or transcript ---------- */
-  document.addEventListener("click", function (ev) {
-    var btn = ev.target.closest(".tk-close");
-    if (!btn || btn.disabled) return;
-    var guild = btn.dataset.guild;
-    var id = btn.dataset.id;
-    if (!confirm("Close ticket " + id + "? The channel is deleted after the transcript is saved.")) return;
-    var url = btn.dataset.closeurl || ("/api/tickets/" + encodeURIComponent(guild) + "/" + encodeURIComponent(id) + "/close");
-    btn.disabled = true;
-    api("POST", url, {})
-      .then(function () { toast("Ticket " + id + " closed"); })
-      .catch(function (e) { toast(e.message, true); btn.disabled = false; });
-  });
-
   /* ---------- tickets: settings (log channel) ---------- */
   if (tkSettings) {
     var tkLog = byId("tk-log-channel");
@@ -871,8 +857,6 @@
       if (title) title.textContent = "Conversation (" + p.count + " entries)";
       var status = byId("tk-status");
       if (status) status.textContent = p.status;
-      var wrap = byId("tk-close-wrap");
-      if (wrap) wrap.hidden = p.status !== "open";
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
     });
   }

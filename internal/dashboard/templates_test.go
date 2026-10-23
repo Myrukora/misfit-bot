@@ -143,14 +143,13 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_modules", settingsPageData{Manage: true, MgmtRows: nil}},
 		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G", ModulesView: []moduleConfigView{{Name: "tickets", Fields: []fieldRender{{Key: "t1", Label: "T", Type: "toggle", Value: "true"}}}}}},
 		{"rd_modules", settingsPageData{GuildID: "1", GuildName: "G"}},
-		// Ticket transcript (redesign, standalone): open with close button.
+		// Ticket transcript (redesign, standalone).
 		{"rd_transcript", struct {
-			Ticket   *modules.Ticket
-			GuildID  string
-			CloseURL string
+			Ticket  *modules.Ticket
+			GuildID string
 		}{Ticket: &modules.Ticket{ID: "support-0001", Type: "support", OpenerID: "2", Status: "open",
 			Log: []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "opener", Content: "help"}},
-		}, GuildID: "1", CloseURL: "/api/tickets/1/support-0001/close"}},
+		}, GuildID: "1"}},
 	}
 
 	for i, c := range cases {
@@ -415,10 +414,9 @@ func TestRedesignCommandsRunAffordance(t *testing.T) {
 	}
 }
 
-// TestRedesignTicketsCloseAffordance pins the Close button on open tickets of
-// the redesign tickets template: open tickets get a .tk-close carrying the
-// guild + ticket id; the archive never renders one.
-func TestRedesignTicketsCloseAffordance(t *testing.T) {
+// TestRedesignNoDashboardClose pins that closing is in-channel only: neither
+// the ticket cards nor the transcript viewer render a close control.
+func TestRedesignNoDashboardClose(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
@@ -431,9 +429,6 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 	now := time.Now()
 	d.Content = ticketsPageData{
 		GuildID: "1",
-		TypeDetails: []modules.TypeDetail{
-			{Key: "support", Label: "Support"},
-		},
 		Open: []modules.TicketSummary{
 			{ID: "12", Type: "support", OpenerID: "111", OpenedAt: now},
 		},
@@ -446,11 +441,30 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 		t.Fatalf("render rd_tickets: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `tk-close" data-id="12" data-guild="1"`) {
-		t.Error("open ticket missing Close affordance")
+	if strings.Contains(out, `tk-close"`) || strings.Contains(out, "data-closeurl") {
+		t.Error("tickets page must not render a close control")
 	}
-	if strings.Count(out, `tk-close" data-id=`) != 1 {
-		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, `tk-close" data-id=`))
+	if !strings.Contains(out, `href="/tickets/1/12"`) {
+		t.Error("open ticket card lost its View link")
+	}
+
+	tk := &modules.Ticket{ID: "support-0007", Type: "support", GuildID: "1", OpenerID: "2", Status: "open"}
+	td := mkData(lvlOwner)
+	td.ShowSidebar = false
+	td.Page = "transcript"
+	td.Content = struct {
+		Ticket  *modules.Ticket
+		GuildID string
+	}{Ticket: tk, GuildID: "1"}
+	sb.Reset()
+	if err := b.render(&sb, "rd_transcript", td); err != nil {
+		t.Fatalf("render rd_transcript: %v", err)
+	}
+	if tOut := sb.String(); strings.Contains(tOut, "tk-close") || strings.Contains(tOut, "data-closeurl") {
+		t.Error("transcript viewer must not render a close control")
+	}
+	if !strings.Contains(sb.String(), "from its Discord channel") {
+		t.Error("transcript viewer should point at the in-channel close command")
 	}
 }
 
@@ -609,17 +623,15 @@ func TestRedesignTranscript(t *testing.T) {
 	d.ShowSidebar = false
 	d.Page = "transcript"
 	d.Content = struct {
-		Ticket   *modules.Ticket
-		GuildID  string
-		CloseURL string
-	}{Ticket: tk, GuildID: "1", CloseURL: "/api/tickets/1/support-0007/close"}
+		Ticket  *modules.Ticket
+		GuildID string
+	}{Ticket: tk, GuildID: "1"}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_transcript", d); err != nil {
 		t.Fatalf("render rd_transcript: %v", err)
 	}
 	out := sb.String()
 	for _, want := range []string{
-		`tk-close" data-id="support-0007" data-guild="1"`,
 		`/api/ticketfiles/1/support-0007/a.png`, // LocalPath mirroring on image attachments
 		`class="zoomable msg-media"`,
 		`id="lightbox"`,

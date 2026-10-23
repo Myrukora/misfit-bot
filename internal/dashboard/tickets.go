@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"hash/fnv"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -43,7 +42,6 @@ import (
 //	POST /api/tickets/<guild>/panels/<name>         update
 //	POST /api/tickets/<guild>/panels/<name>/delete  delete
 //	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend
-//	POST /api/tickets/<guild>/<ticket>/close        same path as in-chat close
 //	GET  /api/tickets/<guild>/<ticket>/transcript   regenerate + download
 //	GET  /api/ticketfiles/<guild>/<ticket>/<name>   mirrored attachment bytes
 
@@ -201,25 +199,8 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 		m.routeTicketPanels(w, r, meth, parts, guildID, us, adm, hasAdmin)
 
 	default:
-		// /api/tickets/<guild>/<ticket>/close|transcript
+		// /api/tickets/<guild>/<ticket>/stream|transcript
 		switch {
-		case meth == "POST" && len(parts) == 4 && parts[3] == "close":
-			guildID, ticketID := parts[1], parts[2]
-			canClose := levelGEQ(m.resolveLevel(us), lvlElevated) || m.ticketsDashCloseAllowed()
-			if !canClose {
-				writeError(w, http.StatusForbidden, "closing tickets from the dashboard requires elevated permissions")
-				return
-			}
-			if !m.checkCSRF(r) {
-				writeError(w, http.StatusForbidden, "invalid CSRF token")
-				return
-			}
-			if err := tp.CloseTicket(guildID, ticketID, us.userID.String()); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "closed": ticketID})
-
 		case meth == "GET" && len(parts) == 4 && parts[3] == "stream":
 			guildID, ticketID := parts[1], parts[2]
 			if !m.canManageGuild(us, guildID) {
@@ -435,29 +416,6 @@ func (m *DashboardModule) routeTicketPanels(w http.ResponseWriter, r *http.Reque
 	default:
 		writeError(w, http.StatusNotFound, "not found")
 	}
-}
-
-// ticketsDashCloseAllowed reads the module's allow_dashboard_close flag.
-func (m *DashboardModule) ticketsDashCloseAllowed() bool {
-	getter, ok := m.bot.GetModuleManager().(interface {
-		Get(string) (modules.Module, bool)
-	})
-	if !ok {
-		return false
-	}
-	mod, ok := getter.Get("tickets")
-	if !ok {
-		return false
-	}
-	wc, ok := mod.(modules.WebConfigurable)
-	if !ok {
-		return false
-	}
-	vals, err := wc.WebGetConfig("")
-	if err != nil {
-		return false
-	}
-	return vals["allow_dashboard_close"] == "true"
 }
 
 // serveTicketFile serves mirrored attachment files for the transcript viewer:
@@ -676,11 +634,9 @@ func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Re
 	d.Page = "transcript"
 	d.Level = level
 	d.Content = struct {
-		Ticket   any
-		GuildID  string
-		CloseURL string
-	}{Ticket: tk, GuildID: guildID,
-		CloseURL: "/api/tickets/" + url.PathEscape(guildID) + "/" + url.PathEscape(ticketID) + "/close"}
+		Ticket  any
+		GuildID string
+	}{Ticket: tk, GuildID: guildID}
 	m.tmpl.render(w, "rd_transcript", d)
 }
 

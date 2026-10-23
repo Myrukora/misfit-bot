@@ -138,7 +138,6 @@ func TestPreviewDumpRedesign(t *testing.T) {
 					{Key: "notify_channel", Label: "Update notification channel", Help: "Channel in this server that receives the bot's PR, commit and release embeds. Empty = this server gets no update notifications.", Type: "channel", Value: "c2", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
 				}},
 				{Name: "tickets", Fields: []fieldRender{
-					{Key: "allow_dashboard_close", Label: "Allow closing from the dashboard", Type: "toggle", Value: "false", GuildScoped: true, GuildID: "1"},
 					{Key: "transcript_channel", Label: "Transcript channel", Type: "channel", Value: "c1", GuildScoped: true, GuildID: "1", Entities: []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "mod-log"}}},
 					{Key: "welcome_message", Label: "Welcome message", Type: "textarea", Value: "hey {user}", GuildScoped: true, GuildID: "1"},
 					{Key: "max_open", Label: "Max open tickets", Type: "number", Value: "3", Min: "1", Max: "20", Step: "1", GuildScoped: true, GuildID: "1"},
@@ -146,9 +145,8 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			},
 		}, true},
 		{"transcript.html", "transcript", "rd_transcript", struct {
-			Ticket   *modules.Ticket
-			GuildID  string
-			CloseURL string
+			Ticket  *modules.Ticket
+			GuildID string
 		}{
 			Ticket: &modules.Ticket{
 				ID: "support-0012", Type: "support", GuildID: "1", OpenerID: "111", Status: "open",

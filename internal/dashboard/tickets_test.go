@@ -140,8 +140,6 @@ func (s *stubTickets) ListClosedTickets(string) ([]modules.TicketSummary, error)
 func (s *stubTickets) ListTypes(string) ([]modules.TypeSummary, error) {
 	return s.types, nil
 }
-func (s *stubTickets) CloseTicket(string, string, string) error { return nil }
-
 func (s *stubTickets) GetTicket(guildID, ticketID string) (*modules.Ticket, error) {
 	// The existence check in serveTicketFile must pass for the streaming case.
 	return &modules.Ticket{ID: ticketID, GuildID: guildID, Status: "closed"}, nil
@@ -308,7 +306,6 @@ func (providerOnlyTickets) ListClosedTickets(string) ([]modules.TicketSummary, e
 func (providerOnlyTickets) ListTypes(string) ([]modules.TypeSummary, error) {
 	return nil, nil
 }
-func (providerOnlyTickets) CloseTicket(string, string, string) error { return nil }
 func (providerOnlyTickets) GetTicket(guildID, ticketID string) (*modules.Ticket, error) {
 	return &modules.Ticket{ID: ticketID, GuildID: guildID, Status: "closed"}, nil
 }
@@ -697,10 +694,9 @@ func TestTranscriptEmbedsAndCloseReason(t *testing.T) {
 	d.ShowSidebar = false
 	d.Page = "transcript"
 	d.Content = struct {
-		Ticket   any
-		GuildID  string
-		CloseURL string
-	}{Ticket: tk, GuildID: "1", CloseURL: "/api/tickets/1/support-0007/close"}
+		Ticket  any
+		GuildID string
+	}{Ticket: tk, GuildID: "1"}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_transcript", d); err != nil {
 		t.Fatalf("render rd_transcript: %v", err)

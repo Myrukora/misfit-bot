@@ -84,7 +84,7 @@ func TestWebSetConfigUnloaded(t *testing.T) {
 	}
 
 	// Every write branch must error, never panic, while unloaded.
-	for _, key := range []string{"storage_retention_days", "modals_enabled", "allow_dashboard_close"} {
+	for _, key := range []string{"storage_retention_days", "modals_enabled"} {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

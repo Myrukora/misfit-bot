@@ -69,10 +69,9 @@ type PanelConfig struct {
 // ModuleConfig is the bot-wide (non-guild) ticket config: retention, dashboard
 // close, and the open-time modal master switch.
 type ModuleConfig struct {
-	Version        int           `yaml:"version"`
-	Retention      retentionDays `yaml:"storage_retention_days"`
-	AllowDashClose bool          `yaml:"allow_dashboard_close"`
-	ModalsEnabled  *bool         `yaml:"modals_enabled"`
+	Version       int           `yaml:"version"`
+	Retention     retentionDays `yaml:"storage_retention_days"`
+	ModalsEnabled *bool         `yaml:"modals_enabled"`
 }
 
 // ModalsOn reports whether open-time question modals are enabled (nil = on).

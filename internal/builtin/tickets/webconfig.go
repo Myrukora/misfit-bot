@@ -7,17 +7,16 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
-// webconfig.go — the tickets module's GLOBAL (bot-wide) settings: retention,
-// the open-time modal master switch and whether tickets may be closed from the
-// dashboard. Per-guild management (types, panels, log channel) is done on the
-// dashboard's Tickets page through modules.TicketAdmin — the [p]tickets /
-// /tickets configuration command tree was removed in favour of that surface.
+// webconfig.go — the tickets module's GLOBAL (bot-wide) settings: retention
+// and the open-time modal master switch. Per-guild management (types, panels,
+// log channel) is done on the dashboard's Tickets page through
+// modules.TicketAdmin — the [p]tickets / /tickets configuration command tree
+// was removed in favour of that surface. Closing is in-channel only.
 
 func (m *TicketsModule) WebConfigSchema() []modules.ConfigField {
 	return []modules.ConfigField{
 		{Key: "storage_retention_days", Label: "Retention (days)", Help: "Days to keep closed tickets before pruning (0 = keep forever).", Type: modules.FieldTypeNumber, Scope: "global", Placeholder: "30", Min: new(0.0), Step: new(1.0)},
 		{Key: "modals_enabled", Label: "Open-time question modals", Help: "Allow panels to ask questions via a modal when a ticket is opened.", Type: modules.FieldTypeToggle, Scope: "global"},
-		{Key: "allow_dashboard_close", Label: "Allow dashboard close", Help: "Allow tickets to be closed from the dashboard.", Type: modules.FieldTypeToggle, Scope: "global"},
 	}
 }
 
@@ -33,7 +32,6 @@ func (m *TicketsModule) WebGetConfig(guildID string) (map[string]string, error) 
 	return map[string]string{
 		"storage_retention_days": strconv.Itoa(m.module.RetentionDays()),
 		"modals_enabled":         strconv.FormatBool(m.module.ModalsOn()),
-		"allow_dashboard_close":  strconv.FormatBool(m.module.AllowDashClose),
 	}, nil
 }
 
@@ -62,12 +60,6 @@ func (m *TicketsModule) WebSetConfig(guildID, key, value string) error {
 			return fmt.Errorf("modals_enabled must be a boolean")
 		}
 		m.module.ModalsEnabled = new(b)
-	case "allow_dashboard_close":
-		b, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf("allow_dashboard_close must be a boolean")
-		}
-		m.module.AllowDashClose = b
 	default:
 		return fmt.Errorf("unknown tickets setting %q", key)
 	}

@@ -74,7 +74,7 @@
       <h2>Ticket <code>{{$t.ID}}</code></h2>
       <p class="muted">Type: <strong>{{$t.Type}}</strong> · Opener: <code>{{$t.OpenerID}}</code> · Status: <strong id="tk-status">{{$t.Status}}</strong>{{if $t.Members}} · Members: {{range $m := $t.Members}}<code>{{$m}}</code> {{end}}{{end}}</p>
       {{if eq $t.Status "open"}}
-      <div id="tk-close-wrap"><button class="btn btn-small btn-danger tk-close" data-id="{{$t.ID}}" data-guild="{{$.Content.GuildID}}" data-closeurl="{{.Content.CloseURL}}">Close ticket</button></div>
+      <p class="muted">Close this ticket from its Discord channel with <code>/close</code> or <code>[p]close</code>.</p>
       {{else}}
       <span class="tag">closed{{if eq $t.CloseReason "channel_deleted"}} · channel deleted{{end}}{{if not $t.ClosedAt.IsZero}} {{dateHuman $t.ClosedAt}}{{end}}</span>
       {{end}}
