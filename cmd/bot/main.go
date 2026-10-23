@@ -351,6 +351,7 @@ func run() bool {
 		Rest:         Client.Rest,
 		Bot:          ba,
 		VoiceManager: vm,
+		CoreConfig:   Cfg,
 	}, cleanup.New, tickets.New, imagefilter.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
@@ -1280,6 +1281,7 @@ func (b *botAdapter) LoadModule(name string) error {
 		Bot:          b,
 		Events:       moduleHooks,
 		VoiceManager: b.voiceMgr,
+		CoreConfig:   Cfg,
 	}); err != nil {
 		ModMgr.Unload(name)
 		return err
@@ -1658,6 +1660,7 @@ func loadSingleModule(ba *botAdapter, modulesDir, name string) {
 		Bot:          ba,
 		Events:       moduleHooks,
 		VoiceManager: ba.voiceMgr,
+		CoreConfig:   Cfg,
 	}); err != nil {
 		Log.Error("Failed to initialize module %s: %v", name, err)
 		ModMgr.Unload(name)

@@ -100,3 +100,36 @@ func TestImageFilterStaleChannelRenders(t *testing.T) {
 		t.Error("stale log-channel option missing from rendered dropdown")
 	}
 }
+
+// TestImageFilterProvisioningRenders: the model chip and the setup error must
+// reach the HTML, so a lazy install (and its failure) is visible on the page.
+func TestImageFilterProvisioningRenders(t *testing.T) {
+	b, err := loadTemplates()
+	if err != nil {
+		t.Fatalf("loadTemplates: %v", err)
+	}
+	d := mkData(lvlOwner)
+	d.Page = "imagefilter"
+	d.GuildID = "1"
+	d.GuildName = "G"
+	d.ShowImageFilter = true
+	d.Content = map[string]any{
+		"admin":    true,
+		"guild":    "1",
+		"config":   map[string]string{},
+		"images":   []string{},
+		"status":   modules.ImageFilterStatus{Variant: "b32", Provisioning: true, ProvisionError: "network down"},
+		"enabled":  true,
+		"channels": []entityOpt{},
+	}
+	var sb strings.Builder
+	if err := b.render(&sb, "rd_imagefilter", d); err != nil {
+		t.Fatalf("render rd_imagefilter: %v", err)
+	}
+	out := sb.String()
+	for _, want := range []string{"preparing model…", "Model setup failed: network down", `data-provisioning="true"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendered page missing %q", want)
+		}
+	}
+}

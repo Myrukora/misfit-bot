@@ -5,6 +5,9 @@
 #   1. lib/onnxruntime/lib/libonnxruntime.so   (via scripts/setup_onnx.sh)
 #   2. modules/imagefilter/models/clip-vision-b32.onnx  (CPU CLIP vision tower)
 #
+# The model variant defaults to b32; set VARIANT=b16|l14|l14-336 to provision a
+# non-default export (the bot passes its configured variant automatically).
+#
 # Then proves the export with the export script's `verify` subcommand (torch vs
 # onnxruntime cosine on the same input). Everything heavy happens ONCE: the
 # venv and the .onnx are reused on every later run, so calling this after each
@@ -21,6 +24,7 @@
 #   bash scripts/setup_imagefilter.sh --check     # report readiness, change nothing
 #   bash scripts/setup_imagefilter.sh --force     # re-export even if the .onnx exists
 #   bash scripts/setup_imagefilter.sh --clean     # delete the export venv, keep artifacts
+#   VARIANT=b16 bash scripts/setup_imagefilter.sh # provision a non-default variant
 #
 # Default mode is deliberately non-fatal: the filter is an optional runtime
 # feature (it stays cold with the reason on the dashboard), so a failed
@@ -28,9 +32,12 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-MODELS_DIR="$ROOT/modules/imagefilter/models"
+# The bot passes its configured module data dir (absolute) so a custom
+# modules.path keeps the model next to the module; default layout otherwise.
+MODELS_DIR="${IMAGEFILTER_DATA_DIR:+$IMAGEFILTER_DATA_DIR/models}"
+MODELS_DIR="${MODELS_DIR:-$ROOT/modules/imagefilter/models}"
 VENV="$MODELS_DIR/.export-venv"
-VARIANT="b32"
+VARIANT="${VARIANT:-b32}"
 MODEL_FILE="$MODELS_DIR/clip-vision-${VARIANT}.onnx"
 # Cheap "is this a real export?" floor in bytes — the b32 export is ~334 MiB;
 # anything below 100 MiB is a truncated/failed download, not a model.
@@ -68,7 +75,7 @@ for arg in "$@"; do
     --force)  FORCE=1 ;;
     --check)  CHECK=1 ;;
     --clean)  CLEAN=1 ;;
-    -h|--help) sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown argument: $arg (see --help)" ;;
   esac
 done
@@ -104,6 +111,18 @@ if [ "$CHECK" = 1 ]; then
   exit 0
 fi
 
+# Serialize concurrent runs: install.sh, the updater's post-swap setup and the
+# bot's lazy provisioning (enable on a deployment without artifacts) can
+# overlap. flock is advisory and best effort — without it the steps stay
+# idempotent, but two simultaneous Python-venv builds would fight.
+if have flock; then
+  mkdir -p "$ROOT/lib"
+  exec 9>"$ROOT/lib/.imagefilter-setup.lock"
+  if ! flock -w 3600 9; then
+    warn "another setup run held the lock for an hour — continuing anyway"
+  fi
+fi
+
 if [ "$CLEAN" = 1 ]; then
   if [ -d "$VENV" ]; then
     info "removing export venv $VENV"
@@ -127,7 +146,7 @@ else
   fi
 fi
 
-# ── 2. CLIP b32 model ─────────────────────────────────────────────────────
+# ── 2. CLIP model ─────────────────────────────────────────────────────────
 
 if model_present && [ "$FORCE" != 1 ]; then
   ok "CLIP model (${VARIANT}) already present ($(model_size_mb) MB) — nothing to build"

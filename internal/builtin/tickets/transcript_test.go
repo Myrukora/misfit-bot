@@ -185,6 +185,9 @@ func TestTranscriptRenderMedia(t *testing.T) {
 	if !strings.Contains(out, "<div class='player paudio' data-player><audio preload='metadata' src='https://cdn.discordapp.com/att/trk.mp3'>") {
 		t.Fatal("audio attachment not rendered in the audio player with URL fallback")
 	}
+	if !strings.Contains(out, "class='pvol'") || !strings.Contains(out, "vol.value/100") {
+		t.Fatal("archive player is missing the volume control")
+	}
 
 	// Default-kind attachment renders as a link.
 	if !strings.Contains(out, "href='https://cdn.discordapp.com/att/doc.pdf'") {
@@ -579,8 +582,8 @@ func TestFinalizeKeepsLateEntry(t *testing.T) {
 	if !logHasMsgID(got, "1") {
 		t.Fatalf("pre-close entry lost: stored log = %v", logMsgIDs(got))
 	}
-	if !logHasMsgID(got, "system-close-222") {
-		t.Fatalf("close marker missing: stored log = %v", logMsgIDs(got))
+	if logHasMsgID(got, "system-close-222") {
+		t.Fatalf("synthetic close entry must not be added: stored log = %v", logMsgIDs(got))
 	}
 	if got.Status != "closed" || got.CloseReason != "channel_deleted" {
 		t.Fatalf("stored close state = %q/%q, want closed/channel_deleted", got.Status, got.CloseReason)

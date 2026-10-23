@@ -539,10 +539,20 @@ registers no Discord commands. Images posted in enabled guilds are embedded with
 CLIP vision tower via **ONNX Runtime (CPU)** and compared by cosine similarity
 against that guild's blacklisted reference images.
 
+- **Configuration lives in core `config.yml`** under `imagefilter:` — the
+  bot-wide `variant` plus a `guilds` map of per-guild settings. The module data
+  dir (`modules/imagefilter/`) holds only reference images and model files; a
+  legacy `modules/imagefilter/config.json` is imported once on startup and
+  renamed `config.json.migrated`.
+
 - **Model lifecycle (warm/cold):** enabling the filter on the first guild loads the
   model and keeps it warm; disabling everywhere closes the session and frees RAM
   (`manager.go` refcount). Variant switch (`b32` default, `b16`, `l14`, `l14-336`)
-  closes the session and wipes cached embeddings — different vector space.
+  closes the session and wipes cached embeddings — different vector space. A
+  reference-embedding build that races an image add/remove or a variant switch
+  is discarded (generation counter) instead of being cached, and a build where
+  every reference failed to embed is never cached (it would silently disable
+  matching until the next invalidation).
 - **Port sheet (exact Python semantics):** `vision_model → pooler_output` (768-d
   CLS, L2-normalized in Go; NOT the 512-d projected features), max cosine over
   refs, threshold default 0.95, punishments none|mute(timeout)|kick|ban, message
@@ -554,11 +564,16 @@ against that guild's blacklisted reference images.
   authority so `:port`/userinfo-shaped hosts are refused), redirects refused,
   private-IP dial guard (unparsable hosts refused; IPv4-mapped IPv6 unmapped
   before the private + reserved-range checks), 50 MiB fetch cap (post-read length
-  check, never a silent truncation), 25 MP decode cap, bots exempt, one job per
-  distinct image attachment (duplicates collapsed; non-image attachments skipped).
+  check, never a silent truncation), 25 MP decode cap (PNG/JPEG/GIF/WebP), bots
+  exempt, one job per distinct image attachment (duplicates collapsed;
+  non-image attachments skipped). An attachment with a missing/generic MIME
+  type falls back to its filename extension, and the resize center-crops the
+  SOURCE square before scaling it, so a hostile 10000×1 image cannot allocate
+  a gigapixel intermediate.
 - **Reference-image bounds (per guild):** 200 images / 250 MiB, enforced on add;
-  uploads stage through `<name>.tmp-*` and rename atomically, so a failed or
-  concurrent add cannot leave a partial file in the gallery. Guild ids are
+  uploads stage through a hidden `.tmp-<name>-*` file and rename atomically, so
+  a failed or concurrent add cannot leave a partial file in the gallery (and a
+  real filename containing `.tmp-` is still listed). Guild ids are
   validated as non-zero snowflakes before any filesystem path is built.
 - **Mute needs a duration:** a mute punishment with `mute_duration <= 0` is
   rejected at validation (dashboard field is `min="1" step="1"`).
@@ -569,7 +584,9 @@ against that guild's blacklisted reference images.
   Guild-scoped endpoints live at `/api/guilds/<gid>/imagefilter…`
   (raw gallery bytes at `…/raw?name=<file>`, delete at `…/images/<name>`); the
   guild id is validated before any admin/filesystem access, and a failed model
-  load on enable surfaces as HTTP 500 instead of a silent success.
+  load on enable surfaces as HTTP 500 instead of a silent success — unless the
+  failure is a missing runtime artifact, which is accepted and handed to the
+  lazy setup (the status then reports `provisioning` / `provision_error`).
 - **Setup (automatic; artifacts are gitignored):** `scripts/setup_imagefilter.sh`
   provisions both runtime artifacts — the ONNX Runtime C lib 1.30.0 →
   `lib/onnxruntime/` (via `scripts/setup_onnx.sh`) and the CLIP **b32** vision
@@ -589,6 +606,16 @@ against that guild's blacklisted reference images.
   Python env you use). `--force` rebuilds an existing default-variant export.
   Missing lib or model = filter stays cold with the reason visible on the
   dashboard; the module itself still loads. Tests skip silently without them.
+  **Lazy setup:** enabling the filter while an artifact is missing launches
+  `scripts/setup_imagefilter.sh` in the background from the bot (single-flight,
+  45-minute cap, process-group kill on timeout, output tail kept for the error)
+  and warms the model when it exits; `ImageFilterStatus.Provisioning` /
+  `ProvisionError` drive the `preparing model…` chip and the failure text on the
+  server page. The script now honors `VARIANT=<v>` from the environment (the bot
+  passes the configured variant; default b32) and serializes concurrent runs —
+  installer, updater and bot — with an `flock` under `lib/`. A failed
+  `initRuntime` is no longer cached, so a library provisioned later is picked
+  up without a restart.
   (The Python image_spam_filter module was retired 2026-09; a full backup lives
   in `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`, gitignored.)
 

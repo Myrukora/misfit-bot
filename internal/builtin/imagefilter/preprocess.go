@@ -7,7 +7,8 @@ import (
 	_ "image/gif"  // first frame
 	_ "image/jpeg" // register decoders
 	_ "image/png"
-	"math"
+
+	_ "golang.org/x/image/webp" // Discord serves/uploads webp
 
 	"golang.org/x/image/draw"
 )
@@ -56,32 +57,25 @@ func preprocessImage(src image.Image, size int) ([]float32, error) {
 		return nil, fmt.Errorf("zero-sized image")
 	}
 
-	// Shortest side → size, preserving aspect ratio (upscales small images,
-	// exactly like PIL's bicubic resize in CLIPProcessor).
-	scale := float64(size) / float64(min(w, h))
-	newW := int(math.Round(float64(w) * scale))
-	newH := int(math.Round(float64(h) * scale))
-	if newW < size {
-		newW = size
-	}
-	if newH < size {
-		newH = size
-	}
+	// CLIPProcessor resizes the shortest side to size and center-crops the
+	// middle size×size region. That is equivalent to resizing the centered
+	// square of the SOURCE (side min(w,h)) to size×size — and cropping first
+	// bounds the intermediate to size² pixels. The old resize-then-crop form
+	// allocated newW×newH, which is ~2 GB for a hostile 10000×1 image.
+	side := min(w, h)
+	x0 := b.Min.X + (w-side)/2
+	y0 := b.Min.Y + (h-side)/2
+	crop := image.Rect(x0, y0, x0+side, y0+side)
 
-	// Resize into an RGBA canvas (CatmullRom ≈ PIL bicubic quality).
-	resized := image.NewRGBA(image.Rect(0, 0, newW, newH))
-	draw.CatmullRom.Scale(resized, resized.Bounds(), src, b, draw.Over, nil)
-
-	// Center crop size×size.
-	x0 := (newW - size) / 2
-	y0 := (newH - size) / 2
+	resized := image.NewRGBA(image.Rect(0, 0, size, size))
+	draw.CatmullRom.Scale(resized, resized.Bounds(), src, crop, draw.Over, nil)
 
 	// NCHW float32 with CLIP normalization.
 	out := make([]float32, 3*size*size)
 	plane := size * size
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
-			r, g, bl, _ := resized.At(x0+x, y0+y).RGBA() // 16-bit
+	for y := range size {
+		for x := range size {
+			r, g, bl, _ := resized.At(x, y).RGBA() // 16-bit
 			i := y*size + x
 			out[i] = (float32(r>>8)/255.0 - clipMean[0]) / clipStd[0]
 			out[plane+i] = (float32(g>>8)/255.0 - clipMean[1]) / clipStd[1]

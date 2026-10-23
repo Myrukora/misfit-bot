@@ -54,4 +54,11 @@ type ImageFilterStatus struct {
 	Available     []string        `json:"available"` // selectable variants
 	Files         map[string]bool `json:"files"`     // variant → .onnx present
 	EnabledGuilds int             `json:"enabled_guilds"`
+	// Provisioning is true while the lazy runtime setup
+	// (scripts/setup_imagefilter.sh) runs after the filter was enabled on a
+	// deployment without the ONNX runtime / model artifacts.
+	Provisioning bool `json:"provisioning"`
+	// ProvisionError is the last failed setup (capped for display; empty =
+	// none). The filter stays cold until a later attempt succeeds.
+	ProvisionError string `json:"provision_error"`
 }

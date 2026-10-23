@@ -1,9 +1,8 @@
 {{define "tk_conversation"}}
 {{$t := .Ticket}}{{$g := .GuildID}}
 {{if eq $t.LogCount 0}}<p class="muted">No messages recorded.</p>{{end}}
-{{range $t.Log}}
+{{range $t.VisibleLog}}
 {{$entry := .}}
-{{if ne .MsgID $t.MessageID}}
 <div class="msg-entry">
   <div class="msg-avatar">{{if .AuthorName}}{{substrUpper .AuthorName 1}}{{else}}?{{end}}</div>
   <div class="msg-main">
@@ -56,7 +55,6 @@
     {{end}}
   </div>
 </div>
-{{end}}
 {{end}}
 {{end}}
 

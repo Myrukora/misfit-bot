@@ -260,6 +260,51 @@
         .catch(function (e) { toast(e.message, true); ifEnabled.checked = !ifEnabled.checked; });
     });
 
+    /* while the runtime/model is being provisioned in the background, poll the
+       overview endpoint and update the chip/error in place — reloading would
+       discard unsaved detection settings or gallery edits */
+    var modelState = byId("if-model-state");
+    if (modelState && modelState.dataset.provisioning === "true") {
+      setTimeout(pollProvisioning, 10000);
+    }
+
+    function applyModelStatus(status) {
+      if (!modelState) return false;
+      modelState.dataset.provisioning = String(!!status.provisioning);
+      if (status.provisioning) {
+        modelState.textContent = "🟡 preparing model…";
+      } else if (status.warm) {
+        modelState.textContent = "🟢 model warm";
+      } else {
+        modelState.textContent = "⚪ model cold";
+      }
+      var err = byId("if-model-error");
+      if (status.provision_error) {
+        if (!err) {
+          err = document.createElement("p");
+          err.id = "if-model-error";
+          err.className = "muted";
+          err.style.margin = "8px 0 0";
+          err.style.borderLeft = "2px solid rgba(237,66,69,.6)";
+          err.style.paddingLeft = "8px";
+          var anchor = modelState.closest(".if-model-row") || modelState;
+          anchor.insertAdjacentElement("afterend", err);
+        }
+        err.textContent = "Model setup failed: " + status.provision_error;
+      } else if (err) {
+        err.remove();
+      }
+      return !!status.provisioning;
+    }
+
+    function pollProvisioning() {
+      api("GET", "/api/guilds/" + guildID + "/imagefilter")
+        .then(function (r) {
+          if (applyModelStatus(r.status || {})) setTimeout(pollProvisioning, 10000);
+        })
+        .catch(function () { setTimeout(pollProvisioning, 15000); });
+    }
+
     /* punishment select shows/hides the duration field */
     var punishSel = byId("if-punishment");
     if (punishSel) {
@@ -872,6 +917,7 @@
       var seek = p.querySelector(".player-seek");
       var time = p.querySelector(".player-time");
       var mute = p.querySelector(".player-mute");
+      var vol = p.querySelector(".player-vol");
       var full = p.querySelector(".player-full");
       if (!media || !play || !seek || !time || !mute) return;
       var fmt = function (s) {
@@ -884,6 +930,7 @@
         seek.value = dur ? Math.round((cur / dur) * 1000) : 0;
         time.textContent = fmt(cur) + " / " + fmt(dur);
         play.textContent = media.paused ? "▶" : "❚❚";
+        if (vol) vol.value = Math.round((media.muted ? 0 : media.volume) * 100);
       };
       var toggle = function () {
         if (media.paused) {
@@ -905,7 +952,15 @@
       mute.addEventListener("click", function () {
         media.muted = !media.muted;
         mute.textContent = media.muted ? "🔇" : "🔊";
+        sync();
       });
+      if (vol) {
+        vol.addEventListener("input", function () {
+          media.volume = vol.value / 100;
+          media.muted = vol.value === "0";
+          mute.textContent = media.muted ? "🔇" : "🔊";
+        });
+      }
       if (full) {
         full.addEventListener("click", function () {
           if (document.fullscreenElement) {

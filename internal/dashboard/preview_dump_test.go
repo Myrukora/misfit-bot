@@ -163,6 +163,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 						{URL: "https://cdn.discordapp.com/doc.pdf", Kind: "file", Filename: "doc.pdf"},
 					}},
 					{MsgID: "m4", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now(), Content: "deleted msg", Deleted: true},
+					{MsgID: "system-close-support-0012", AuthorName: "Test Bot 2", IsBot: true, Timestamp: time.Now(), Content: "_Ticket closed._"},
 				},
 			},
 			GuildID: "1",

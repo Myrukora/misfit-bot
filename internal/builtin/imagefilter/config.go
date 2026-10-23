@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	corecfg "github.com/misfit/bot/config"
 )
 
 // Punishment actions (ported from the Python module's semantics).
@@ -75,10 +77,15 @@ type fileConfig struct {
 	Guilds      map[string]GuildConfig `json:"guilds"`
 }
 
-// config is the in-memory store: mutex-guarded, atomically persisted.
+// config is the in-memory store. Two backing modes:
+//   - core != nil: persisted in config.yml's `imagefilter:` section (the
+//     production path; the module dir only holds images/models).
+//   - path != "": the legacy module-local config.json (kept for tests and as
+//     the migration source).
 type config struct {
 	mu   sync.RWMutex
 	path string
+	core *corecfg.Config
 	file fileConfig
 }
 
@@ -124,9 +131,24 @@ func validVariant(v string) bool {
 	return false
 }
 
-// saveLocked persists atomically (tmp + rename). Callers must hold mu or be
-// in a path that has exclusive access (load).
+// saveLocked persists atomically. Callers must hold mu or be in a path that
+// has exclusive access (load). In core mode the section goes to config.yml;
+// in legacy mode to the module-local config.json.
 func (c *config) saveLocked() error {
+	if c.core != nil {
+		sec := corecfg.ImageFilterConfig{Variant: c.file.ClipVariant}
+		if len(c.file.Guilds) > 0 {
+			sec.Guilds = make(map[string]corecfg.ImageFilterGuild, len(c.file.Guilds))
+			for id, g := range c.file.Guilds {
+				sec.Guilds[id] = corecfg.ImageFilterGuild{
+					Enabled: g.Enabled, Threshold: g.Threshold,
+					Punishment: g.Punishment, MuteDuration: g.MuteDuration,
+					LogChannel: g.LogChannel, DeleteOnNone: g.DeleteOnNone,
+				}
+			}
+		}
+		return c.core.SetImageFilter(sec)
+	}
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o755); err != nil {
 		return err
 	}
@@ -139,6 +161,73 @@ func (c *config) saveLocked() error {
 		return err
 	}
 	return os.Rename(tmp, c.path)
+}
+
+// loadCoreConfig builds the config store backed by the core config.yml. A
+// module-local config.json from an older install is imported once and renamed
+// so the module directory no longer carries settings.
+func loadCoreConfig(core *corecfg.Config, dataDir string) (*config, error) {
+	sec := core.GetImageFilter()
+	c := &config{
+		core: core,
+		file: fileConfig{ClipVariant: sec.Variant, Guilds: map[string]GuildConfig{}},
+	}
+	needSave := false
+	if !validVariant(c.file.ClipVariant) {
+		// A hand-edited/unknown variant is normalized AND persisted, so the
+		// file cannot disagree with the running model on every restart.
+		c.file.ClipVariant = DefaultClipVariant
+		needSave = true
+	}
+	for id, g := range sec.Guilds {
+		c.file.Guilds[id] = GuildConfig{
+			Enabled: g.Enabled, Threshold: g.Threshold,
+			Punishment: g.Punishment, MuteDuration: g.MuteDuration,
+			LogChannel: g.LogChannel, DeleteOnNone: g.DeleteOnNone,
+		}
+	}
+
+	// One-time migration: an install that used the legacy JSON keeps its
+	// settings. Only when the core section carries no guilds yet.
+	migrated := false
+	if len(sec.Guilds) == 0 {
+		if legacy, ok := readLegacyConfig(dataDir); ok {
+			c.file = legacy
+			needSave = true
+			migrated = true
+		}
+	}
+	if needSave {
+		if err := c.saveLocked(); err != nil {
+			return nil, err
+		}
+	}
+	if migrated {
+		// Rename only after the settings are durable in config.yml: a failed
+		// save must leave the legacy file in place for the next start.
+		_ = os.Rename(configPath(dataDir), configPath(dataDir)+".migrated")
+	}
+	return c, nil
+}
+
+// readLegacyConfig reads <dataDir>/config.json without creating or rewriting
+// anything (migration source only).
+func readLegacyConfig(dataDir string) (fileConfig, bool) {
+	data, err := os.ReadFile(configPath(dataDir))
+	if err != nil {
+		return fileConfig{}, false
+	}
+	var file fileConfig
+	if err := json.Unmarshal(data, &file); err != nil {
+		return fileConfig{}, false
+	}
+	if file.Guilds == nil {
+		file.Guilds = map[string]GuildConfig{}
+	}
+	if !validVariant(file.ClipVariant) {
+		file.ClipVariant = DefaultClipVariant
+	}
+	return file, true
 }
 
 // ClipVariant returns the bot-wide CLIP variant (owner-level setting).
@@ -160,8 +249,13 @@ func (c *config) SetClipVariant(v string) (invalidated bool, err error) {
 	if c.file.ClipVariant == v {
 		return false, nil
 	}
+	prev := c.file.ClipVariant
 	c.file.ClipVariant = v
-	return true, c.saveLocked()
+	if err := c.saveLocked(); err != nil {
+		c.file.ClipVariant = prev
+		return false, err
+	}
+	return true, nil
 }
 
 // GuildSettings returns the effective per-guild config with defaults merged
@@ -209,15 +303,26 @@ func (c *config) EnabledGuilds() []string {
 	return out
 }
 
-// SetGuildConfig validates and stores the full per-guild config.
+// SetGuildConfig validates and stores the full per-guild config. If the
+// persist fails, the in-memory entry is restored: a config the disk doesn't
+// have must not silently drive detection.
 func (c *config) SetGuildConfig(guildID string, gc GuildConfig) error {
 	if err := gc.Validate(); err != nil {
 		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	prev, had := c.file.Guilds[guildID]
 	c.file.Guilds[guildID] = gc
-	return c.saveLocked()
+	if err := c.saveLocked(); err != nil {
+		if had {
+			c.file.Guilds[guildID] = prev
+		} else {
+			delete(c.file.Guilds, guildID)
+		}
+		return err
+	}
+	return nil
 }
 
 // SetGuildEnabled flips just the enable flag; returns whether the effective
@@ -225,11 +330,20 @@ func (c *config) SetGuildConfig(guildID string, gc GuildConfig) error {
 func (c *config) SetGuildEnabled(guildID string, enabled bool) (changed bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	g := c.file.Guilds[guildID]
-	if g.Enabled == enabled {
+	prev, had := c.file.Guilds[guildID]
+	if prev.Enabled == enabled {
 		return false, nil
 	}
-	g.Enabled = enabled
-	c.file.Guilds[guildID] = g
-	return true, c.saveLocked()
+	next := prev
+	next.Enabled = enabled
+	c.file.Guilds[guildID] = next
+	if err := c.saveLocked(); err != nil {
+		if had {
+			c.file.Guilds[guildID] = prev
+		} else {
+			delete(c.file.Guilds, guildID)
+		}
+		return false, err
+	}
+	return true, nil
 }

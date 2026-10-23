@@ -535,3 +535,22 @@ func TestNotifyChannelPerServer(t *testing.T) {
 		t.Error("expected an error for a non-numeric guild id")
 	}
 }
+
+// TestSetImageFilterRollsBackOnSaveFailure pins the integrity rule the image
+// filter relies on: a section that could not be written must not linger in
+// memory (a later Save would otherwise persist it).
+func TestSetImageFilterRollsBackOnSaveFailure(t *testing.T) {
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
+		t.Fatalf("plant file: %v", err)
+	}
+	cfg := &Config{FilePath: filepath.Join(blocked, "config.yml")}
+	cfg.ImageFilter = ImageFilterConfig{Variant: "b32"}
+
+	if err := cfg.SetImageFilter(ImageFilterConfig{Variant: "b16"}); err == nil {
+		t.Fatal("SetImageFilter should fail when the config cannot be written")
+	}
+	if got := cfg.GetImageFilter().Variant; got != "b32" {
+		t.Fatalf("variant = %q, want the previous b32 after a failed save", got)
+	}
+}

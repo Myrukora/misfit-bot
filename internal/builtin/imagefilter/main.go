@@ -12,6 +12,8 @@ package imagefilter
 import (
 	"sync"
 
+	corecfg "github.com/misfit/bot/config"
+
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/modules"
 )
@@ -27,6 +29,8 @@ type ImageFilterModule struct {
 	cfg  *config
 	imgs *images
 	ok   bool // OnLoad completed
+
+	prov provisionState // lazy runtime setup (provision.go)
 }
 
 // New is the builtin entry symbol. It MUST return the modules.Module
@@ -54,7 +58,16 @@ func (m *ImageFilterModule) SlashCommands() []commands.SlashCommand { return nil
 // reports why on the dashboard instead of blocking the whole builtin
 // registration.
 func (m *ImageFilterModule) OnLoad(ctx *modules.Context) error {
-	cfg, err := loadConfig(ctx.DataDir)
+	core, _ := ctx.CoreConfig.(*corecfg.Config)
+	var (
+		cfg *config
+		err error
+	)
+	if core != nil {
+		cfg, err = loadCoreConfig(core, ctx.DataDir)
+	} else {
+		cfg, err = loadConfig(ctx.DataDir)
+	}
 	if err != nil {
 		return err
 	}
@@ -77,6 +90,13 @@ func (m *ImageFilterModule) OnLoad(ctx *modules.Context) error {
 	m.registerDetector()
 
 	ctx.Logger.Info("Image filter module loaded (dashboard-configured; %d server(s) enabled)", len(cfg.EnabledGuilds()))
+
+	// A deployment that had the filter enabled before its artifacts were
+	// installed heals itself: the setup runs in the background and warms the
+	// model when it finishes (no-op when nothing is missing).
+	if len(cfg.EnabledGuilds()) > 0 && artifactsMissing(mgr.dataDir, cfg.ClipVariant()) != "" {
+		m.startProvisioning()
+	}
 	return nil
 }
 

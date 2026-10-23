@@ -14,9 +14,8 @@ import (
 // scripts/setup_imagefilter.sh → scripts/setup_onnx.sh); missing lib = a clean
 // error, never a panic.
 var (
-	runtimeMu     sync.Mutex
-	runtimeInit   bool
-	runtimeLibErr error
+	runtimeMu   sync.Mutex
+	runtimeInit bool
 )
 
 // ortLibPath resolves lib/onnxruntime relative to the repo root (found by
@@ -55,23 +54,24 @@ func ortLibPath() string {
 // initRuntime initializes the ONNX Runtime environment once per process.
 // Returns an error when the C library is unavailable (the manager surfaces
 // this on the dashboard instead of failing the whole module).
+//
+// Failures are deliberately NOT cached: the library can be provisioned later
+// (the bot's lazy setup runs on enable), and a cached failure would keep the
+// filter cold until a restart even after the file appeared.
 func initRuntime() error {
 	runtimeMu.Lock()
 	defer runtimeMu.Unlock()
 	if runtimeInit {
-		return runtimeLibErr
+		return nil
 	}
-	runtimeInit = true
 	lib := ortLibPath()
 	if _, err := os.Stat(lib); err != nil {
-		runtimeLibErr = os.ErrNotExist
-		return runtimeLibErr
+		return os.ErrNotExist
 	}
 	ort.SetSharedLibraryPath(lib)
 	if err := ort.InitializeEnvironment(); err != nil {
-		runtimeLibErr = err
 		return err
 	}
-	runtimeLibErr = nil
+	runtimeInit = true
 	return nil
 }
