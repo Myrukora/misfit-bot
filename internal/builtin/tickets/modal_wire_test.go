@@ -2,6 +2,7 @@ package tickets
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -26,10 +27,11 @@ func (mockBot) GetName() string { return "TestBot" }
 // mockRest is a pure in-memory rest.Rest that records the calls the module
 // makes and returns canned responses. No HTTP, no deadlock.
 type mockRest struct {
-	rest.Rest   // nil — panics if an un-overridden method is called
-	mu          sync.Mutex
-	calls       []restCall
-	memberRoles map[snowflake.ID][]snowflake.ID
+	rest.Rest    // nil — panics if an un-overridden method is called
+	mu           sync.Mutex
+	calls        []restCall
+	memberRoles  map[snowflake.ID][]snowflake.ID
+	channelTopic string
 }
 
 type restCall struct {
@@ -97,6 +99,31 @@ func (m *mockRest) GetMember(guildID, userID snowflake.ID, _ ...rest.RequestOpt)
 		return &discord.Member{User: discord.User{ID: userID}, RoleIDs: roles}, nil
 	}
 	return nil, nil
+}
+
+// GetChannel returns a text channel whose topic points at channelTopic (the
+// ticket resolved by in-channel commands).
+func (m *mockRest) GetChannel(channelID snowflake.ID, _ ...rest.RequestOpt) (discord.Channel, error) {
+	m.record("GET", "/channels/"+channelID.String(), "")
+	topic := m.channelTopic
+	if topic == "" {
+		topic = "staff-0001"
+	}
+	var ch discord.GuildTextChannel
+	raw := fmt.Sprintf(`{"id":%q,"type":0,"name":"ticket","topic":"misfit-ticket:%s"}`, channelID.String(), topic)
+	if err := json.Unmarshal([]byte(raw), &ch); err != nil {
+		return nil, err
+	}
+	return &ch, nil
+}
+
+func (m *mockRest) UpdateChannel(channelID snowflake.ID, update discord.ChannelUpdate, _ ...rest.RequestOpt) (discord.Channel, error) {
+	name := ""
+	if u, ok := update.(discord.GuildTextChannelUpdate); ok && u.Name != nil {
+		name = *u.Name
+	}
+	m.record("PATCH", "/channels/"+channelID.String(), name)
+	return &discord.GuildTextChannel{}, nil
 }
 
 func (m *mockRest) callsFiltered(substr string) []restCall {

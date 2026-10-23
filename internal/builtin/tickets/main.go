@@ -72,6 +72,13 @@ func (m *TicketsModule) SlashCommands() []commands.SlashCommand {
 			}},
 			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, false) },
 		},
+		{
+			Name: "rename", Description: "Rename the ticket channel in this channel (helpers only)", Category: "Tickets",
+			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionString{
+				Name: "name", Description: "New channel name", Required: true,
+			}},
+			Execute: m.renameTicketCommand,
+		},
 	}
 }
 

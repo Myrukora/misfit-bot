@@ -182,15 +182,88 @@ func TestCloseGate(t *testing.T) {
 	}
 }
 
+// TestRenameTicket pins the in-channel rename: the topic resolution finds the
+// ticket, the opener is refused, a helper's name reaches Discord sanitized and
+// is persisted, and a missing name yields the usage reply.
+func TestRenameTicket(t *testing.T) {
+	roles := map[snowflake.ID][]snowflake.ID{333: {7777}}
+	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClaim: boolPtr(true), AllowClose: boolPtr(true)}, roles)
+	r := m.ctx.Rest.(*mockRest)
+	r.channelTopic = "staff-0001"
+	tk := gateTicket()
+	tk.ChannelID = "555"
+	tk.ChannelName = "old-name"
+	if err := m.store.save(tk); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	var last []discord.Embed
+	respond := func(embeds ...discord.Embed) error { last = embeds; return nil }
+	ctx := &commands.Context{
+		Bot: gateBot{owner: "1"}, GuildID: gateGuild, ChannelID: "555",
+		Author: discord.User{ID: 111}, Args: []string{"nope"}, Respond: respond,
+	}
+
+	// The opener is not a helper: refused, no update call.
+	if err := m.renameTicketCommand(ctx); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if len(last) == 0 || !strings.Contains(last[0].Description, "Only helpers") {
+		t.Fatalf("response = %+v, want the helper-only error", last)
+	}
+	if calls := r.callsFiltered("/channels/555"); len(calls) != 1 || calls[0].method != "GET" {
+		t.Fatalf("calls after refusal = %+v, want only the topic lookup", calls)
+	}
+
+	// A helper's rename is slugified, sent to Discord and persisted.
+	ctx.Author = discord.User{ID: 333}
+	ctx.Args = []string{"New", "Name"}
+	last = nil
+	if err := m.renameTicketCommand(ctx); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	patched := ""
+	for _, c := range r.callsFiltered("/channels/555") {
+		if c.method == "PATCH" {
+			patched = c.body
+		}
+	}
+	if patched != "new-name" {
+		t.Fatalf("channel update body = %q, want new-name", patched)
+	}
+	got, _ := m.store.load(gateGuild, "staff-0001")
+	if got == nil || got.ChannelName != "new-name" {
+		t.Fatalf("stored ticket = %+v, want ChannelName new-name", got)
+	}
+	if len(last) == 0 || !strings.Contains(last[0].Description, "new-name") {
+		t.Fatalf("response = %+v, want the renamed confirmation", last)
+	}
+
+	// Missing name: usage reply, no further update.
+	ctx.Args = nil
+	last = nil
+	if err := m.renameTicketCommand(ctx); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	if len(last) == 0 || (!strings.Contains(last[0].Title, "Usage") && !strings.Contains(last[0].Description, "Usage")) {
+		t.Fatalf("response = %+v, want the usage reply", last)
+	}
+}
+
 // TestTicketCommandSurface pins the user-facing actions in both forms: the
-// prefix commands and their slash twins, with a user option on add/remove.
+// prefix commands and their slash twins, with a user option on add/remove and
+// a string option on rename.
 func TestTicketCommandSurface(t *testing.T) {
 	m := &TicketsModule{}
+	names := []string{"close", "claim", "add", "remove", "rename"}
 	prefix := map[string]bool{}
 	for _, c := range m.Commands() {
 		prefix[c.Name] = c.Execute != nil
+		if c.Name == "rename" && (len(c.Aliases) != 1 || c.Aliases[0] != "renameticket") {
+			t.Errorf("rename aliases = %v, want [renameticket]", c.Aliases)
+		}
 	}
-	for _, name := range []string{"close", "claim", "add", "remove"} {
+	for _, name := range names {
 		if !prefix[name] {
 			t.Errorf("prefix command %q missing", name)
 		}
@@ -199,18 +272,32 @@ func TestTicketCommandSurface(t *testing.T) {
 	for _, c := range m.SlashCommands() {
 		slash[c.Name] = c
 	}
-	for _, name := range []string{"close", "claim", "add", "remove"} {
+	for _, name := range names {
 		c, ok := slash[name]
 		if !ok || c.Execute == nil {
 			t.Errorf("slash command %q missing", name)
 			continue
 		}
-		if (name == "add" || name == "remove") && len(c.Options) != 1 {
-			t.Errorf("/%s options = %d, want 1 (member)", name, len(c.Options))
-		}
-		if name == "add" || name == "remove" {
+		switch name {
+		case "add", "remove":
+			if len(c.Options) != 1 {
+				t.Errorf("/%s options = %d, want 1 (member)", name, len(c.Options))
+				continue
+			}
 			if _, ok := c.Options[0].(discord.ApplicationCommandOptionUser); !ok {
 				t.Errorf("/%s option type = %T, want user", name, c.Options[0])
+			}
+		case "rename":
+			if len(c.Options) != 1 {
+				t.Errorf("/rename options = %d, want 1 (name)", len(c.Options))
+				continue
+			}
+			if _, ok := c.Options[0].(discord.ApplicationCommandOptionString); !ok {
+				t.Errorf("/rename option type = %T, want string", c.Options[0])
+			}
+		default:
+			if len(c.Options) != 0 {
+				t.Errorf("/%s options = %d, want none", name, len(c.Options))
 			}
 		}
 	}

@@ -110,12 +110,12 @@ func (m *TicketsModule) ticketFromChannel(ctx *commands.Context) *modules.Ticket
 	if err != nil || ch == nil {
 		return nil
 	}
-	tc, ok := ch.(interface{ Topic() string })
-	if !ok {
+	tc, ok := ch.(interface{ Topic() *string })
+	if !ok || tc.Topic() == nil {
 		return nil
 	}
 	const prefix = "misfit-ticket:"
-	topic := tc.Topic()
+	topic := *tc.Topic()
 	if !strings.HasPrefix(topic, prefix) {
 		return nil
 	}
@@ -178,7 +178,57 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 			Usage: "remove <@member>", Category: "Tickets",
 			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, false) },
 		},
+		{
+			Name: "rename", Aliases: []string{"renameticket"},
+			Description: "Rename this ticket channel (helpers only)",
+			Usage:       "rename <new name>", Category: "Tickets",
+			Execute: m.renameTicketCommand,
+		},
 	}
+}
+
+// renameTicketCommand is shared by [p]rename and /rename: it renames the
+// ticket's channel (helpers only), applying the same slug rules as the
+// auto-generated names.
+func (m *TicketsModule) renameTicketCommand(ctx *commands.Context) error {
+	tk := m.ticketFromChannel(ctx)
+	if tk == nil || tk.Status != "open" {
+		return ctx.Respond(embed.Error("❌ Error", "This command only works inside an **open** ticket channel."))
+	}
+	userID := ctx.Author.ID.String()
+	if !m.isHelper(ctx, tk, userID) {
+		return ctx.Respond(embed.Error("❌ Error", "Only helpers can rename tickets."))
+	}
+	raw := strings.TrimSpace(strings.Join(ctx.Args, " "))
+	raw = strings.TrimPrefix(raw, "#")
+	if raw == "" {
+		return ctx.Respond(embed.Warning("⚠️ Usage", "rename <new name>"))
+	}
+	slug := channelSlug(raw)
+	if slug == "" {
+		return ctx.Respond(embed.Error("❌ Error", "That name has no usable characters."))
+	}
+	name := sanitizeChannelName(slug)
+	if name == tk.ChannelName {
+		return ctx.Respond(embed.Info("ℹ️ Unchanged", "The channel is already named **#"+name+"**."))
+	}
+	cid, err := snowflake.Parse(tk.ChannelID)
+	if err != nil {
+		return ctx.Respond(embed.Error("❌ Error", "This ticket has no valid channel."))
+	}
+	if _, err := m.ctx.Rest.UpdateChannel(cid, discord.GuildTextChannelUpdate{Name: &name}); err != nil {
+		return ctx.Respond(embed.Error("❌ Error", "Failed to rename: "+err.Error()))
+	}
+	if _, _, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
+		if cur.Status != "open" || cur.ChannelName == name {
+			return false
+		}
+		cur.ChannelName = name
+		return true
+	}); err != nil {
+		m.ctx.Logger.Warn("Tickets: renamed %s but failed to persist the name: %v", tk.ID, err)
+	}
+	return ctx.Respond(embed.Success("✏️ Renamed", "Ticket channel is now **#"+name+"**."))
 }
 
 // closeTicketCommand is shared by [p]close and /close: the ticket is resolved
