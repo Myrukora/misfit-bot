@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/config"
@@ -254,6 +257,45 @@ func main() {
 	Log.Info("Bot stopped.")
 }
 
+// gatewayIntents builds the identify mask: the non-privileged intents the bot
+// always needs, plus the privileged ones the config enables. Presence is
+// deliberately never requested (the bot only sets its own status).
+func gatewayIntents(cfg *config.Config) gateway.Intents {
+	mask := gateway.IntentGuilds |
+		gateway.IntentGuildMessages |
+		gateway.IntentDirectMessages |
+		gateway.IntentGuildVoiceStates |
+		gateway.IntentGuildModeration |
+		gateway.IntentGuildMessageReactions
+	if cfg != nil && cfg.Intents.MessageContent {
+		mask |= gateway.IntentMessageContent
+	}
+	if cfg != nil && cfg.Intents.GuildMembers {
+		mask |= gateway.IntentGuildMembers
+	}
+	return mask
+}
+
+// privilegedGatewayIntents are the bits Discord gates behind Developer Portal
+// approval. They are the only ones the bot can drop and still function.
+const privilegedGatewayIntents = gateway.IntentMessageContent | gateway.IntentGuildMembers
+
+// intentMaskWithoutPrivileged drops the privileged bits. ok is false when the
+// mask had none, i.e. a 4014 close cannot be about them.
+func intentMaskWithoutPrivileged(mask gateway.Intents) (gateway.Intents, bool) {
+	if mask&privilegedGatewayIntents == 0 {
+		return mask, false
+	}
+	return mask &^ privilegedGatewayIntents, true
+}
+
+// isDisallowedIntentClose reports Discord's 4014 close: the identify requested
+// an intent the application may not use (not enabled / not approved).
+func isDisallowedIntentClose(err error) bool {
+	var closeErr *websocket.CloseError
+	return errors.As(err, &closeErr) && closeErr.Code == 4014
+}
+
 func run() bool {
 	var err error
 	ba = &botAdapter{}
@@ -270,15 +312,7 @@ func run() bool {
 			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles, cache.FlagChannels),
 		),
 		bot.WithGatewayConfigOpts(
-			gateway.WithIntents(
-				gateway.IntentGuilds,
-				gateway.IntentGuildMessages,
-				gateway.IntentGuildMembers,
-				gateway.IntentMessageContent,
-				gateway.IntentDirectMessages,
-				gateway.IntentGuildPresences,
-				gateway.IntentGuildVoiceStates,
-			),
+			gateway.WithIntents(gatewayIntents(Cfg)),
 		),
 		bot.WithEventListeners(&events.ListenerAdapter{
 			OnReady:                         onReady,
@@ -311,9 +345,32 @@ func run() bool {
 
 	Log.Info("Connecting to Discord gateway...")
 
+	// Privileged intents are optional: when Discord rejects them (close 4014:
+	// not enabled / not approved) reconnect with only the non-privileged bits
+	// and run in gated mode instead of failing to start.
+	intents := gatewayIntents(Cfg)
 	if err := Client.OpenGateway(context.Background()); err != nil {
-		Log.Error("Failed to open gateway: %v", err)
-		return false
+		reduced, retry := intentMaskWithoutPrivileged(intents)
+		if !retry || !isDisallowedIntentClose(err) {
+			Log.Error("Failed to open gateway: %v", err)
+			return false
+		}
+		Log.Warn("Discord rejected the privileged intents (Message Content / Server Members); reconnecting without them — prefix commands and member lookups will be unavailable")
+		Client.Gateway = gateway.New(Client.Token, Client.EventManager.HandleGatewayEvent, gateway.WithIntents(reduced))
+		if err := Client.OpenGateway(context.Background()); err != nil {
+			Log.Error("Failed to open gateway without privileged intents: %v", err)
+			return false
+		}
+		intents = reduced
+	}
+	ba.memberIntent = intents.Has(gateway.IntentGuildMembers)
+	ba.messageContent = intents.Has(gateway.IntentMessageContent)
+	Log.Info("Gateway connected (Message Content=%t, Server Members=%t; presence never requested)", ba.messageContent, ba.memberIntent)
+	if !ba.messageContent {
+		Log.Warn("Message Content intent is off: prefix commands and message text/attachments are unavailable; slash commands still work")
+	}
+	if !ba.memberIntent {
+		Log.Warn("Server Members intent is off: member cache/permission lookups are unavailable; the dashboard is gated to the owner and elevated users")
 	}
 
 	// Re-attach the (recreated) Discord REST client to the updater.
@@ -751,6 +808,12 @@ func handleMessage(author *discord.User, msgID string, channelID string, guildID
 	if author.Bot && !botAllowlisted(author.ID.String()) {
 		return
 	}
+	if guildID != "" && !ba.MessageContentEnabled() {
+		// Without the Message Content intent Discord delivers guild messages
+		// with empty content, so prefix commands cannot match (slash commands
+		// still work). DMs keep their content and are handled below.
+		return
+	}
 
 	prefix := Cfg.Bot.Prefix
 	if prefix == "" {
@@ -951,11 +1014,25 @@ type botAdapter struct {
 	voiceMgr     *modules.VoiceManager
 	updater      *updater.Manager
 	cmdOverrides *commands.CommandOverrides
+
+	// Gateway capabilities of the CURRENT connection, set once the gateway is
+	// open (the intents can drop on Discord's 4014, so the config alone does
+	// not decide these). Read by the dashboard gating and prefix dispatch.
+	memberIntent   bool
+	messageContent bool
 }
 
 func (b *botAdapter) IsOwner(userID string) bool {
 	return PermMgr.IsOwner(userID)
 }
+
+// MemberIntentEnabled reports whether the live gateway connection has the
+// Server Members intent (see commands.Interface). False ⇒ gated mode.
+func (b *botAdapter) MemberIntentEnabled() bool { return b.memberIntent }
+
+// MessageContentEnabled reports whether the live gateway connection has the
+// Message Content intent (see commands.Interface).
+func (b *botAdapter) MessageContentEnabled() bool { return b.messageContent }
 
 func (b *botAdapter) IsElevated(userID string) bool {
 	return PermMgr.IsElevated(userID)

@@ -15,6 +15,7 @@ import (
 type Config struct {
 	FilePath    string              `yaml:"-"`
 	Bot         BotConfig           `yaml:"bot"`
+	Intents     IntentsConfig       `yaml:"intents"`
 	Modules     ModulesConfig       `yaml:"modules"`
 	Logging     LoggingConfig       `yaml:"logging"`
 	OAuth       OAuthConfig         `yaml:"oauth"`
@@ -22,6 +23,20 @@ type Config struct {
 	Updater     UpdaterConfig       `yaml:"updater"`
 	MCP         MCPConfig           `yaml:"mcp"`
 	ImageFilter ImageFilterConfig   `yaml:"imagefilter"`
+}
+
+// IntentsConfig selects the privileged gateway intents the bot asks Discord
+// for. Both are optional: disabling one here — or Discord rejecting it (close
+// 4014) — makes the bot reconnect without it and run in the degraded/gated
+// mode described in the README. Presence is never requested: the bot only
+// sets its own status.
+type IntentsConfig struct {
+	// MessageContent gates guild message text, attachments and embeds, so
+	// prefix commands and the image filter depend on it.
+	MessageContent bool `yaml:"message_content"`
+	// GuildMembers gates the member cache, member events and permission
+	// lookups. Without it the dashboard is gated to the owner/elevated users.
+	GuildMembers bool `yaml:"guild_members"`
 }
 
 // ImageFilterConfig is the image filter's configuration, kept in the core
@@ -216,6 +231,13 @@ var DefaultConfig = &Config{
 		ToS:     "",
 		Privacy: "",
 	},
+	// Privileged intents are requested by default (the historical behavior);
+	// the gateway automatically drops them on Discord's 4014 and runs gated
+	// mode, and setting either to false never requests it at all.
+	Intents: IntentsConfig{
+		MessageContent: true,
+		GuildMembers:   true,
+	},
 	Modules: ModulesConfig{
 		AutoLoad: true,
 		Path:     "modules",
@@ -387,6 +409,18 @@ func (c *Config) Set(key, value string) error {
 		default:
 			return fmt.Errorf("invalid status: %q (must be online/idle/dnd/invisible)", value)
 		}
+	case "intents_message_content":
+		v, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid intents_message_content: %v", err)
+		}
+		c.Intents.MessageContent = v
+	case "intents_guild_members":
+		v, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid intents_guild_members: %v", err)
+		}
+		c.Intents.GuildMembers = v
 	case "log_level":
 		switch value {
 		case "debug", "info", "warn", "error":

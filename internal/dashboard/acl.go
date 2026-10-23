@@ -24,12 +24,23 @@ const guildCacheTTL = 5 * time.Minute
 // levelGEQ reports whether level a is at least level b (owner > elevated > staff > regular).
 func levelGEQ(a, b string) bool { return levelOrder[a] >= levelOrder[b] }
 
+// gatedMode reports whether the live gateway connection lacks the Server
+// Members intent. In that mode the member/role caches and per-guild permission
+// lookups are unavailable, so the dashboard deliberately fails closed: only
+// the bot owner and elevated users may use it.
+func (m *DashboardModule) gatedMode() bool {
+	return m.bot != nil && !m.bot.MemberIntentEnabled()
+}
+
 // resolveLevel computes the dashboard RBAC tier for the logged-in user:
 //
 //	owner    — the bot owner (config owner_id)
 //	elevated — a bot-level elevated user
 //	staff    — manages >=1 guild the bot is in (guild owner or ManageGuild/Admin)
 //	regular  — shares a mutual guild but manages none
+//
+// Gated mode (no Server Members intent) skips the guild-based tiers entirely:
+// non-owner/elevated sessions are regular with no manageable guilds.
 func (m *DashboardModule) resolveLevel(us *userSession) string {
 	if us == nil {
 		return lvlRegular
@@ -40,6 +51,9 @@ func (m *DashboardModule) resolveLevel(us *userSession) string {
 	}
 	if m.bot.IsElevated(id) {
 		return lvlElevated
+	}
+	if m.gatedMode() {
+		return lvlRegular
 	}
 	// NOTE: must NOT call manageableGuildIDs here — it checks owner/elevated
 	// itself, and calling resolveLevel from it would recurse forever for
@@ -133,10 +147,18 @@ func (m *DashboardModule) userOAuthGuilds(us *userSession) []discord.OAuth2Guild
 	return us.oauthGuilds
 }
 
-// mutualGuildIDs returns the user's guilds that the bot is also in.
+// mutualGuildIDs returns the user's guilds that the bot is also in. In gated
+// mode (no Server Members intent) non-owner/elevated users get nothing: the
+// server picker must not lead anywhere they cannot manage.
 func (m *DashboardModule) mutualGuildIDs(us *userSession) []string {
 	if us == nil {
 		return nil
+	}
+	if m.gatedMode() {
+		id := us.userID.String()
+		if !m.bot.IsOwner(id) && !m.bot.IsElevated(id) {
+			return nil
+		}
 	}
 	m.refreshGuilds(us)
 	botSet := m.botGuildIDs()
@@ -171,6 +193,11 @@ func (m *DashboardModule) manageableGuildIDs(us *userSession) []string {
 // so it is safe to call from resolveLevel itself.
 func (m *DashboardModule) managedMutualGuildIDs(us *userSession) []string {
 	if us == nil {
+		return nil
+	}
+	if m.gatedMode() {
+		// Without the Server Members intent the owner/elevated tiers are the
+		// only way in; everyone else manages nothing.
 		return nil
 	}
 	m.refreshGuilds(us)

@@ -408,6 +408,17 @@ body {
     gap: 20px;
 }
 
+/* Gated mode (the bot lacks the Server Members intent): every page shows why
+   only the owner/elevated users can get anywhere. */
+.gated-banner {
+    padding: 10px 14px;
+    border-left: 2px solid rgba(237, 66, 69, 0.6);
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    font-size: 13px;
+    color: #d4d4d8;
+}
+
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));

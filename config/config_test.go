@@ -554,3 +554,42 @@ func TestSetImageFilterRollsBackOnSaveFailure(t *testing.T) {
 		t.Fatalf("variant = %q, want the previous b32 after a failed save", got)
 	}
 }
+
+// TestIntentsConfig pins the privileged-intent switches: defaults keep the
+// historical on/on behavior, Set validates strict booleans, and the values
+// round-trip through config.yml.
+func TestIntentsConfig(t *testing.T) {
+	if !DefaultConfig.Intents.MessageContent || !DefaultConfig.Intents.GuildMembers {
+		t.Fatal("defaults should request both privileged intents")
+	}
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+	cfg.Intents = DefaultConfig.Intents
+	if err := Save(cfg, dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+
+	if err := cfg.Set("intents_guild_members", "false"); err != nil {
+		t.Fatalf("set intents_guild_members: %v", err)
+	}
+	if cfg.Intents.GuildMembers {
+		t.Fatal("intents_guild_members=false did not apply")
+	}
+	if err := cfg.Set("intents_message_content", "false"); err != nil {
+		t.Fatalf("set intents_message_content: %v", err)
+	}
+	if cfg.Intents.MessageContent {
+		t.Fatal("intents_message_content=false did not apply")
+	}
+	if err := cfg.Set("intents_guild_members", "maybe"); err == nil {
+		t.Fatal("ambiguous boolean accepted")
+	}
+
+	loaded, err := Load(dir)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if loaded.Intents.GuildMembers || loaded.Intents.MessageContent {
+		t.Errorf("persisted intents = %+v, want both off", loaded.Intents)
+	}
+}

@@ -332,6 +332,8 @@ type fakeTicketBot struct {
 	mod   modules.Module
 }
 
+func (f *fakeTicketBot) MemberIntentEnabled() bool { return true }
+
 func (f *fakeTicketBot) IsOwner(id string) bool                         { return id == f.owner }
 func (f *fakeTicketBot) IsElevated(string) bool                         { return false }
 func (f *fakeTicketBot) GetModuleManager() any                          { return ticketGetter{mod: f.mod} }

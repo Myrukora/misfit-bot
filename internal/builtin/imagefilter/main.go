@@ -87,6 +87,12 @@ func (m *ImageFilterModule) OnLoad(ctx *modules.Context) error {
 	m.ok = true
 	m.mu.Unlock()
 
+	// Attachments/embeds arrive empty without the Message Content intent, so
+	// the detector would never see an image. Say so once at load.
+	if ctx.Bot != nil && !ctx.Bot.MessageContentEnabled() {
+		ctx.Logger.Warn("imagefilter: Message Content intent is off — message attachments are not delivered, so images cannot be detected")
+	}
+
 	m.registerDetector()
 
 	ctx.Logger.Info("Image filter module loaded (dashboard-configured; %d server(s) enabled)", len(cfg.EnabledGuilds()))

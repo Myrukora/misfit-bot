@@ -122,6 +122,8 @@ type fakeFilterBot struct {
 	admin modules.Module
 }
 
+func (f *fakeFilterBot) MemberIntentEnabled() bool { return true }
+
 func (f *fakeFilterBot) IsOwner(id string) bool { return id == f.owner }
 func (f *fakeFilterBot) IsElevated(string) bool { return false }
 func (f *fakeFilterBot) GetModuleManager() any  { return stubModuleGetter{mod: f.admin} }

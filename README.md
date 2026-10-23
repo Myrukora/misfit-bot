@@ -24,7 +24,7 @@ A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature mo
 - **ffmpeg** — required for voice playback.
 - **Python 3 + venv + pip** — required only for Python modules (each gets its own venv).
 - **pkg-config + libopus development headers** — required for the cgo Opus dependency (voice).
-- **A Discord application** with a bot token and the privileged intents `MESSAGE_CONTENT`, `GUILD_MEMBERS`, and `PRESENCES`.
+- **A Discord application** with a bot token. Prefix commands and member-aware features use the privileged `MESSAGE_CONTENT` and `GUILD_MEMBERS` intents — enable them in the Developer Portal or leave them off: the bot detects a rejected privileged intent (close 4014), reconnects without it and runs in gated mode (dashboard restricted to the owner/elevated users). `PRESENCES` is never requested.
 
 ## Installation
 

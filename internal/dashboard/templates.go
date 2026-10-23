@@ -41,6 +41,9 @@ type renderData struct {
 	IsRegular    bool
 	ShowSidebar  bool // false = standalone page (login/setup): no sidebar/topbar
 	Raw          bool
+	// Gated: the gateway lacks the Server Members intent, so the dashboard is
+	// restricted to the owner and elevated users. The header renders a notice.
+	Gated bool
 	// ShowImageFilter: the imagefilter module is loaded — server-scoped
 	// sidebars render its tab (the page itself still guards staff access).
 	ShowImageFilter bool

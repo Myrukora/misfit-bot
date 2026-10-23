@@ -460,6 +460,9 @@ bot:
   tos_url: ""
   privacy_url: ""
   bot_allowlist: []        # bot user IDs allowed to run prefix commands (QA observer bots); empty = all bots ignored
+intents:                   # OPTIONAL privileged gateway intents (presence is never requested)
+  message_content: true    # guild message text/attachments (prefix commands, image filter); dropped on Discord's 4014
+  guild_members: true      # member cache/events + permission lookups; missing = dashboard gated to owner/elevated
 modules:
   auto_load: true
   path: "modules"
@@ -492,6 +495,7 @@ mcp:                      # built-in MCP server mounted at /mcp on the dashboard
 
 `Config.Set(key, value)` with validation (the full accepted-key set; anything else is `unknown config key`):
 - `prefix` (rejected if empty), `token` (written to `.env` as `DISCORD_BOT_TOKEN`, never `config.yml`), `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
+- `intents_message_content`, `intents_guild_members` — strict booleans for the privileged gateway intents (the top-level `intents:` section). Default on; setting either to false never requests it. Restart required (the intents are fixed at client creation).
 - `log_level` — must be `debug`, `info`, `warn`, or `error`; `log_enabled` — accepts `true`/`1`/`yes`; `log_file_path` — rejected if empty
 - `modules_auto_load` (strict bool); `enabled_modules` — comma/space-separated `name` or `name=true|false` entries (bare name = enable). Enable DELETES the map entry (missing key = enabled), disable writes `name=false`. This is the key behind `[p]modules enable|disable`.
 - `dashboard_listen`, `dashboard_public_url` — write the optional top-level `dashboard:` section (non-secret infra fields the dashboard module reads to pin its bind port / public URL from the main config — used when the default `127.0.0.1:8080` is taken and the web UI can't start). `dashboard_listen` is normalized to a bare `host:port` via `NormalizeListen`, `dashboard_public_url` must start with `http://` or `https://` (see `config.go`).
@@ -559,6 +563,10 @@ against that guild's blacklisted reference images.
   deleted unless (punishment=none AND delete_on_none=false), guild-owner/role-
   hierarchy immunity (uncached members resolved over REST; an unknown hierarchy
   is never immune), red log embeds to the guild's log channel only.
+- **Requires the Message Content intent:** without it Discord delivers empty
+  attachments, so the detector never sees an image (the module logs a warning
+  at load; the dashboard page still works). Prefix commands are likewise
+  unavailable without that intent; slash commands are unaffected.
 - **Safety (ported):** HTTPS + Discord-CDN host allowlist (`discordapp.com`,
   `discordapp.net`, `discord.com`, `discord.media`, checked against the full
   authority so `:port`/userinfo-shaped hosts are refused), redirects refused,
@@ -735,12 +743,32 @@ I/O). `TestConcurrentStateAccess` runs under `-race` to keep it that way.
 
 ### Gateway Intents (Discord Dev Portal)
 
-The bot requests `Guilds`, `GuildMessages`, `GuildMembers`, `MessageContent`,
-`DirectMessages`, `GuildPresences` and `GuildVoiceStates` (`main.go`). The
-privileged ones must be enabled in the Dev Portal:
-- `MESSAGE_CONTENT` — prefix command parsing
-- `GUILD_MEMBERS` — member tracking / permission resolution
-- `PRESENCES` — presence/status updates
+The bot requests `Guilds`, `GuildMessages`, `DirectMessages`, `GuildVoiceStates`,
+`GuildModeration` and `GuildMessageReactions`, plus the privileged
+`MESSAGE_CONTENT` and `GUILD_MEMBERS` when enabled (`intents.message_content` /
+`intents.guild_members` in `config.yml`, default on). **`GUILD_PRESENCES` is
+never requested**: the bot only sets its own status, it never reads presence.
+
+Privileged intents are **optional at runtime**. If Discord rejects them (gateway
+close code 4014 — not enabled/approved in the portal), `run()` rebuilds the
+gateway with the non-privileged mask and reconnects instead of failing to start.
+The live capabilities are exposed as `commands.Interface.MemberIntentEnabled()`
+and `MessageContentEnabled()` and logged at connect. Consequences:
+
+- **No `MESSAGE_CONTENT`:** guild message text and attachments arrive empty.
+  Prefix commands are skipped (`handleMessage` guards guild messages; slash
+  commands keep working), the image filter cannot see attachments (warns at
+  load), and ticket transcripts lose message text. DMs keep their content.
+- **No `GUILD_MEMBERS`:** the member cache, member join/leave events and
+  `GetUserPermissions` are unavailable. Permission-checked commands deny
+  everyone except owner/elevated and the guild owner (whose ID comes from the
+  guild object). The dashboard runs in **gated mode**: `resolveLevel` returns
+  regular for everyone except the owner/elevated, `mutualGuildIDs` is empty for
+  them, guild pages 403, and every page shows a gated-mode banner. The OAuth
+  guild permissions are deliberately ignored in this mode (fail closed).
+
+Both are configurable from the `/config` page (Intents section) and via
+`set_config` on MCP; changes apply on restart.
 
 ### Current Status
 
@@ -783,7 +811,7 @@ privileged ones must be enabled in the Dev Portal:
   - **rd_* convention**: one template per page in `web/templates/rd_<name>.html`; shared chrome = `rd_header.html` (renders the hub OR guild sidebar from `d.Page`/`d.GuildID`) + `rd_footer.html`. Handler shape: `d := m.baseData(us); d.Page = "x"; d.Content = …; m.tmpl.render(w, "rd_x", d)`. Schema-driven settings render through the `rd_field` partial (fieldRender struct, unchanged data contract).
   - **CSS**: single `web/static/style.css` — custom-property design tokens at the top, components below; extend tokens, never duplicate rules; black & white only, flat backgrounds (login/setup keep the branded gradient card). CSP lives in `server.go` (Google Fonts allowed).
   - **JS**: single vanilla `web/static/app.js`, no framework, no inline `<script>`. Page-activation pattern: each block activates only when its elements exist (`if (!byId("x")) return;` — see the file's header comment); CSRF from `<meta name="csrf-token">`; fetch to `/api/*`.
-  - Auth: Discord OAuth2 via disgo `oauth2` (no new deps), signed session cookies (HMAC-SHA256), in-memory sessions, mutual-guild restriction. 4 RBAC tiers (`owner` > `elevated` > `staff` > `regular`) computed per request; config hidden from non-staff. Command exec `POST /api/exec` runs only names on the `exec_allowlist` (an EMPTY allowlist means nothing is runnable) and applies the dispatcher's own rules — SuperOwnerOnly is never web-reachable. Core config editable on `/config` in sections (Bot/Logging/Dashboard/Updater/Secrets — secrets owner-only, locked for elevated).
+  - Auth: Discord OAuth2 via disgo `oauth2` (no new deps), signed session cookies (HMAC-SHA256), in-memory sessions, mutual-guild restriction. 4 RBAC tiers (`owner` > `elevated` > `staff` > `regular`) computed per request; config hidden from non-staff. **Gated mode:** when the gateway lacks the Server Members intent, `resolveLevel` returns regular for everyone except the owner/elevated (OAuth guild permissions are deliberately ignored — fail closed), the server picker is empty for them, guild pages 403, and every page shows a gated-mode banner. Command exec `POST /api/exec` runs only names on the `exec_allowlist` (an EMPTY allowlist means nothing is runnable) and applies the dispatcher's own rules — SuperOwnerOnly is never web-reachable. Core config editable on `/config` in sections (Bot/Intents/Logging/Dashboard/Updater/Secrets — secrets owner-only, locked for elevated).
   - Backup admin: `GET /api/backups` (list) + `POST /api/backups` (create/verify/restore) — owner-only, backed by `config.BackupService`; restore requires `confirm=true`.
 - Built-in MCP server (`internal/mcpserver/`, compiled-in core — always on): MCP streamable-HTTP endpoint mounted at `/mcp` on the dashboard listener (handler injected via `dashboard.Deps.MCP`; the dashboard never imports it — follows `dashboard.listen`). Bearer-token auth (`mcp.token` in core `config.yml`, auto-generated on first start and saved, logged once); config re-read per request as a live kill switch (`mcp_enabled=false` → 404, empty token → 503, bad token → 401). Enabled by default. **13 tools**: `bot_status`, `list_guilds`, `list_channels`, `get_logs`, `list_commands`, `get_config` (secrets redacted), `module_get_config` (reads); `set_config`, `module_set_config`, `run_command` (internal dispatcher + virtual captured context — nothing posted to Discord), `send_message`, `module_action` (load/unload/reload), `update_action` (status/check/apply/test). Full owner-level access — the token is the owner identity.
 

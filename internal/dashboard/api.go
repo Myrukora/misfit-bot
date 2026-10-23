@@ -327,28 +327,40 @@ func (m *DashboardModule) apiSettings(w http.ResponseWriter, r *http.Request) {
 // coreSettingsGet reads the current core setting values from the bot.
 func (m *DashboardModule) coreSettingsGet() map[string]string {
 	cfg := m.rawConfig()
+	// A config.yml without the intents section still runs with the defaults
+	// (both on); show that instead of rendering the toggles off.
+	intentsMC := m.cfgValue(cfg, "intents", "message_content")
+	if intentsMC == "" {
+		intentsMC = "true"
+	}
+	intentsGM := m.cfgValue(cfg, "intents", "guild_members")
+	if intentsGM == "" {
+		intentsGM = "true"
+	}
 	return map[string]string{
-		"prefix":               m.bot.GetPrefix(),
-		"owner_id":             m.bot.GetOwnerID(),
-		"tos_url":              m.bot.GetToS(),
-		"privacy_url":          m.bot.GetPrivacy(),
-		"status":               m.cfgValue(cfg, "bot", "status"),
-		"log_level":            m.cfgValue(cfg, "logging", "level"),
-		"log_enabled":          m.cfgValue(cfg, "logging", "enabled"),
-		"log_file_path":        m.cfgValue(cfg, "logging", "file_path"),
-		"modules_auto_load":    m.cfgValue(cfg, "modules", "auto_load"),
-		"dashboard_listen":     m.cfgValue(cfg, "dashboard", "listen"),
-		"dashboard_public_url": m.cfgValue(cfg, "dashboard", "public_url"),
-		"token":                redactedIfSet(config.ReadEnvToken(m.bot.GetConfigDir())),
-		"oauth_client_secret":  redactedIfSet(config.ReadEnvValue(m.bot.GetConfigDir(), config.EnvOAuthClientSecret)),
-		"updater_enabled":      m.cfgValue(cfg, "updater", "enabled"),
-		"updater_repo":         m.cfgValue(cfg, "updater", "repo"),
-		"updater_branch":       m.cfgValue(cfg, "updater", "branch"),
-		"updater_token":        redactedIfSet(config.ReadEnvValue(m.bot.GetConfigDir(), config.EnvUpdaterToken)),
-		"updater_interval":     m.cfgValue(cfg, "updater", "check_interval"),
-		"updater_auto_pull":    m.cfgValue(cfg, "updater", "auto_pull"),
-		"mcp_enabled":          m.cfgValue(cfg, "mcp", "enabled"),
-		"mcp_token":            redactedIfSet(m.cfgValue(cfg, "mcp", "token")),
+		"prefix":                  m.bot.GetPrefix(),
+		"owner_id":                m.bot.GetOwnerID(),
+		"tos_url":                 m.bot.GetToS(),
+		"privacy_url":             m.bot.GetPrivacy(),
+		"status":                  m.cfgValue(cfg, "bot", "status"),
+		"log_level":               m.cfgValue(cfg, "logging", "level"),
+		"log_enabled":             m.cfgValue(cfg, "logging", "enabled"),
+		"log_file_path":           m.cfgValue(cfg, "logging", "file_path"),
+		"modules_auto_load":       m.cfgValue(cfg, "modules", "auto_load"),
+		"dashboard_listen":        m.cfgValue(cfg, "dashboard", "listen"),
+		"dashboard_public_url":    m.cfgValue(cfg, "dashboard", "public_url"),
+		"token":                   redactedIfSet(config.ReadEnvToken(m.bot.GetConfigDir())),
+		"oauth_client_secret":     redactedIfSet(config.ReadEnvValue(m.bot.GetConfigDir(), config.EnvOAuthClientSecret)),
+		"updater_enabled":         m.cfgValue(cfg, "updater", "enabled"),
+		"updater_repo":            m.cfgValue(cfg, "updater", "repo"),
+		"updater_branch":          m.cfgValue(cfg, "updater", "branch"),
+		"updater_token":           redactedIfSet(config.ReadEnvValue(m.bot.GetConfigDir(), config.EnvUpdaterToken)),
+		"updater_interval":        m.cfgValue(cfg, "updater", "check_interval"),
+		"updater_auto_pull":       m.cfgValue(cfg, "updater", "auto_pull"),
+		"mcp_enabled":             m.cfgValue(cfg, "mcp", "enabled"),
+		"mcp_token":               redactedIfSet(m.cfgValue(cfg, "mcp", "token")),
+		"intents_message_content": intentsMC,
+		"intents_guild_members":   intentsGM,
 	}
 }
 
@@ -456,8 +468,9 @@ func (m *DashboardModule) setCoreSetting(owner bool, key, value string) (string,
 		"dashboard_listen": true, "dashboard_public_url": true,
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,
 		"updater_token": true, "updater_interval": true, "updater_auto_pull": true,
-		"mcp_enabled": true,
-		"token":       true, "oauth_client_secret": true, "mcp_token": true,
+		"mcp_enabled":             true,
+		"intents_message_content": true, "intents_guild_members": true,
+		"token": true, "oauth_client_secret": true, "mcp_token": true,
 	}
 	// Secrets and ownership are owner-only. Elevated users may still save their
 	// allowed keys in the same batch; owner-only keys are simply never written

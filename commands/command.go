@@ -124,6 +124,17 @@ type Interface interface {
 	GetCachedRole(guildID, roleID string) *discord.Role
 	GetCachedChannel(channelID string) discord.GuildChannel
 	GetMemberRoles(guildID, userID string) []discord.Role
+	// MemberIntentEnabled reports whether the active gateway connection has
+	// the Server Members intent. Without it member/role caches and per-guild
+	// permission lookups are unavailable; the dashboard runs owner/elevated
+	// only (gated mode) and permission-checked commands deny non-elevated
+	// users. Reflects the ACTUAL connected intents, including an automatic
+	// drop when Discord rejects a privileged intent (close code 4014).
+	MemberIntentEnabled() bool
+	// MessageContentEnabled reports whether the Message Content intent is
+	// active. Without it guild message text/attachments are empty: prefix
+	// commands and content-based features are disabled, slash commands work.
+	MessageContentEnabled() bool
 	GetClient() interface{}
 	GetStartTime() time.Time
 	StatusRateLimit(userID string) (allowed bool, wait time.Duration)

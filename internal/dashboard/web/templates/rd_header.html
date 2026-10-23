@@ -99,4 +99,7 @@
       </header>
 
       <div class="content">
+        {{if .Gated}}
+        <div class="gated-banner" role="status">Gated mode: the Server Members intent is unavailable, so only the bot owner and elevated users can use the dashboard.</div>
+        {{end}}
 {{end}}

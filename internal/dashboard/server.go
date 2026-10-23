@@ -275,7 +275,7 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 	if m.bot != nil {
 		assetVersion = m.bot.GetVersion()
 	}
-	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: "", ShowSidebar: true, AssetVersion: assetVersion}
+	d := renderData{Bot: id.Name, BotAvatar: id.Avatar, User: nil, Level: lvlRegular, Guilds: []guildOpt{}, CSRF: "", ShowSidebar: true, AssetVersion: assetVersion, Gated: m.gatedMode()}
 	if us != nil {
 		level := m.resolveLevel(us)
 		var guilds []guildOpt
