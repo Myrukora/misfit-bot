@@ -388,6 +388,9 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 	b.WriteString("img.attachment{max-width:min(420px,100%)}")
 	b.WriteString("video.attachment{max-width:min(480px,100%)}audio.attachment{width:100%}")
 	b.WriteString(".attlink{color:#00aff4}")
+	b.WriteString("#lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:100;align-items:center;justify-content:center;cursor:zoom-out}")
+	b.WriteString("#lb.open{display:flex}#lb img{max-width:92vw;max-height:92vh;border-radius:6px}")
+	b.WriteString("img.attachment{cursor:zoom-in}")
 	b.WriteString("</style></head><body><div class='wrap'>")
 	b.WriteString("<h1>" + esc(title) + "</h1>")
 	status := "Open"
@@ -490,7 +493,10 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 		}
 		b.WriteString("</div></div>")
 	}
-	b.WriteString("</div></body></html>")
+	b.WriteString("</div>")
+	b.WriteString("<div id='lb' onclick=\"this.classList.remove('open');document.getElementById('lbi').removeAttribute('src')\"><img id='lbi' alt=''></div>")
+	b.WriteString("<script>document.querySelectorAll('img.attachment').forEach(function(i){i.addEventListener('click',function(){document.getElementById('lbi').src=this.src;document.getElementById('lb').classList.add('open');});});document.addEventListener('keydown',function(e){if(e.key==='Escape'){document.getElementById('lb').classList.remove('open');document.getElementById('lbi').removeAttribute('src');}});</script>")
+	b.WriteString("</body></html>")
 	return b.String()
 }
 

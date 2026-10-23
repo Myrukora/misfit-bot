@@ -119,7 +119,9 @@ func TestPreviewDumpRedesign(t *testing.T) {
 				}}},
 			},
 			Closed: []modules.TicketSummary{
-				{ID: "report-0011", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour)},
+				{ID: "report-0011", Type: "report", OpenerID: "222", ClosedAt: time.Now().Add(-26 * time.Hour), Preview: []modules.Media{{
+					URL: "/static/discord.svg", Kind: "image", Filename: "evidence.png",
+				}}},
 			},
 		}, true},
 		{"tickets-empty.html", "gtickets", "rd_tickets", ticketsPageData{GuildID: "1"}, true},

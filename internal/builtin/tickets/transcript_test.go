@@ -60,6 +60,9 @@ func TestTranscriptHTMLEscapesAndStructures(t *testing.T) {
 	if !strings.Contains(out, "<img class='attachment") {
 		t.Fatal("image attachment not rendered as image")
 	}
+	if !strings.Contains(out, "id='lb'") || !strings.Contains(out, "classList.add('open')") {
+		t.Fatal("archive image lightbox missing")
+	}
 	// Edited marker: exactly one entry has Edited: true, so the marker
 	// appears exactly once. Entries with Edited: false must not carry it.
 	editedCount := strings.Count(out, "<span class='edited'>(edited)</span>")

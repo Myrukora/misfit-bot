@@ -1883,6 +1883,26 @@ input[type="range"].cfg-field::-moz-range-thumb {
     border-radius: 8px;
 }
 
+#lightbox video {
+    max-width: 95vw;
+    max-height: 95vh;
+    border-radius: 8px;
+    background: black;
+}
+
+img.ticket-thumb {
+    cursor: zoom-in;
+}
+
+video.ticket-thumb {
+    cursor: pointer;
+}
+
+.tbl .ticket-thumb {
+    width: 64px;
+    height: 48px;
+}
+
 /* ================= DATA TABLES (tickets, modules) ================= */
 
 .tbl-wrap {

@@ -85,9 +85,7 @@
       <div id="tk-conversation" data-guild="{{.Content.GuildID}}" data-ticket="{{$t.ID}}">{{template "tk_conversation" (dict "Ticket" $t "GuildID" .Content.GuildID)}}</div>
     </section>
 
-    <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
-      <img id="lightbox-img" alt="">
-    </div>
+    {{template "tk_lightbox"}}
     <p class="muted"><a href="/g/{{.Content.GuildID}}/tickets">← Back to tickets</a> <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a></p>
   </main>
 <script src="/static/app.js?v={{.AssetVersion}}"></script>

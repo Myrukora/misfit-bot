@@ -877,22 +877,50 @@
     });
   }
 
-  /* ---------- transcript page: image lightbox ---------- */
+  /* ---------- media lightbox (transcript images + card previews) ---------- */
   var lightbox = byId("lightbox");
-  if (lightbox && document.querySelector("img.zoomable")) {
+  if (lightbox) {
     var lightboxImg = byId("lightbox-img");
+    var lightboxVideo = byId("lightbox-video");
     var closeLightbox = function () {
       lightbox.classList.remove("open");
+      lightboxImg.hidden = false;
       lightboxImg.removeAttribute("src");
+      if (lightboxVideo) {
+        lightboxVideo.pause();
+        lightboxVideo.hidden = true;
+        lightboxVideo.removeAttribute("src");
+      }
     };
-    document.querySelectorAll("img.zoomable").forEach(function (img) {
-      img.addEventListener("click", function () {
+    document.addEventListener("click", function (ev) {
+      var img = ev.target.closest("img.zoomable");
+      if (img) {
+        if (lightboxVideo) {
+          lightboxVideo.pause();
+          lightboxVideo.hidden = true;
+          lightboxVideo.removeAttribute("src");
+        }
+        lightboxImg.hidden = false;
         lightboxImg.src = img.src;
         lightbox.classList.add("open");
         lightbox.focus();
-      });
+        return;
+      }
+      var vid = ev.target.closest("video.video-thumb");
+      if (vid) {
+        lightboxImg.hidden = true;
+        lightboxImg.removeAttribute("src");
+        lightboxVideo.hidden = false;
+        lightboxVideo.src = vid.currentSrc || vid.src;
+        lightbox.classList.add("open");
+        var playing = lightboxVideo.play();
+        if (playing && playing.catch) playing.catch(function () {});
+        lightbox.focus();
+      }
     });
-    lightbox.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", function (ev) {
+      if (ev.target === lightbox || ev.target === lightboxImg) closeLightbox();
+    });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && lightbox.classList.contains("open")) closeLightbox();
     });
