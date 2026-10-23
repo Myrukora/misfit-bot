@@ -125,11 +125,14 @@ func (c *clipSession) Close() error {
 // L2-normalized pooler embedding (length == c.dim). Input must be
 // [1,3,inSize,inSize] — callers use c.InputSize().
 func (c *clipSession) Embed(tensor []float32) ([]float32, error) {
+	// Hold the read lock across Run: Close takes the write lock, so a variant
+	// switch or shutdown can never Destroy the session mid-inference (ONNX
+	// Runtime does not support that; in practice it crashes).
 	c.mu.RLock()
+	defer c.mu.RUnlock()
 	s := c.session
 	dim := c.dim
 	inSize := c.inSize
-	c.mu.RUnlock()
 	if s == nil {
 		return nil, fmt.Errorf("session closed")
 	}
@@ -154,7 +157,7 @@ func (c *clipSession) Embed(tensor []float32) ([]float32, error) {
 	defer out.Destroy()
 
 	shape := out.GetShape()
-	if len(shape) != 2 || shape[1] != int64(dim) {
+	if len(shape) != 2 || shape[0] != 1 || shape[1] != int64(dim) {
 		return nil, fmt.Errorf("output shape %v, want [1 %d]", shape, dim)
 	}
 	return l2normalize(out.GetData()), nil
@@ -181,7 +184,9 @@ func Cosine(a, b []float32) float32 {
 	return float32(dot)
 }
 
-// l2normalize scales a vector to unit length; zero vectors return unchanged.
+// l2normalize scales a vector to unit length. It ALWAYS returns a fresh slice:
+// returning the input for zero vectors would alias the ONNX tensor buffer the
+// caller destroys right after (use-after-free).
 func l2normalize(v []float32) []float32 {
 	var norm float64
 	for _, x := range v {
@@ -189,7 +194,7 @@ func l2normalize(v []float32) []float32 {
 	}
 	norm = math.Sqrt(norm)
 	if norm == 0 {
-		return v
+		return make([]float32, len(v))
 	}
 	inv := float32(1.0 / norm)
 	out := make([]float32, len(v))

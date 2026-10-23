@@ -696,6 +696,9 @@ func (m *DashboardModule) handleGuildImageFilterPage(w http.ResponseWriter, r *h
 		content["config"] = map[string]string{}
 		content["images"] = []string{}
 		content["enabled"] = false
+		// The template reads status fields unconditionally; a missing key
+		// would fail the render when the module is unloaded.
+		content["status"] = modules.ImageFilterStatus{Files: map[string]bool{}}
 	}
 	// Channel list for the log-channel picker: only channel kinds that can
 	// actually receive a message (text/announcement) — a log embed posted to

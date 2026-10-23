@@ -41,6 +41,11 @@ type manager struct {
 	dataDir string
 	log     modules.Logger
 
+	// lifecycleMu serializes model load/close transitions. It is never taken by
+	// submit/warm or the gateway gate, and it is released around the slow ONNX
+	// load, so a dashboard enable cannot stall event dispatch.
+	lifecycleMu sync.Mutex
+
 	// Injection seams (production defaults set in newManager; tests swap them).
 	initFn   func() error                                    // set in newManager
 	loadFn   func(dataDir, variant string) (embedder, error) // set in newManager
@@ -53,9 +58,13 @@ type manager struct {
 	refcount    int // guilds with enabled=true
 
 	// Per-guild reference embeddings (variant-scoped: a variant switch wipes all).
+	// refsGen bumps on every invalidation/variant switch; a build that started
+	// under an older generation is never cached (it may reflect removed images
+	// or the previous model's vector space).
 	refsMu     sync.RWMutex
 	refs       map[string][]refEmbed
 	refsVector string
+	refsGen    uint64
 
 	// Serialized worker: one goroutine consumes jobs; all heavy work (fetch,
 	// embed, punish) happens there, never on gateway/dashboard goroutines.
@@ -162,28 +171,31 @@ func (m *manager) SyncEnabled() {
 	enabled := m.cfg.EnabledGuilds()
 	variant := m.cfg.ClipVariant()
 
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	m.mu.Lock()
 	m.refcount = len(enabled)
 	m.sessVariant = variant
-	if m.refcount > 0 {
-		if err := initRuntime(); err != nil {
-			m.log.Error("imagefilter: onnxruntime unavailable (%v) — filter stays cold", err)
-			m.mu.Unlock()
-			return
-		}
-		sess, err := m.loadFn(m.dataDir, variant)
-		if err != nil {
-			m.log.Error("imagefilter: model load failed (%v) — filter stays cold", err)
-			m.mu.Unlock()
-			return
-		}
-		m.sess = sess
-	}
+	need := m.refcount > 0 && m.sess == nil
 	m.mu.Unlock()
-
-	if m.refcount > 0 && m.sess != nil {
-		m.log.Info("imagefilter: model warm (variant %s, %d enabled server(s))", variant, m.refcount)
+	if !need {
+		return
 	}
+	if err := m.initFn(); err != nil {
+		m.log.Error("imagefilter: onnxruntime unavailable (%v) — filter stays cold", err)
+		return
+	}
+	sess, err := m.loadFn(m.dataDir, variant)
+	if err != nil {
+		m.log.Error("imagefilter: model load failed (%v) — filter stays cold", err)
+		return
+	}
+	m.mu.Lock()
+	m.sess = sess
+	n := m.refcount
+	m.mu.Unlock()
+	m.log.Info("imagefilter: model warm (variant %s, %d enabled server(s))", variant, n)
 }
 
 // SetGuildEnabled applies an enable/disable from the dashboard and drives the
@@ -201,6 +213,9 @@ func (m *manager) SetGuildEnabled(guildID string, enabled bool) error {
 // is reported to the caller (the dashboard surfaces it) while the persisted
 // enable flag stays as the user set it — the guild simply stays cold.
 func (m *manager) adjust(up bool) error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	m.mu.Lock()
 	if up {
 		m.refcount++
@@ -208,24 +223,29 @@ func (m *manager) adjust(up bool) error {
 		m.refcount--
 	}
 	need := m.refcount > 0
-	var loadErr error
+	sess := m.sess
+	variant := m.sessVariant
+	m.mu.Unlock()
+
 	switch {
-	case need && m.sess == nil:
+	case need && sess == nil:
+		// Load OUTSIDE m.mu: the dashboard request still waits for the result,
+		// but the gateway's warm()/submit() never block on an ONNX load.
 		if err := m.initFn(); err != nil {
 			m.log.Error("imagefilter: onnxruntime unavailable (%v)", err)
-			loadErr = err
-			break
+			return err
 		}
-		sess, err := m.loadFn(m.dataDir, m.sessVariant)
+		sess, err := m.loadFn(m.dataDir, variant)
 		if err != nil {
 			m.log.Error("imagefilter: model load failed: %v", err)
-			loadErr = err
-			break
+			return err
 		}
+		m.mu.Lock()
 		m.sess = sess
-		m.log.Info("imagefilter: model loaded (variant %s)", m.sessVariant)
-	case !need && m.sess != nil:
-		sess := m.sess
+		m.mu.Unlock()
+		m.log.Info("imagefilter: model loaded (variant %s)", variant)
+	case !need && sess != nil:
+		m.mu.Lock()
 		m.sess = nil
 		m.mu.Unlock()
 		if err := sess.Close(); err != nil {
@@ -233,14 +253,54 @@ func (m *manager) adjust(up bool) error {
 		}
 		// Free the per-guild ref embeddings too — the vector space dies with
 		// the session.
-		m.refsMu.Lock()
-		m.refs = map[string][]refEmbed{}
-		m.refsMu.Unlock()
+		m.wipeRefs()
 		m.log.Info("imagefilter: model unloaded (no enabled servers) — RAM freed")
+	}
+	return nil
+}
+
+// RetryWarm loads the model after out-of-band provisioning completed. It is a
+// no-op when nothing is enabled or the model is already warm. The load happens
+// outside m.mu (same rule as adjust), so a slow ONNX load never stalls the
+// gateway's warm()/submit().
+func (m *manager) RetryWarm() error {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
+	m.mu.Lock()
+	need := m.refcount > 0 && m.sess == nil
+	variant := m.sessVariant
+	m.mu.Unlock()
+	if !need {
 		return nil
 	}
+	if err := m.initFn(); err != nil {
+		return err
+	}
+	sess, err := m.loadFn(m.dataDir, variant)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if m.refcount == 0 {
+		// Every guild was disabled while the model was loading: drop it.
+		m.mu.Unlock()
+		_ = sess.Close()
+		return nil
+	}
+	m.sess = sess
 	m.mu.Unlock()
-	return loadErr
+	m.log.Info("imagefilter: model warm after provisioning (variant %s)", variant)
+	return nil
+}
+
+// wipeRefs drops every cached reference embedding and bumps the generation so
+// an in-flight build cannot repopulate the cache afterwards.
+func (m *manager) wipeRefs() {
+	m.refsMu.Lock()
+	m.refs = map[string][]refEmbed{}
+	m.refsGen++
+	m.refsMu.Unlock()
 }
 
 // SetClipVariant switches the bot-wide model: close the warm session, wipe
@@ -251,9 +311,14 @@ func (m *manager) SetClipVariant(variant string) error {
 		return err
 	}
 
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
+
 	m.mu.Lock()
 	old := m.sess
 	m.sess = nil
+	m.sessVariant = variant // sessions built from now on use the new variant
+	need := m.refcount > 0
 	m.mu.Unlock()
 
 	if old != nil {
@@ -261,33 +326,24 @@ func (m *manager) SetClipVariant(variant string) error {
 			m.log.Error("imagefilter: old session close failed: %v", err)
 		}
 	}
+	m.wipeRefs()
 
-	m.refsMu.Lock()
-	m.refs = map[string][]refEmbed{}
-	m.refsMu.Unlock()
-
-	// Re-warm when something is enabled (reload with the new variant).
-	m.mu.Lock()
-	need := m.refcount > 0
-	m.sessVariant = variant // sessions built from now on use the new variant
-	if need {
-		if err := initRuntime(); err != nil {
-			m.mu.Unlock()
-			return err
-		}
-		sess, err := m.loadFn(m.dataDir, variant)
-		if err != nil {
-			// Stay cold with refcount untouched: the refcount mirrors the
-			// config's enabled guilds, and the dashboard reads the enabled set
-			// from config (Status), so zeroing it here would only desync the
-			// two and skip the load on the next enable.
-			m.mu.Unlock()
-			return err
-		}
-		m.sess = sess
-		m.log.Info("imagefilter: switched model to variant %s", variant)
+	if !need {
+		return nil
 	}
+	if err := m.initFn(); err != nil {
+		return err
+	}
+	sess, err := m.loadFn(m.dataDir, variant)
+	if err != nil {
+		// Stay cold with refcount untouched: the refcount mirrors the config's
+		// enabled guilds, so zeroing it here would only desync the two.
+		return err
+	}
+	m.mu.Lock()
+	m.sess = sess
 	m.mu.Unlock()
+	m.log.Info("imagefilter: switched model to variant %s", variant)
 	return nil
 }
 
@@ -300,6 +356,7 @@ func (m *manager) Variant() string {
 func (m *manager) InvalidateRefs(guildID string) {
 	m.refsMu.Lock()
 	delete(m.refs, guildID)
+	m.refsGen++
 	m.refsMu.Unlock()
 }
 
@@ -313,6 +370,8 @@ func (m *manager) warm() bool {
 // unloadModel force-closes the session (shutdown path). Refcount resets so a
 // later SyncEnabled/re-enable reloads cleanly.
 func (m *manager) unloadModel() {
+	m.lifecycleMu.Lock()
+	defer m.lifecycleMu.Unlock()
 	m.mu.Lock()
 	sess := m.sess
 	m.sess = nil
@@ -323,25 +382,23 @@ func (m *manager) unloadModel() {
 			m.log.Error("imagefilter: model close failed: %v", err)
 		}
 	}
-	m.refsMu.Lock()
-	m.refs = map[string][]refEmbed{}
-	m.refsMu.Unlock()
+	m.wipeRefs()
 }
 
-// guildRefs returns cached ref embeddings for a guild, embedding the images
-// on first need (called from the worker only — serialized).
-func (m *manager) guildRefs(guildID string) []refEmbed {
+// guildRefsFor returns the guild's cached reference embeddings, building them
+// with the caller's captured session on first need (worker-only, serialized).
+// A build is cached only when no invalidation/variant switch landed while it
+// ran (refsGen unchanged); otherwise the job is skipped instead of comparing
+// vectors from two different sets or model spaces.
+func (m *manager) guildRefsFor(sess embedder, variant, guildID string) []refEmbed {
 	m.refsMu.RLock()
 	refs, ok := m.refs[guildID]
-	variant := m.refsVector
+	cachedVariant := m.refsVector
+	gen := m.refsGen
 	m.refsMu.RUnlock()
-	if ok && variant == m.sessVariantString() {
+	if ok && cachedVariant == variant {
 		return refs
 	}
-
-	m.mu.Lock()
-	sess := m.sess
-	m.mu.Unlock()
 	if sess == nil {
 		return nil
 	}
@@ -371,19 +428,22 @@ func (m *manager) guildRefs(guildID string) []refEmbed {
 		}
 		built = append(built, refEmbed{name: name, vec: vec})
 	}
+	if len(names) > 0 && len(built) == 0 {
+		// Every reference failed to load/embed. Never cache an empty set here:
+		// that would silently disable matching until the next invalidation.
+		m.log.Error("imagefilter: no reference image of guild %s could be embedded (%d configured)", guildID, len(names))
+		return nil
+	}
 
 	m.refsMu.Lock()
+	if m.refsGen != gen {
+		m.refsMu.Unlock()
+		return nil
+	}
 	m.refs[guildID] = built
-	m.refsVector = m.sessVariantString()
+	m.refsVector = variant
 	m.refsMu.Unlock()
 	return built
-}
-
-// sessVariantString returns the loaded session's variant ("" when cold).
-func (m *manager) sessVariantString() string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.sessVariant
 }
 
 // handleJob: fetch → preprocess → embed → max-cosine vs guild refs → punish.
@@ -395,6 +455,7 @@ func (m *manager) handleJob(j job) {
 	}
 	m.mu.Lock()
 	sess := m.sess
+	variant := m.sessVariant
 	m.mu.Unlock()
 	if sess == nil {
 		return
@@ -417,7 +478,7 @@ func (m *manager) handleJob(j job) {
 		m.log.Error("imagefilter: embed incoming: %v", err)
 		return
 	}
-	refs := m.guildRefs(j.guildID)
+	refs := m.guildRefsFor(sess, variant, j.guildID)
 	if len(refs) == 0 {
 		return // no blacklist configured → nothing can match
 	}

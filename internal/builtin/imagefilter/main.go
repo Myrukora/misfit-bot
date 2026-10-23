@@ -29,6 +29,8 @@ type ImageFilterModule struct {
 	cfg  *config
 	imgs *images
 	ok   bool // OnLoad completed
+
+	prov provisionState // lazy runtime setup (provision.go)
 }
 
 // New is the builtin entry symbol. It MUST return the modules.Module
@@ -88,6 +90,13 @@ func (m *ImageFilterModule) OnLoad(ctx *modules.Context) error {
 	m.registerDetector()
 
 	ctx.Logger.Info("Image filter module loaded (dashboard-configured; %d server(s) enabled)", len(cfg.EnabledGuilds()))
+
+	// A deployment that had the filter enabled before its artifacts were
+	// installed heals itself: the setup runs in the background and warms the
+	// model when it finishes (no-op when nothing is missing).
+	if len(cfg.EnabledGuilds()) > 0 && artifactsMissing(mgr.dataDir, cfg.ClipVariant()) != "" {
+		m.startProvisioning()
+	}
 	return nil
 }
 

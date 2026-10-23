@@ -91,11 +91,30 @@ func (m *ImageFilterModule) SetGuildConfig(guildID string, values map[string]str
 	return mgr.cfg.SetGuildConfig(guildID, g)
 }
 
-// SetGuildEnabled flips the feature and drives the warm/cold lifecycle.
+// SetGuildEnabled flips the feature and drives the warm/cold lifecycle. When
+// the ONNX runtime or the model file is missing, the same setup script
+// install.sh uses is started in the background and the enable is accepted:
+// the load error is expected and the filter warms up when provisioning ends.
 func (m *ImageFilterModule) SetGuildEnabled(guildID string, enabled bool) error {
 	mgr, ok := m.admin()
 	if !ok {
 		return fmt.Errorf("imagefilter not loaded")
+	}
+	if enabled {
+		if missing := artifactsMissing(mgr.dataDir, mgr.cfg.ClipVariant()); missing != "" {
+			m.startProvisioning()
+			if err := mgr.SetGuildEnabled(guildID, enabled); err != nil {
+				// Only swallow the expected load failure: if the enable flag
+				// itself was persisted, the background setup is responsible
+				// for warming the model; any other error (e.g. a config write)
+				// still surfaces.
+				if mgr.cfg.GuildSettings(guildID).Enabled {
+					return nil
+				}
+				return err
+			}
+			return nil
+		}
 	}
 	return mgr.SetGuildEnabled(guildID, enabled)
 }
@@ -202,9 +221,15 @@ func (m *ImageFilterModule) Variant() string {
 // load, and a cold model must not report "0 enabled servers" while its config
 // lists enabled ones.
 func (m *ImageFilterModule) Status() modules.ImageFilterStatus {
+	provisioning, provisionErr := m.prov.snapshot()
 	mgr, ok := m.admin()
 	if !ok {
-		return modules.ImageFilterStatus{Available: append([]string(nil), ClipVariants...), Files: map[string]bool{}}
+		return modules.ImageFilterStatus{
+			Available:      append([]string(nil), ClipVariants...),
+			Files:          map[string]bool{},
+			Provisioning:   provisioning,
+			ProvisionError: provisionErr,
+		}
 	}
 	dataDir := mgr.dataDir
 	// Read config before taking mgr.mu: the lock order everywhere else is
@@ -220,10 +245,12 @@ func (m *ImageFilterModule) Status() modules.ImageFilterStatus {
 		files[v] = ModelFilePresent(dataDir, v)
 	}
 	return modules.ImageFilterStatus{
-		Warm:          warm,
-		Variant:       variant,
-		Available:     append([]string(nil), ClipVariants...),
-		Files:         files,
-		EnabledGuilds: enabled,
+		Warm:           warm,
+		Variant:        variant,
+		Available:      append([]string(nil), ClipVariants...),
+		Files:          files,
+		EnabledGuilds:  enabled,
+		Provisioning:   provisioning,
+		ProvisionError: provisionErr,
 	}
 }

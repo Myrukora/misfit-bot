@@ -115,6 +115,9 @@ func (im *images) Add(guildID string, data []byte, origName string) (string, boo
 	if err != nil {
 		return "", false, err
 	}
+	if len(data) > MaxImageBytes {
+		return "", false, fmt.Errorf("image exceeds %d MiB", MaxImageBytes>>20)
+	}
 	if _, err := decodeCheck(data); err != nil {
 		return "", false, err
 	}
@@ -135,9 +138,10 @@ func (im *images) Add(guildID string, data []byte, origName string) (string, boo
 		return "", false, err
 	}
 
-	// Staged write with a unique temp name: two concurrent adds of different
-	// images must not race on a fixed "<path>.tmp".
-	tmp, err := os.CreateTemp(dir, name+".tmp-*")
+	// Staged write with a distinct prefix: two concurrent adds of different
+	// images must not race, and a real filename containing ".tmp-" must not be
+	// mistaken for a temp file by List/budget.
+	tmp, err := os.CreateTemp(dir, ".tmp-"+name+"-*")
 	if err != nil {
 		return "", false, err
 	}
@@ -168,7 +172,7 @@ func checkGuildBudget(dir string, added int) error {
 	}
 	count, total := 0, 0
 	for _, e := range entries {
-		if e.IsDir() || strings.HasSuffix(e.Name(), ".tmp") || strings.Contains(e.Name(), ".tmp-") {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".tmp-") {
 			continue
 		}
 		info, err := e.Info()
@@ -217,7 +221,7 @@ func (im *images) List(guildID string) ([]string, error) {
 	}
 	var out []string
 	for _, e := range entries {
-		if e.IsDir() || strings.HasSuffix(e.Name(), ".tmp") || strings.Contains(e.Name(), ".tmp-") {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".tmp-") {
 			continue
 		}
 		out = append(out, e.Name())

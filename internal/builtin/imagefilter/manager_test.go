@@ -337,3 +337,44 @@ func (m *manager) drainForTest(t *testing.T, completed int) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+// TestManagerVariantSwitchReloadsAndWipesRefs pins the switch sequence: close
+// the old session, drop the (different-vector-space) cached refs, reload with
+// the new variant when a guild is enabled, and persist the choice.
+func TestManagerVariantSwitchReloadsAndWipesRefs(t *testing.T) {
+	m, _, _, loads := newTestManager(t)
+	m.startWorker()
+	defer m.stopWorker()
+
+	if err := m.SetGuildEnabled("111", true); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	if got := loads.Load(); got != 1 {
+		t.Fatalf("loads = %d, want 1", got)
+	}
+
+	// Seed a ref cache for the current variant.
+	m.refsMu.Lock()
+	m.refs["111"] = []refEmbed{{name: "x.png", vec: []float32{1, 0}}}
+	m.refsVector = "b32"
+	m.refsMu.Unlock()
+
+	if err := m.SetClipVariant("b16"); err != nil {
+		t.Fatalf("SetClipVariant: %v", err)
+	}
+	if got := loads.Load(); got != 2 {
+		t.Fatalf("loads = %d, want a reload with the new variant", got)
+	}
+	if !m.warm() {
+		t.Error("an enabled guild must be rewarmed on the new variant")
+	}
+	if got := m.Variant(); got != "b16" {
+		t.Errorf("variant = %q, want b16", got)
+	}
+	m.refsMu.RLock()
+	_, cached := m.refs["111"]
+	m.refsMu.RUnlock()
+	if cached {
+		t.Error("cached refs survived the variant switch")
+	}
+}

@@ -95,8 +95,15 @@ func (m *ImageFilterModule) isImmune(guildID, authorID string) bool {
 	gid := parseSnowflake(guildID)
 	uid := parseSnowflake(authorID)
 
-	// Guild owner (cached via adapter).
-	if owner := m.ctx.Bot.GetGuildOwnerID(guildID); owner != "" && owner == authorID {
+	// Guild owner (cached via adapter). A cache miss falls back to REST once:
+	// an empty/evicted guild cache must never let the owner be punished.
+	owner := m.ctx.Bot.GetGuildOwnerID(guildID)
+	if owner == "" && m.ctx.Rest != nil {
+		if guild, err := m.ctx.Rest.GetGuild(gid, false); err == nil && guild != nil && guild.OwnerID != 0 {
+			owner = guild.OwnerID.String()
+		}
+	}
+	if owner != "" && owner == authorID {
 		return true
 	}
 

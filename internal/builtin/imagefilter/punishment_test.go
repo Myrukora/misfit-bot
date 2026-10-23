@@ -35,6 +35,7 @@ type recordingRest struct {
 	// REST fallback (uncached member) answers, when set.
 	fallbackRoles   []discord.Role
 	fallbackMembers map[snowflake.ID]discord.Member
+	guildOwner      snowflake.ID // non-zero → GetGuild reports this owner
 	fallbackCalls   int
 	nilMember       bool // model a 2xx body decoding to JSON null
 }
@@ -52,6 +53,16 @@ func (r *recordingRest) CreateMessage(channelID snowflake.ID, mc discord.Message
 	r.loggedTo = append(r.loggedTo, channelID)
 	r.embeds = append(r.embeds, mc.Embeds...)
 	return nil, nil
+}
+
+func (r *recordingRest) GetGuild(guildID snowflake.ID, withCounts bool, opts ...rest.RequestOpt) (*discord.RestGuild, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fallbackCalls++
+	if r.guildOwner == 0 {
+		return nil, errNotFoundTest
+	}
+	return &discord.RestGuild{Guild: discord.Guild{ID: guildID, OwnerID: r.guildOwner}}, nil
 }
 
 func (r *recordingRest) RemoveMember(guildID, userID snowflake.ID, opts ...rest.RequestOpt) error {
@@ -383,3 +394,16 @@ func (f *failingBanRest) AddBan(guildID, userID snowflake.ID, d time.Duration, o
 }
 
 var errTestBan = errors.New("test: ban refused by Discord")
+
+// TestImmuneResolvesOwnerOverRESTOnCacheMiss pins the fallback: a guild-cache
+// miss (evicted/unavailable guild) must never let the guild owner be punished.
+func TestImmuneResolvesOwnerOverRESTOnCacheMiss(t *testing.T) {
+	mod, r, _ := newPunishHarness(t)
+	r.guildOwner = 7
+	if !mod.isImmune("1", "7") {
+		t.Fatal("guild owner should be immune via the REST fallback")
+	}
+	if mod.isImmune("1", "8") {
+		t.Fatal("a non-owner without roles must not be immune")
+	}
+}

@@ -260,6 +260,13 @@
         .catch(function (e) { toast(e.message, true); ifEnabled.checked = !ifEnabled.checked; });
     });
 
+    /* while the runtime/model is being provisioned in the background, poll the
+       page so the chip and any setup error follow the actual state */
+    var modelState = byId("if-model-state");
+    if (modelState && modelState.dataset.provisioning === "true") {
+      setTimeout(function () { location.reload(); }, 10000);
+    }
+
     /* punishment select shows/hides the duration field */
     var punishSel = byId("if-punishment");
     if (punishSel) {

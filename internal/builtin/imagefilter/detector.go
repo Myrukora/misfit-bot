@@ -37,6 +37,26 @@ func authorIDOf(e *events.GuildMessageCreate) string {
 	return e.Message.Author.ID.String()
 }
 
+// looksLikeImage: Discord normally sends image/* content types, but some
+// clients attach images with a missing or generic type. Fall back to the
+// filename extension (only formats Preprocess actually decodes).
+func looksLikeImage(contentType, filename string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.HasPrefix(ct, "image/") {
+		return true
+	}
+	name := strings.ToLower(filename)
+	i := strings.LastIndexByte(name, '.')
+	if i < 0 {
+		return false
+	}
+	switch name[i:] {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return true
+	}
+	return false
+}
+
 // gateMessage decides whether a message needs detection (cheap path only).
 func (m *ImageFilterModule) gateMessage(e *events.GuildMessageCreate) {
 	if !m.isLoaded() || e.GuildID == 0 {
@@ -59,7 +79,11 @@ func (m *ImageFilterModule) gateMessage(e *events.GuildMessageCreate) {
 	// Identical URLs are submitted once.
 	seen := make(map[string]struct{}, len(e.Message.Attachments))
 	for _, att := range e.Message.Attachments {
-		if att.ContentType == nil || !strings.HasPrefix(*att.ContentType, "image/") || att.ProxyURL == "" {
+		ct := ""
+		if att.ContentType != nil {
+			ct = *att.ContentType
+		}
+		if !looksLikeImage(ct, att.Filename) || att.ProxyURL == "" {
 			continue
 		}
 		if _, dup := seen[att.ProxyURL]; dup {

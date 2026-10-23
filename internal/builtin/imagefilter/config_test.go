@@ -323,3 +323,28 @@ func TestDecodeCheckRejectsGarbage(t *testing.T) {
 		t.Errorf("valid PNG should pass: %v", err)
 	}
 }
+
+// TestCoreConfigNormalizesUnknownVariant pins the load-time normalization: a
+// hand-edited unknown variant falls back to the default AND is persisted, so
+// the file cannot disagree with the running model on every restart.
+func TestCoreConfigNormalizesUnknownVariant(t *testing.T) {
+	dir := t.TempDir()
+	core := &corecfg.Config{
+		FilePath:    filepath.Join(dir, "config.yml"),
+		ImageFilter: corecfg.ImageFilterConfig{Variant: "not-a-variant"},
+	}
+	cfg, err := loadCoreConfig(core, t.TempDir())
+	if err != nil {
+		t.Fatalf("loadCoreConfig: %v", err)
+	}
+	if got := cfg.ClipVariant(); got != DefaultClipVariant {
+		t.Fatalf("variant = %q, want %q", got, DefaultClipVariant)
+	}
+	reloaded, err := corecfg.Load(dir)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if got := reloaded.GetImageFilter().Variant; got != DefaultClipVariant {
+		t.Errorf("persisted variant = %q, want %q", got, DefaultClipVariant)
+	}
+}

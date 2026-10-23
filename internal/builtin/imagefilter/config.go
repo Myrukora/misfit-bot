@@ -172,8 +172,12 @@ func loadCoreConfig(core *corecfg.Config, dataDir string) (*config, error) {
 		core: core,
 		file: fileConfig{ClipVariant: sec.Variant, Guilds: map[string]GuildConfig{}},
 	}
+	needSave := false
 	if !validVariant(c.file.ClipVariant) {
+		// A hand-edited/unknown variant is normalized AND persisted, so the
+		// file cannot disagree with the running model on every restart.
 		c.file.ClipVariant = DefaultClipVariant
+		needSave = true
 	}
 	for id, g := range sec.Guilds {
 		c.file.Guilds[id] = GuildConfig{
@@ -185,7 +189,6 @@ func loadCoreConfig(core *corecfg.Config, dataDir string) (*config, error) {
 
 	// One-time migration: an install that used the legacy JSON keeps its
 	// settings. Only when the core section carries no guilds yet.
-	needSave := false
 	if len(sec.Guilds) == 0 {
 		if legacy, ok := readLegacyConfig(dataDir); ok {
 			c.file = legacy
@@ -240,8 +243,13 @@ func (c *config) SetClipVariant(v string) (invalidated bool, err error) {
 	if c.file.ClipVariant == v {
 		return false, nil
 	}
+	prev := c.file.ClipVariant
 	c.file.ClipVariant = v
-	return true, c.saveLocked()
+	if err := c.saveLocked(); err != nil {
+		c.file.ClipVariant = prev
+		return false, err
+	}
+	return true, nil
 }
 
 // GuildSettings returns the effective per-guild config with defaults merged
@@ -289,15 +297,26 @@ func (c *config) EnabledGuilds() []string {
 	return out
 }
 
-// SetGuildConfig validates and stores the full per-guild config.
+// SetGuildConfig validates and stores the full per-guild config. If the
+// persist fails, the in-memory entry is restored: a config the disk doesn't
+// have must not silently drive detection.
 func (c *config) SetGuildConfig(guildID string, gc GuildConfig) error {
 	if err := gc.Validate(); err != nil {
 		return err
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	prev, had := c.file.Guilds[guildID]
 	c.file.Guilds[guildID] = gc
-	return c.saveLocked()
+	if err := c.saveLocked(); err != nil {
+		if had {
+			c.file.Guilds[guildID] = prev
+		} else {
+			delete(c.file.Guilds, guildID)
+		}
+		return err
+	}
+	return nil
 }
 
 // SetGuildEnabled flips just the enable flag; returns whether the effective
@@ -305,11 +324,20 @@ func (c *config) SetGuildConfig(guildID string, gc GuildConfig) error {
 func (c *config) SetGuildEnabled(guildID string, enabled bool) (changed bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	g := c.file.Guilds[guildID]
-	if g.Enabled == enabled {
+	prev, had := c.file.Guilds[guildID]
+	if prev.Enabled == enabled {
 		return false, nil
 	}
-	g.Enabled = enabled
-	c.file.Guilds[guildID] = g
-	return true, c.saveLocked()
+	next := prev
+	next.Enabled = enabled
+	c.file.Guilds[guildID] = next
+	if err := c.saveLocked(); err != nil {
+		if had {
+			c.file.Guilds[guildID] = prev
+		} else {
+			delete(c.file.Guilds, guildID)
+		}
+		return false, err
+	}
+	return true, nil
 }
