@@ -2,17 +2,95 @@ package imagefilter
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
 	"os"
 	"path/filepath"
 	"testing"
+
+	corecfg "github.com/misfit/bot/config"
 )
 
 func testDir(t *testing.T) string {
 	t.Helper()
 	return t.TempDir()
+}
+
+// TestCoreBackedConfig pins the config.yml backing: writes land in the core
+// section (and the file), and nothing is written to the module data dir.
+func TestCoreBackedConfig(t *testing.T) {
+	dir := t.TempDir()
+	core := &corecfg.Config{
+		FilePath:    filepath.Join(dir, "config.yml"),
+		ImageFilter: corecfg.ImageFilterConfig{Variant: "b32"},
+	}
+	dataDir := t.TempDir()
+	cfg, err := loadCoreConfig(core, dataDir)
+	if err != nil {
+		t.Fatalf("loadCoreConfig: %v", err)
+	}
+	if err := cfg.SetGuildConfig("42", GuildConfig{Enabled: true, Threshold: 0.9, Punishment: PunishBan}); err != nil {
+		t.Fatalf("SetGuildConfig: %v", err)
+	}
+	if _, err := cfg.SetClipVariant("b16"); err != nil {
+		t.Fatalf("SetClipVariant: %v", err)
+	}
+
+	reloaded, err := corecfg.Load(dir)
+	if err != nil {
+		t.Fatalf("reload config.yml: %v", err)
+	}
+	if reloaded.ImageFilter.Variant != "b16" {
+		t.Errorf("variant = %q, want b16", reloaded.ImageFilter.Variant)
+	}
+	g := reloaded.ImageFilter.Guilds["42"]
+	if !g.Enabled || g.Punishment != PunishBan || g.Threshold != 0.9 {
+		t.Errorf("guild section = %+v", g)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "config.json")); !os.IsNotExist(err) {
+		t.Error("core mode must not create a module-local config.json")
+	}
+}
+
+// TestLegacyConfigMigratesToCore pins the one-time import: an install with the
+// old config.json keeps its guild settings, and the file is renamed.
+func TestLegacyConfigMigratesToCore(t *testing.T) {
+	dataDir := t.TempDir()
+	legacy := fileConfig{
+		ClipVariant: "l14",
+		Guilds:      map[string]GuildConfig{"7": {Enabled: true, Threshold: 0.88, Punishment: PunishKick}},
+	}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(configPath(dataDir), data, 0o600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	core := &corecfg.Config{
+		FilePath:    filepath.Join(t.TempDir(), "config.yml"),
+		ImageFilter: corecfg.ImageFilterConfig{Variant: "b32"},
+	}
+	cfg, err := loadCoreConfig(core, dataDir)
+	if err != nil {
+		t.Fatalf("loadCoreConfig: %v", err)
+	}
+	if cfg.ClipVariant() != "l14" {
+		t.Errorf("variant = %q, want l14", cfg.ClipVariant())
+	}
+	g := cfg.GuildSettings("7")
+	if !g.Enabled || g.Punishment != PunishKick || g.Threshold != 0.88 {
+		t.Errorf("migrated guild = %+v", g)
+	}
+	if _, err := os.Stat(configPath(dataDir) + ".migrated"); err != nil {
+		t.Errorf("legacy config.json should be renamed: %v", err)
+	}
+	if _, err := os.Stat(configPath(dataDir)); !os.IsNotExist(err) {
+		t.Error("legacy config.json still present after migration")
+	}
 }
 
 // smallPNG renders a solid-color PNG of the given size.

@@ -402,14 +402,10 @@ func TestMarkClosedIdempotent(t *testing.T) {
 	if m.markClosed(tk, "42", "tester", "user") {
 		t.Fatal("second markClosed should return false")
 	}
-	closes := 0
 	for _, e := range tk.Log {
-		if e.MsgID == "system-close-staff-0001" {
-			closes++
+		if e.MsgID == "system-close-staff-0001" || e.Content == "_Ticket closed._" {
+			t.Fatal("markClosed must not append a synthetic close entry")
 		}
-	}
-	if closes != 1 {
-		t.Fatalf("system-close entries = %d, want 1", closes)
 	}
 	if tk.Status != "closed" || tk.CloseReason != "user" {
 		t.Fatalf("close state = %q/%q, want closed/user", tk.Status, tk.CloseReason)

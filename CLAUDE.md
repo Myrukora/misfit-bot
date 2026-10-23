@@ -539,6 +539,12 @@ registers no Discord commands. Images posted in enabled guilds are embedded with
 CLIP vision tower via **ONNX Runtime (CPU)** and compared by cosine similarity
 against that guild's blacklisted reference images.
 
+- **Configuration lives in core `config.yml`** under `imagefilter:` — the
+  bot-wide `variant` plus a `guilds` map of per-guild settings. The module data
+  dir (`modules/imagefilter/`) holds only reference images and model files; a
+  legacy `modules/imagefilter/config.json` is imported once on startup and
+  renamed `config.json.migrated`.
+
 - **Model lifecycle (warm/cold):** enabling the filter on the first guild loads the
   model and keeps it warm; disabling everywhere closes the session and frees RAM
   (`manager.go` refcount). Variant switch (`b32` default, `b16`, `l14`, `l14-336`)

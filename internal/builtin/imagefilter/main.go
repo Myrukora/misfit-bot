@@ -12,6 +12,8 @@ package imagefilter
 import (
 	"sync"
 
+	corecfg "github.com/misfit/bot/config"
+
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/modules"
 )
@@ -54,7 +56,16 @@ func (m *ImageFilterModule) SlashCommands() []commands.SlashCommand { return nil
 // reports why on the dashboard instead of blocking the whole builtin
 // registration.
 func (m *ImageFilterModule) OnLoad(ctx *modules.Context) error {
-	cfg, err := loadConfig(ctx.DataDir)
+	core, _ := ctx.CoreConfig.(*corecfg.Config)
+	var (
+		cfg *config
+		err error
+	)
+	if core != nil {
+		cfg, err = loadCoreConfig(core, ctx.DataDir)
+	} else {
+		cfg, err = loadConfig(ctx.DataDir)
+	}
 	if err != nil {
 		return err
 	}

@@ -1915,6 +1915,13 @@ input[type="range"].cfg-field::-moz-range-thumb {
     cursor: pointer;
 }
 
+.player-vol {
+    width: 64px;
+    height: 4px;
+    accent-color: white;
+    cursor: pointer;
+}
+
 .player-time {
     color: #a1a1aa;
     font-size: 12px;

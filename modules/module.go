@@ -115,6 +115,10 @@ type Context struct {
 	Bot          commands.Interface
 	Events       *EventHooks
 	VoiceManager *VoiceManager
+	// CoreConfig is the bot's *config.Config, exposed as any so this package
+	// needs no config-package dependency. Builtins that persist into
+	// config.yml (imagefilter) assert it; nil when unavailable.
+	CoreConfig any
 }
 
 type EventHooks struct {

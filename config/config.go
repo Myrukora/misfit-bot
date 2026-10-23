@@ -13,14 +13,33 @@ import (
 )
 
 type Config struct {
-	FilePath  string              `yaml:"-"`
-	Bot       BotConfig           `yaml:"bot"`
-	Modules   ModulesConfig       `yaml:"modules"`
-	Logging   LoggingConfig       `yaml:"logging"`
-	OAuth     OAuthConfig         `yaml:"oauth"`
-	Dashboard DashboardCoreConfig `yaml:"dashboard"`
-	Updater   UpdaterConfig       `yaml:"updater"`
-	MCP       MCPConfig           `yaml:"mcp"`
+	FilePath    string              `yaml:"-"`
+	Bot         BotConfig           `yaml:"bot"`
+	Modules     ModulesConfig       `yaml:"modules"`
+	Logging     LoggingConfig       `yaml:"logging"`
+	OAuth       OAuthConfig         `yaml:"oauth"`
+	Dashboard   DashboardCoreConfig `yaml:"dashboard"`
+	Updater     UpdaterConfig       `yaml:"updater"`
+	MCP         MCPConfig           `yaml:"mcp"`
+	ImageFilter ImageFilterConfig   `yaml:"imagefilter"`
+}
+
+// ImageFilterConfig is the image filter's configuration, kept in the core
+// config.yml instead of a module-local file. Guilds maps guild IDs to their
+// settings; Variant is the bot-wide CLIP vision-tower variant.
+type ImageFilterConfig struct {
+	Variant string                      `yaml:"variant"`
+	Guilds  map[string]ImageFilterGuild `yaml:"guilds"`
+}
+
+// ImageFilterGuild is one guild's image-filter settings.
+type ImageFilterGuild struct {
+	Enabled      bool    `yaml:"enabled"`
+	Threshold    float64 `yaml:"threshold"`
+	Punishment   string  `yaml:"punishment"`
+	MuteDuration int     `yaml:"mute_duration"`
+	LogChannel   string  `yaml:"log_channel"`
+	DeleteOnNone bool    `yaml:"delete_on_none"`
 }
 
 // OAuthConfig holds the Discord application's OAuth2 client secret. Unlike
@@ -222,6 +241,9 @@ var DefaultConfig = &Config{
 	MCP: MCPConfig{
 		Enabled: true,
 	},
+	ImageFilter: ImageFilterConfig{
+		Variant: "b32",
+	},
 }
 
 func Load(dir string) (*Config, error) {
@@ -280,6 +302,33 @@ func Exists(dir string) bool {
 	path := filepath.Join(dir, "config.yml")
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
+}
+
+// imageFilterMu serializes image-filter section reads/writes; the core Config
+// itself carries no mutex, so the builtin guards its own section.
+var imageFilterMu sync.Mutex
+
+// GetImageFilter returns a copy of the image-filter section.
+func (c *Config) GetImageFilter() ImageFilterConfig {
+	imageFilterMu.Lock()
+	defer imageFilterMu.Unlock()
+	sec := c.ImageFilter
+	if sec.Guilds != nil {
+		guilds := make(map[string]ImageFilterGuild, len(sec.Guilds))
+		for id, g := range sec.Guilds {
+			guilds[id] = g
+		}
+		sec.Guilds = guilds
+	}
+	return sec
+}
+
+// SetImageFilter replaces the image-filter section and saves config.yml.
+func (c *Config) SetImageFilter(sec ImageFilterConfig) error {
+	imageFilterMu.Lock()
+	defer imageFilterMu.Unlock()
+	c.ImageFilter = sec
+	return Save(c, filepath.Dir(c.FilePath))
 }
 
 func (c *Config) Set(key, value string) error {

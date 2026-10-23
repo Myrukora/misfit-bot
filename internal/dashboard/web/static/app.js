@@ -872,6 +872,7 @@
       var seek = p.querySelector(".player-seek");
       var time = p.querySelector(".player-time");
       var mute = p.querySelector(".player-mute");
+      var vol = p.querySelector(".player-vol");
       var full = p.querySelector(".player-full");
       if (!media || !play || !seek || !time || !mute) return;
       var fmt = function (s) {
@@ -884,6 +885,7 @@
         seek.value = dur ? Math.round((cur / dur) * 1000) : 0;
         time.textContent = fmt(cur) + " / " + fmt(dur);
         play.textContent = media.paused ? "▶" : "❚❚";
+        if (vol) vol.value = Math.round((media.muted ? 0 : media.volume) * 100);
       };
       var toggle = function () {
         if (media.paused) {
@@ -905,7 +907,15 @@
       mute.addEventListener("click", function () {
         media.muted = !media.muted;
         mute.textContent = media.muted ? "🔇" : "🔊";
+        sync();
       });
+      if (vol) {
+        vol.addEventListener("input", function () {
+          media.volume = vol.value / 100;
+          media.muted = vol.value === "0";
+          mute.textContent = media.muted ? "🔇" : "🔊";
+        });
+      }
       if (full) {
         full.addEventListener("click", function () {
           if (document.fullscreenElement) {

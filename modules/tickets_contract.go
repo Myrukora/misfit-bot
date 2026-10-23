@@ -1,6 +1,9 @@
 package modules
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // TicketProvider is the OPTIONAL interface a ticket module implements so the
 // dashboard can list, view and close tickets without importing the module's
@@ -63,17 +66,26 @@ func (t *Ticket) EffectiveType() string {
 	return t.Group
 }
 
-// LogCount returns the number of conversation entries, excluding the ticket's
-// own opening message (pings + opening embed) which is a system post.
-func (t *Ticket) LogCount() int {
-	n := 0
+// VisibleLog returns the conversation entries shown to users: the ticket's
+// own opening message (pings + embed) and the synthetic close notice are
+// system noise, not conversation. Old logs still carry both.
+func (t *Ticket) VisibleLog() []LogEntry {
+	out := make([]LogEntry, 0, len(t.Log))
 	for _, e := range t.Log {
 		if t.MessageID != "" && e.MsgID == t.MessageID {
 			continue
 		}
-		n++
+		if strings.HasPrefix(e.MsgID, "system-close-") || e.Content == "_Ticket closed._" {
+			continue
+		}
+		out = append(out, e)
 	}
-	return n
+	return out
+}
+
+// LogCount returns the number of visible conversation entries.
+func (t *Ticket) LogCount() int {
+	return len(t.VisibleLog())
 }
 
 // LogEntry is one conversation event inside a ticket. Edits overwrite Content
