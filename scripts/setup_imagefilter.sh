@@ -32,7 +32,10 @@
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-MODELS_DIR="$ROOT/modules/imagefilter/models"
+# The bot passes its configured module data dir (absolute) so a custom
+# modules.path keeps the model next to the module; default layout otherwise.
+MODELS_DIR="${IMAGEFILTER_DATA_DIR:+$IMAGEFILTER_DATA_DIR/models}"
+MODELS_DIR="${MODELS_DIR:-$ROOT/modules/imagefilter/models}"
 VENV="$MODELS_DIR/.export-venv"
 VARIANT="${VARIANT:-b32}"
 MODEL_FILE="$MODELS_DIR/clip-vision-${VARIANT}.onnx"

@@ -261,10 +261,48 @@
     });
 
     /* while the runtime/model is being provisioned in the background, poll the
-       page so the chip and any setup error follow the actual state */
+       overview endpoint and update the chip/error in place — reloading would
+       discard unsaved detection settings or gallery edits */
     var modelState = byId("if-model-state");
     if (modelState && modelState.dataset.provisioning === "true") {
-      setTimeout(function () { location.reload(); }, 10000);
+      setTimeout(pollProvisioning, 10000);
+    }
+
+    function applyModelStatus(status) {
+      if (!modelState) return false;
+      modelState.dataset.provisioning = String(!!status.provisioning);
+      if (status.provisioning) {
+        modelState.textContent = "🟡 preparing model…";
+      } else if (status.warm) {
+        modelState.textContent = "🟢 model warm";
+      } else {
+        modelState.textContent = "⚪ model cold";
+      }
+      var err = byId("if-model-error");
+      if (status.provision_error) {
+        if (!err) {
+          err = document.createElement("p");
+          err.id = "if-model-error";
+          err.className = "muted";
+          err.style.margin = "8px 0 0";
+          err.style.borderLeft = "2px solid rgba(237,66,69,.6)";
+          err.style.paddingLeft = "8px";
+          var anchor = modelState.closest(".if-model-row") || modelState;
+          anchor.insertAdjacentElement("afterend", err);
+        }
+        err.textContent = "Model setup failed: " + status.provision_error;
+      } else if (err) {
+        err.remove();
+      }
+      return !!status.provisioning;
+    }
+
+    function pollProvisioning() {
+      api("GET", "/api/guilds/" + guildID + "/imagefilter")
+        .then(function (r) {
+          if (applyModelStatus(r.status || {})) setTimeout(pollProvisioning, 10000);
+        })
+        .catch(function () { setTimeout(pollProvisioning, 15000); });
     }
 
     /* punishment select shows/hides the duration field */

@@ -14,7 +14,7 @@ import (
 
 // provisionHarness points a module at a fake repo root containing
 // scripts/setup_imagefilter.sh and swaps the script runner.
-func provisionHarness(t *testing.T, run func(ctx context.Context, root, script, variant string) (string, error)) (*ImageFilterModule, *manager) {
+func provisionHarness(t *testing.T, run func(ctx context.Context, root, script, variant, dataDir string) (string, error)) (*ImageFilterModule, *manager) {
 	t.Helper()
 	mod, mgr, _ := newTestModule(t)
 
@@ -59,7 +59,7 @@ func TestProvisionSingleFlight(t *testing.T) {
 	var calls atomic.Int32
 	release := make(chan struct{})
 	entered := make(chan struct{}, 2)
-	mod, _ := provisionHarness(t, func(context.Context, string, string, string) (string, error) {
+	mod, _ := provisionHarness(t, func(context.Context, string, string, string, string) (string, error) {
 		calls.Add(1)
 		entered <- struct{}{}
 		<-release
@@ -80,7 +80,7 @@ func TestProvisionSingleFlight(t *testing.T) {
 // TestProvisionFailureRecorded pins the error surface: the exit error and the
 // script output tail are kept for the dashboard.
 func TestProvisionFailureRecorded(t *testing.T) {
-	mod, _ := provisionHarness(t, func(context.Context, string, string, string) (string, error) {
+	mod, _ := provisionHarness(t, func(context.Context, string, string, string, string) (string, error) {
 		return "network down: dial tcp: timeout", errors.New("exit status 1")
 	})
 	mod.startProvisioning()
@@ -100,7 +100,7 @@ func TestProvisionFailureRecorded(t *testing.T) {
 // the model with the configured variant once the artifacts exist.
 func TestProvisionSuccessWarms(t *testing.T) {
 	var gotVariant string
-	mod, mgr := provisionHarness(t, func(_ context.Context, _, _, variant string) (string, error) {
+	mod, mgr := provisionHarness(t, func(_ context.Context, _, _, variant, _ string) (string, error) {
 		gotVariant = variant
 		return "done", nil
 	})
@@ -137,6 +137,13 @@ func TestProvisionScriptMissing(t *testing.T) {
 	mod, mgr, _ := newTestModule(t)
 	mgr.dataDir = filepath.Join(t.TempDir(), "modules", "imagefilter")
 
+	// The real checkout has the script; point the fallback at an empty dir so
+	// this test exercises the missing-script branch (and never runs the script).
+	empty := t.TempDir()
+	orig := repoRootFn
+	repoRootFn = func() (string, bool) { return empty, true }
+	t.Cleanup(func() { repoRootFn = orig })
+
 	mod.startProvisioning()
 	_, errText := mod.prov.snapshot()
 	if !strings.Contains(errText, "setup script not found") {
@@ -162,8 +169,8 @@ func TestStatusReportsProvisioning(t *testing.T) {
 }
 
 // TestProvisionRunsRealScript exercises the production runner (not the seam):
-// the script runs from the repo root with the configured VARIANT in its
-// environment.
+// the script runs from the repo root with the configured VARIANT and the
+// module data dir in its environment.
 func TestProvisionRunsRealScript(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
@@ -176,7 +183,7 @@ func TestProvisionRunsRealScript(t *testing.T) {
 		t.Fatalf("mkdir scripts: %v", err)
 	}
 	marker := filepath.Join(root, "ran.txt")
-	script := "#!/bin/sh\nprintf '%s' \"$VARIANT\" > \"" + marker + "\"\n"
+	script := "#!/bin/sh\nprintf '%s\\n%s' \"$VARIANT\" \"$IMAGEFILTER_DATA_DIR\" > \"" + marker + "\"\n"
 	if err := os.WriteFile(filepath.Join(scriptDir, "setup_imagefilter.sh"), []byte(script), 0o755); err != nil {
 		t.Fatalf("write script: %v", err)
 	}
@@ -191,8 +198,12 @@ func TestProvisionRunsRealScript(t *testing.T) {
 	if err != nil {
 		t.Fatalf("script did not run: %v", err)
 	}
-	if string(data) != "l14" {
-		t.Errorf("script saw VARIANT=%q, want l14", data)
+	parts := strings.SplitN(string(data), "\n", 2)
+	if len(parts) != 2 || parts[0] != "l14" {
+		t.Errorf("script saw VARIANT=%q, want l14", parts[0])
+	}
+	if len(parts) != 2 || parts[1] != mgr.dataDir {
+		t.Errorf("script saw IMAGEFILTER_DATA_DIR=%q, want %q", parts[1], mgr.dataDir)
 	}
 	if _, errText := mod.prov.snapshot(); errText != "" {
 		t.Errorf("unexpected setup error: %s", errText)

@@ -323,12 +323,19 @@ func (c *Config) GetImageFilter() ImageFilterConfig {
 	return sec
 }
 
-// SetImageFilter replaces the image-filter section and saves config.yml.
+// SetImageFilter replaces the image-filter section and saves config.yml. If
+// the save fails, the previous section is restored: a config the disk doesn't
+// have must never drive detection (the image-filter setters rely on this).
 func (c *Config) SetImageFilter(sec ImageFilterConfig) error {
 	imageFilterMu.Lock()
 	defer imageFilterMu.Unlock()
+	prev := c.ImageFilter
 	c.ImageFilter = sec
-	return Save(c, filepath.Dir(c.FilePath))
+	if err := Save(c, filepath.Dir(c.FilePath)); err != nil {
+		c.ImageFilter = prev
+		return err
+	}
+	return nil
 }
 
 func (c *Config) Set(key, value string) error {

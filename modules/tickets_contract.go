@@ -67,15 +67,17 @@ func (t *Ticket) EffectiveType() string {
 }
 
 // VisibleLog returns the conversation entries shown to users: the ticket's
-// own opening message (pings + embed) and the synthetic close notice are
-// system noise, not conversation. Old logs still carry both.
+// own opening message (pings + embed) and the synthetic close notice (its
+// system-close-* message ID is the marker) are system noise, not conversation.
+// The text is deliberately NOT matched: a user writing "_Ticket closed._" is
+// conversation and must stay visible.
 func (t *Ticket) VisibleLog() []LogEntry {
 	out := make([]LogEntry, 0, len(t.Log))
 	for _, e := range t.Log {
 		if t.MessageID != "" && e.MsgID == t.MessageID {
 			continue
 		}
-		if strings.HasPrefix(e.MsgID, "system-close-") || e.Content == "_Ticket closed._" {
+		if strings.HasPrefix(e.MsgID, "system-close-") {
 			continue
 		}
 		out = append(out, e)

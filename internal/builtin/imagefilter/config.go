@@ -189,17 +189,23 @@ func loadCoreConfig(core *corecfg.Config, dataDir string) (*config, error) {
 
 	// One-time migration: an install that used the legacy JSON keeps its
 	// settings. Only when the core section carries no guilds yet.
+	migrated := false
 	if len(sec.Guilds) == 0 {
 		if legacy, ok := readLegacyConfig(dataDir); ok {
 			c.file = legacy
 			needSave = true
-			_ = os.Rename(configPath(dataDir), configPath(dataDir)+".migrated")
+			migrated = true
 		}
 	}
 	if needSave {
 		if err := c.saveLocked(); err != nil {
 			return nil, err
 		}
+	}
+	if migrated {
+		// Rename only after the settings are durable in config.yml: a failed
+		// save must leave the legacy file in place for the next start.
+		_ = os.Rename(configPath(dataDir), configPath(dataDir)+".migrated")
 	}
 	return c, nil
 }

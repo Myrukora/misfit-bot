@@ -377,7 +377,7 @@ func archivePlayerHTML(kind, src string) string {
 		"<div class='pbar'><button class='pbtn pplay' type='button'>▶</button>" +
 		"<input class='pseek' type='range' min='0' max='1000' value='0'>" +
 		"<span class='ptime'>0:00</span>" +
-		"<input class='pvol' type='range' min='0' max='100' value='100'>" +
+		"<input class='pvol' type='range' min='0' max='100' value='100' aria-label='Volume'>" +
 		"<button class='pbtn pmute' type='button'>🔊</button>" +
 		"<button class='pbtn pfull' type='button'>⛶</button>" +
 		"<a class='pbtn pdl' href='" + html.EscapeString(src) + "' download>⬇</a></div></div>"

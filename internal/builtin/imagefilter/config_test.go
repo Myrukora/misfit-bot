@@ -348,3 +348,39 @@ func TestCoreConfigNormalizesUnknownVariant(t *testing.T) {
 		t.Errorf("persisted variant = %q, want %q", got, DefaultClipVariant)
 	}
 }
+
+// TestCoreMigrationKeepsLegacyFileOnSaveFailure pins the migration ordering: a
+// failed core save must leave the legacy JSON in place (renaming it first would
+// drop the only copy of the settings on the next start).
+func TestCoreMigrationKeepsLegacyFileOnSaveFailure(t *testing.T) {
+	dataDir := t.TempDir()
+	legacy := fileConfig{
+		ClipVariant: "l14",
+		Guilds:      map[string]GuildConfig{"7": {Enabled: true, Threshold: 0.88, Punishment: PunishKick}},
+	}
+	data, err := json.MarshalIndent(legacy, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal legacy: %v", err)
+	}
+	if err := os.WriteFile(configPath(dataDir), data, 0o600); err != nil {
+		t.Fatalf("write legacy: %v", err)
+	}
+
+	blocked := filepath.Join(t.TempDir(), "blocked")
+	if err := os.WriteFile(blocked, []byte("x"), 0o600); err != nil {
+		t.Fatalf("plant file: %v", err)
+	}
+	core := &corecfg.Config{
+		FilePath:    filepath.Join(blocked, "config.yml"), // parent is a file → save fails
+		ImageFilter: corecfg.ImageFilterConfig{Variant: "b32"},
+	}
+	if _, err := loadCoreConfig(core, dataDir); err == nil {
+		t.Fatal("expected the core save to fail")
+	}
+	if _, err := os.Stat(configPath(dataDir)); err != nil {
+		t.Fatal("legacy config.json must survive a failed migration")
+	}
+	if _, err := os.Stat(configPath(dataDir) + ".migrated"); err == nil {
+		t.Fatal("legacy file must not be renamed when the save failed")
+	}
+}

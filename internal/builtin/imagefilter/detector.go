@@ -37,13 +37,27 @@ func authorIDOf(e *events.GuildMessageCreate) string {
 	return e.Message.Author.ID.String()
 }
 
+// genericContentType reports whether a content type carries no format
+// information, i.e. whether the filename extension may be trusted instead.
+func genericContentType(ct string) bool {
+	switch ct {
+	case "", "application/octet-stream", "binary/octet-stream", "application/binary":
+		return true
+	}
+	return false
+}
+
 // looksLikeImage: Discord normally sends image/* content types, but some
-// clients attach images with a missing or generic type. Fall back to the
-// filename extension (only formats Preprocess actually decodes).
+// clients attach images with a missing or generic type. Only those fall back
+// to the filename extension (formats Preprocess actually decodes); an explicit
+// non-image type (text/plain on a "photo.png") is authoritative.
 func looksLikeImage(contentType, filename string) bool {
 	ct := strings.ToLower(strings.TrimSpace(contentType))
 	if strings.HasPrefix(ct, "image/") {
 		return true
+	}
+	if !genericContentType(ct) {
+		return false
 	}
 	name := strings.ToLower(filename)
 	i := strings.LastIndexByte(name, '.')

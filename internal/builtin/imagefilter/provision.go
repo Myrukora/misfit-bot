@@ -37,11 +37,9 @@ const (
 
 // provisionState tracks the single in-flight setup run and its outcome.
 type provisionState struct {
-	mu       sync.Mutex
-	running  bool
-	lastErr  string
-	started  time.Time
-	finished time.Time
+	mu      sync.Mutex
+	running bool
+	lastErr string
 }
 
 // snapshot reports the current state with the error capped for display.
@@ -57,12 +55,13 @@ func (p *provisionState) snapshot() (running bool, lastErr string) {
 
 // runProvisionScript runs the shared setup script. It is a variable so tests
 // can exercise the state machine without downloading anything.
-var runProvisionScript = func(ctx context.Context, root, script, variant string) (string, error) {
+var runProvisionScript = func(ctx context.Context, root, script, variant, dataDir string) (string, error) {
 	cmd := exec.CommandContext(ctx, "bash", script)
 	cmd.Dir = root
 	// The script defaults to b32; pass the configured variant so a non-default
-	// install provisions the model it will actually load.
-	cmd.Env = append(os.Environ(), "VARIANT="+variant)
+	// install provisions the model it will actually load. IMAGEFILTER_DATA_DIR
+	// keeps the model next to the module when modules.path is customized.
+	cmd.Env = append(os.Environ(), "VARIANT="+variant, "IMAGEFILTER_DATA_DIR="+dataDir)
 	// bash spawns python/pip: put it in its own process group so the timeout
 	// kills the whole tree instead of orphaning a downloader.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -77,15 +76,27 @@ var runProvisionScript = func(ctx context.Context, root, script, variant string)
 	return string(out), err
 }
 
-// provisionTargets resolves the repo root and setup script from the module
-// data dir (<root>/modules/imagefilter).
+// repoRootFn resolves the checkout root (the directory holding go.mod). It is
+// a variable so tests can point the fallback at a controlled directory.
+var repoRootFn = repoRootOnce
+
+// provisionTargets resolves the checkout root and setup script. The default
+// layout is <root>/modules/imagefilter; a custom modules.path may live
+// elsewhere, so fall back to the checkout root found by walking up from the
+// CWD. The module data dir is passed to the script separately via
+// IMAGEFILTER_DATA_DIR so models land next to the module in either case.
 func provisionTargets(dataDir string) (root, script string) {
-	abs, err := filepath.Abs(dataDir)
-	if err != nil {
-		return "", ""
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		root = filepath.Dir(filepath.Dir(abs))
+		script = filepath.Join(root, "scripts", "setup_imagefilter.sh")
+		if _, err := os.Stat(script); err == nil {
+			return root, script
+		}
 	}
-	root = filepath.Dir(filepath.Dir(abs))
-	return root, filepath.Join(root, "scripts", "setup_imagefilter.sh")
+	if r, ok := repoRootFn(); ok {
+		return r, filepath.Join(r, "scripts", "setup_imagefilter.sh")
+	}
+	return "", ""
 }
 
 // artifactsMissing names the first missing runtime artifact ("" = ready).
@@ -135,9 +146,11 @@ func (m *ImageFilterModule) startProvisioning() {
 		return
 	}
 	variant := mgr.cfg.ClipVariant()
+	dataDir := mgr.dataDir
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		dataDir = abs
+	}
 	m.prov.running = true
-	m.prov.started = time.Now()
-	m.prov.finished = time.Time{}
 	m.prov.lastErr = ""
 	m.prov.mu.Unlock()
 
@@ -148,7 +161,7 @@ func (m *ImageFilterModule) startProvisioning() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), provisionTimeout)
 		defer cancel()
-		out, err := runProvisionScript(ctx, root, script, variant)
+		out, err := runProvisionScript(ctx, root, script, variant, dataDir)
 		tail := tailString(out, provisionTail)
 		if err == nil && m.isLoaded() {
 			// The script is idempotent and exits 0 when both artifacts are
@@ -163,7 +176,6 @@ func (m *ImageFilterModule) startProvisioning() {
 
 		m.prov.mu.Lock()
 		m.prov.running = false
-		m.prov.finished = time.Now()
 		if err != nil {
 			m.prov.lastErr = strings.TrimSpace(err.Error() + "\n" + tail)
 		} else {

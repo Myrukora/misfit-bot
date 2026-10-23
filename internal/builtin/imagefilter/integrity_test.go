@@ -208,8 +208,11 @@ func TestLooksLikeImageFallback(t *testing.T) {
 		{"image/png", "x", true},
 		{"IMAGE/WEBP", "x", true},
 		{"application/octet-stream", "photo.WEBP", true},
+		{"binary/octet-stream", "pic.jpeg", true},
 		{"", "pic.jpeg", true},
 		{"text/plain", "notes.txt", false},
+		{"text/plain", "evil.png", false},
+		{"application/pdf", "scan.png", false},
 		{"", "noext", false},
 		{"application/octet-stream", "archive.zip", false},
 	}

@@ -17,7 +17,7 @@
             <span class="muted">variant <code>{{.Content.status.Variant}}</code> · {{.Content.status.EnabledGuilds}} server(s) enabled</span>
           </div>
           {{with .Content.status.ProvisionError}}
-          <p class="muted" style="margin:8px 0 0;border-left:2px solid rgba(237,66,69,.6);padding-left:8px">Model setup failed: {{.}}</p>
+          <p class="muted" id="if-model-error" style="margin:8px 0 0;border-left:2px solid rgba(237,66,69,.6);padding-left:8px">Model setup failed: {{.}}</p>
           {{end}}
         </section>
 
