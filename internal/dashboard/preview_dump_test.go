@@ -97,8 +97,8 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{"tickets.html", "gtickets", "rd_tickets", ticketsPageData{
 			GuildID: "1",
 			TypeDetails: []modules.TypeDetail{
-				{Key: "support", Label: "Support", Enabled: true, Category: "c3", PingRoles: []string{"r2"}, HelperRoles: []string{"r2"}, Color: 0x5865F2, AllowClaim: true, AllowClose: true, ButtonLabel: "Support"},
-				{Key: "report", Label: "Report a member", Enabled: false, AllowClaim: true, AllowClose: true},
+				{Key: "support", Label: "Support", Enabled: true, Category: "c3", PingRoles: []string{"r2"}, HelperRoles: []string{"r2"}, Color: 0x5865F2, AllowClose: true, ButtonLabel: "Support"},
+				{Key: "report", Label: "Report a member", Enabled: false, AllowClose: true},
 			},
 			Panels: []modules.PanelSummary{{
 				Name: "support_panel", TypeKey: "support", ChannelID: "c1",
@@ -111,10 +111,10 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			Roles:        []entityOpt{{ID: "r1", Name: "@everyone"}, {ID: "r2", Name: "Staff"}},
 			ChannelNames: map[string]string{"c1": "general", "c2": "mod-log", "c3": "Tickets"},
 			People: map[string]ticketPerson{
-				"111": {Name: "Vixen"}, "9": {Name: "Staffy"}, "222": {Name: "Nova"},
+				"111": {Name: "Vixen"}, "222": {Name: "Nova"},
 			},
 			Open: []modules.TicketSummary{
-				{ID: "support-0012", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: time.Now().Add(-2 * time.Hour), Preview: []modules.Media{{
+				{ID: "support-0012", Type: "support", OpenerID: "111", OpenedAt: time.Now().Add(-2 * time.Hour), Preview: []modules.Media{{
 					URL: "/static/discord.svg", Kind: "image", Filename: "screenshot.png",
 				}}},
 			},
@@ -149,7 +149,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			CloseURL string
 		}{
 			Ticket: &modules.Ticket{
-				ID: "support-0012", Type: "support", GuildID: "1", OpenerID: "111", ClaimerID: "9", Status: "open",
+				ID: "support-0012", Type: "support", GuildID: "1", OpenerID: "111", Status: "open",
 				OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"333"},
 				Log: []modules.LogEntry{
 					{MsgID: "m1", AuthorID: "111", AuthorName: "Helper", Timestamp: time.Now().Add(-2 * time.Hour), Content: "My game **crashes**.",

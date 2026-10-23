@@ -435,7 +435,7 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 			{Key: "support", Label: "Support"},
 		},
 		Open: []modules.TicketSummary{
-			{ID: "12", Type: "support", OpenerID: "111", ClaimerID: "9", OpenedAt: now},
+			{ID: "12", Type: "support", OpenerID: "111", OpenedAt: now},
 		},
 		Closed: []modules.TicketSummary{
 			{ID: "11", Type: "report", OpenerID: "222", ClosedAt: now},
@@ -449,8 +449,8 @@ func TestRedesignTicketsCloseAffordance(t *testing.T) {
 	if !strings.Contains(out, `tk-close" data-id="12" data-guild="1"`) {
 		t.Error("open ticket missing Close affordance")
 	}
-	if strings.Count(out, "tk-close") != 1 {
-		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, "tk-close"))
+	if strings.Count(out, `tk-close" data-id=`) != 1 {
+		t.Errorf("archive rows must not render Close buttons, found %d", strings.Count(out, `tk-close" data-id=`))
 	}
 }
 
@@ -596,7 +596,7 @@ func TestRedesignTranscript(t *testing.T) {
 		t.Fatalf("loadTemplates: %v", err)
 	}
 	tk := &modules.Ticket{
-		ID: "support-0007", Type: "support", GuildID: "1", OpenerID: "2", ClaimerID: "3", Status: "open",
+		ID: "support-0007", Type: "support", GuildID: "1", OpenerID: "2", Status: "open",
 		OpenedAt: time.Now().Add(-2 * time.Hour), Members: []string{"4"},
 		Log: []modules.LogEntry{
 			{MsgID: "m1", AuthorID: "2", AuthorName: "vixen", Content: "crashes",

@@ -17,6 +17,74 @@
 </div>
 {{end}}
 
+{{define "tk_open_list"}}
+{{if .Open}}
+{{$g := .GuildID}}
+<div class="ticket-grid">
+  {{range .Open}}
+  {{$t := .}}
+  <article class="ticket-card" data-guild="{{$g}}">
+    <div class="ticket-top">
+      <a class="ticket-id" href="/tickets/{{$g}}/{{.ID}}"><code>{{.ID}}</code></a>
+      <span class="tag">{{.Type}}</span>
+    </div>
+    {{$op := index $.People .OpenerID}}
+    <div class="ticket-people">
+      <span class="ticket-person">
+        {{if $op.Avatar}}<img class="ticket-avatar" src="{{$op.Avatar}}" alt="" loading="lazy">{{end}}
+        {{if $op.Name}}{{$op.Name}}{{else}}<code>{{.OpenerID}}</code>{{end}}
+      </span>
+    </div>
+    {{if .Preview}}
+    <div class="ticket-media">
+      {{range .Preview}}
+      {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
+      {{if eq .Kind "image"}}
+      <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><img class="ticket-thumb" src="{{$src}}" alt="{{.Filename}}" loading="lazy"></a>
+      {{else if eq .Kind "video"}}
+      <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><video class="ticket-thumb" src="{{$src}}" preload="metadata" muted></video></a>
+      {{else if eq .Kind "audio"}}
+      <audio class="ticket-audio" controls preload="metadata" src="{{$src}}"></audio>
+      {{end}}
+      {{end}}
+    </div>
+    {{end}}
+    <div class="ticket-foot">
+      <span class="muted">opened {{dateHuman .OpenedAt}}</span>
+      <a class="btn btn-small" href="/tickets/{{$g}}/{{.ID}}">View</a>
+      <button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$g}}">Close</button>
+    </div>
+  </article>
+  {{end}}
+</div>
+{{else}}
+<p class="muted">No open tickets 🎉</p>
+{{end}}
+{{end}}
+
+{{define "tk_closed_list"}}
+{{if .Closed}}
+<div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
+    <tbody>
+      {{range .Closed}}
+      {{$p := index $.People .OpenerID}}
+      <tr>
+        <td><a href="/tickets/{{$.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
+        <td>{{.Type}}</td>
+        <td>{{if $p.Name}}{{$p.Name}}{{else if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
+        <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{else}}
+<p class="muted">Nothing archived yet.</p>
+{{end}}
+{{end}}
+
 {{define "rd_tickets"}}{{template "rd_header" .}}
         {{if .Content.Error}}
         <section class="card"><p class="muted">{{.Content.Error}}</p></section>
@@ -109,76 +177,13 @@
         <!-- ===== Open tickets ===== -->
         <section class="card">
           <h2>Open tickets</h2>
-          {{if .Content.Open}}
-          {{$g := .Content.GuildID}}
-          <div class="ticket-grid">
-            {{range .Content.Open}}
-            {{$t := .}}
-            <article class="ticket-card" data-guild="{{$g}}">
-              <div class="ticket-top">
-                <a class="ticket-id" href="/tickets/{{$g}}/{{.ID}}"><code>{{.ID}}</code></a>
-                <span class="tag">{{.Type}}</span>
-              </div>
-              {{$op := index $.Content.People .OpenerID}}
-              <div class="ticket-people">
-                <span class="ticket-person">
-                  {{if $op.Avatar}}<img class="ticket-avatar" src="{{$op.Avatar}}" alt="" loading="lazy">{{end}}
-                  {{if $op.Name}}{{$op.Name}}{{else}}<code>{{.OpenerID}}</code>{{end}}
-                </span>
-                {{if .ClaimerID}}{{$cl := index $.Content.People .ClaimerID}}
-                <span class="ticket-claimed">· claimed by {{if $cl.Name}}{{$cl.Name}}{{else}}<code>{{.ClaimerID}}</code>{{end}}</span>
-                {{else}}<span class="ticket-unclaimed">· unclaimed</span>{{end}}
-              </div>
-              {{if .Preview}}
-              <div class="ticket-media">
-                {{range .Preview}}
-                {{$src := .URL}}{{if .LocalPath}}{{$src = printf "/api/ticketfiles/%s/%s/%s" $g $t.ID (.LocalPath | fileBase)}}{{end}}
-                {{if eq .Kind "image"}}
-                <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><img class="ticket-thumb" src="{{$src}}" alt="{{.Filename}}" loading="lazy"></a>
-                {{else if eq .Kind "video"}}
-                <a href="/tickets/{{$g}}/{{$t.ID}}" title="{{.Filename}}"><video class="ticket-thumb" src="{{$src}}" preload="metadata" muted></video></a>
-                {{else if eq .Kind "audio"}}
-                <audio class="ticket-audio" controls preload="metadata" src="{{$src}}"></audio>
-                {{end}}
-                {{end}}
-              </div>
-              {{end}}
-              <div class="ticket-foot">
-                <span class="muted">opened {{dateHuman .OpenedAt}}</span>
-                <a class="btn btn-small" href="/tickets/{{$g}}/{{.ID}}">View</a>
-                <button class="btn btn-small btn-danger tk-close" data-id="{{.ID}}" data-guild="{{$g}}">Close</button>
-              </div>
-            </article>
-            {{end}}
-          </div>
-          {{else}}
-          <p class="muted">No open tickets 🎉</p>
-          {{end}}
+          <div id="tk-open-list">{{template "tk_open_list" .Content}}</div>
         </section>
 
         <!-- ===== Closed tickets ===== -->
         <section class="card">
           <h2>Closed tickets (archive)</h2>
-          {{if .Content.Closed}}
-          <div class="tbl-wrap">
-            <table class="tbl">
-              <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
-              <tbody>
-                {{range .Content.Closed}}
-                {{$p := index $.Content.People .OpenerID}}
-                <tr>
-                  <td><a href="/tickets/{{$.Content.GuildID}}/{{.ID}}"><code>{{.ID}}</code></a></td>
-                  <td>{{.Type}}</td>
-                  <td>{{if $p.Name}}{{$p.Name}}{{else if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
-                  <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
-                </tr>
-                {{end}}
-              </tbody>
-            </table>
-          </div>
-          {{else}}
-          <p class="muted">Nothing archived yet.</p>
-          {{end}}
+          <div id="tk-closed-list">{{template "tk_closed_list" .Content}}</div>
         </section>
 
         <!-- ===== Type editor (shared modal) ===== -->
@@ -223,7 +228,7 @@
               <div class="field">
                 <span class="field-label">Helper roles</span>
                 {{template "tk_role_picker" (dict "ID" "tk-type-helper" "Roles" .Content.Roles)}}
-                <p class="muted field-help">Helpers can claim, close and add members, and always see the ticket.</p>
+                <p class="muted field-help">Helpers can close, rename, and add members, and always see the ticket.</p>
               </div>
               <div class="field">
                 <span class="field-label">Access roles</span>
@@ -253,10 +258,9 @@
               <h5 class="gear-section-title">Behavior</h5>
               <div class="field-grid">
                 <label class="toggle"><input type="checkbox" id="tk-type-enabled"><span class="toggle-track"></span><span class="toggle-label">Enabled</span></label>
-                <label class="toggle"><input type="checkbox" id="tk-type-claim" checked><span class="toggle-track"></span><span class="toggle-label">Allow claim</span></label>
                 <label class="toggle"><input type="checkbox" id="tk-type-close" checked><span class="toggle-track"></span><span class="toggle-label">Allow close</span></label>
               </div>
-              <p class="muted field-help">Claiming is helper-only — helper roles, Manage Messages, or the bot owner; the opener can't claim. The opener can close their own ticket while closing is allowed; helpers and Manage Messages can always close.</p>
+              <p class="muted field-help">Closing: the opener can close their own ticket while allowed; helpers and Manage Messages can always close. The closed channel is deleted after the transcript and archive are saved.</p>
             </div>
             <div class="gear-foot">
               <button type="button" class="btn btn-small btn-primary" id="tk-type-save">Save type</button>

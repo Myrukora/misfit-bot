@@ -53,16 +53,12 @@ func closeLogEmbed(tk *modules.Ticket, g TypeConfig, closedBy string) (title, de
 	if label == "" {
 		label = tk.EffectiveType()
 	}
-	claimLine := ""
-	if tk.ClaimerID != "" {
-		claimLine = fmt.Sprintf(" · claimed by <@%s>", tk.ClaimerID)
-	}
 	reasonLine := " · closed by <@" + closedBy + ">"
 	if tk.CloseReason == "channel_deleted" {
 		reasonLine = " · channel deleted"
 	}
-	desc = fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s>%s%s",
-		label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, claimLine, reasonLine)
+	desc = fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s>%s",
+		label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, reasonLine)
 	return title, desc
 }
 

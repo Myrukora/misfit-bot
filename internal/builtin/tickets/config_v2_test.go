@@ -31,7 +31,7 @@ func TestConfigV3FreshRoundTrip(t *testing.T) {
 	}
 	got := loadGuildConfig(dir, guildID, nil)
 	tc := got.Types["contact"]
-	if tc == nil || tc.ButtonEmoji != "🎫" || tc.ButtonLabel != "Open Ticket" || !tc.AllowClaimOn() {
+	if tc == nil || tc.ButtonEmoji != "🎫" || tc.ButtonLabel != "Open Ticket" {
 		t.Fatalf("type round-trip broken: %+v", tc)
 	}
 	p := got.Panels["contact_staff"]

@@ -2,10 +2,13 @@ package dashboard
 
 import (
 	"encoding/json"
+	"fmt"
+	"hash/fnv"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/misfit/bot/modules"
 )
@@ -15,8 +18,13 @@ import (
 // The dashboard is the ONLY management surface: ticket types, panels and the
 // per-guild log channel are edited here through modules.TicketAdmin. The
 // module's only commands are the in-channel end-user actions
-// (close/claim/add/remove) — the [p]tickets / /tickets configuration tree was
-// removed.
+// (close/rename/add/remove) — the [p]tickets / /tickets configuration tree
+// was removed.
+//
+// Live updates: GET /api/tickets/<guild>/stream and
+// /api/tickets/<guild>/<ticket>/stream are SSE endpoints that poll the
+// in-memory store and push re-rendered fragments, so the ticket list and the
+// transcript viewer update without a page reload.
 //
 // Routes:
 //
@@ -151,6 +159,18 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 	adm, hasAdmin := m.ticketAdmin()
 
 	switch parts[2] {
+	case "stream":
+		if meth != "GET" || len(parts) != 3 {
+			writeError(w, http.StatusMethodNotAllowed, "GET required")
+			return
+		}
+		if !m.canManageGuild(us, guildID) {
+			writeError(w, http.StatusForbidden, "guild management required")
+			return
+		}
+		m.serveTicketListStream(w, r, guildID, tp)
+		return
+
 	case "settings":
 		if !hasAdmin {
 			writeError(w, http.StatusNotFound, "tickets module has no admin surface")
@@ -199,6 +219,15 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "closed": ticketID})
+
+		case meth == "GET" && len(parts) == 4 && parts[3] == "stream":
+			guildID, ticketID := parts[1], parts[2]
+			if !m.canManageGuild(us, guildID) {
+				writeError(w, http.StatusForbidden, "guild management required")
+				return
+			}
+			m.serveTranscriptStream(w, r, guildID, ticketID, tp)
+			return
 
 		case meth == "GET" && len(parts) == 4 && parts[3] == "transcript":
 			guildID, ticketID := parts[1], parts[2]
@@ -534,15 +563,15 @@ type ticketsPageData struct {
 	Error        string
 }
 
-// ticketPerson is the display identity of a ticket opener/claimer, resolved
-// from the guild member cache (empty when the member is not cached).
+// ticketPerson is the display identity of a ticket opener, resolved from the
+// guild member cache (empty when the member is not cached).
 type ticketPerson struct {
 	Name   string
 	Avatar string
 }
 
-// ticketPeople resolves opener/claimer identities for the list rows: cached
-// members only, so a page render never fans out into REST calls.
+// ticketPeople resolves opener identities for the list rows: cached members
+// only, so a page render never fans out into REST calls.
 func (m *DashboardModule) ticketPeople(guildID string, lists ...[]modules.TicketSummary) map[string]ticketPerson {
 	out := map[string]ticketPerson{}
 	if m.bot == nil {
@@ -550,20 +579,19 @@ func (m *DashboardModule) ticketPeople(guildID string, lists ...[]modules.Ticket
 	}
 	for _, list := range lists {
 		for _, t := range list {
-			for _, id := range []string{t.OpenerID, t.ClaimerID} {
-				if id == "" {
-					continue
-				}
-				if _, ok := out[id]; ok {
-					continue
-				}
-				p := ticketPerson{}
-				if mem := m.bot.GetCachedMember(guildID, id); mem != nil {
-					p.Name = mem.User.EffectiveName()
-					p.Avatar = mem.User.EffectiveAvatarURL()
-				}
-				out[id] = p
+			id := t.OpenerID
+			if id == "" {
+				continue
 			}
+			if _, ok := out[id]; ok {
+				continue
+			}
+			p := ticketPerson{}
+			if mem := m.bot.GetCachedMember(guildID, id); mem != nil {
+				p.Name = mem.User.EffectiveName()
+				p.Avatar = mem.User.EffectiveAvatarURL()
+			}
+			out[id] = p
 		}
 	}
 	return out
@@ -654,4 +682,127 @@ func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Re
 	}{Ticket: tk, GuildID: guildID,
 		CloseURL: "/api/tickets/" + url.PathEscape(guildID) + "/" + url.PathEscape(ticketID) + "/close"}
 	m.tmpl.render(w, "rd_transcript", d)
+}
+
+// ── live updates (SSE) ───────────────────────────────────────────────────
+
+// sseStart switches the response to text/event-stream and flushes the headers
+// so the browser opens the EventSource immediately.
+func sseStart(w http.ResponseWriter) (http.Flusher, bool) {
+	fl, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming unsupported")
+		return nil, false
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache, no-transform")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	fl.Flush()
+	return fl, true
+}
+
+// writeSSE sends one JSON frame. The payload is marshalled, so the data line
+// never contains a raw newline (the HTML fragments are JSON strings).
+func writeSSE(w http.ResponseWriter, fl http.Flusher, event string, payload any) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	if event != "" {
+		fmt.Fprintf(w, "event: %s\n", event)
+	}
+	fmt.Fprintf(w, "data: %s\n\n", data)
+	fl.Flush()
+}
+
+// serveTicketListStream pushes re-rendered open/closed lists whenever the
+// provider's snapshot changes (new ticket, close, delete).
+func (m *DashboardModule) serveTicketListStream(w http.ResponseWriter, r *http.Request, guildID string, tp modules.TicketProvider) {
+	fl, ok := sseStart(w)
+	if !ok {
+		return
+	}
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	last := ""
+	for {
+		open, err := tp.ListOpenTickets(guildID)
+		if err == nil {
+			closed, _ := tp.ListClosedTickets(guildID)
+			sig := ticketListSig(open, closed)
+			if sig != last {
+				data := ticketsPageData{
+					GuildID: guildID, Open: open, Closed: closed,
+					People: m.ticketPeople(guildID, open, closed),
+				}
+				openHTML, errOpen := m.tmpl.fragment("tk_open_list", data)
+				closedHTML, errClosed := m.tmpl.fragment("tk_closed_list", data)
+				if errOpen == nil && errClosed == nil {
+					last = sig
+					writeSSE(w, fl, "tickets", map[string]string{"open": openHTML, "closed": closedHTML})
+				}
+			}
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func ticketListSig(open, closed []modules.TicketSummary) string {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "o%d|c%d;", len(open), len(closed))
+	for _, t := range open {
+		fmt.Fprintf(h, "%s|%s|%d|%d;", t.ID, t.Status, t.OpenedAt.Unix(), len(t.Preview))
+	}
+	for _, t := range closed {
+		fmt.Fprintf(h, "%s|%d|%d;", t.ID, t.ClosedAt.Unix(), len(t.Preview))
+	}
+	return fmt.Sprintf("%x", h.Sum64())
+}
+
+// serveTranscriptStream pushes the re-rendered conversation whenever the
+// ticket's log or status changes (new message, edit, delete, close).
+func (m *DashboardModule) serveTranscriptStream(w http.ResponseWriter, r *http.Request, guildID, ticketID string, tp modules.TicketProvider) {
+	fl, ok := sseStart(w)
+	if !ok {
+		return
+	}
+	ticker := time.NewTicker(1500 * time.Millisecond)
+	defer ticker.Stop()
+	last := ""
+	for {
+		tk, err := tp.GetTicket(guildID, ticketID)
+		if err == nil && tk != nil {
+			sig := ticketLogSig(tk)
+			if sig != last {
+				html, ferr := m.tmpl.fragment("tk_conversation", map[string]any{"Ticket": tk, "GuildID": guildID})
+				if ferr == nil {
+					last = sig
+					writeSSE(w, fl, "messages", map[string]any{
+						"html": html, "count": len(tk.Log), "status": tk.Status,
+					})
+				}
+			}
+		}
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func ticketLogSig(tk *modules.Ticket) string {
+	h := fnv.New64a()
+	fmt.Fprintf(h, "%s|%d|", tk.Status, len(tk.Log))
+	for _, e := range tk.Log {
+		fmt.Fprintf(h, "%s|%s|%t%t|", e.MsgID, e.Content, e.Edited, e.Deleted)
+	}
+	return fmt.Sprintf("%x", h.Sum64())
 }

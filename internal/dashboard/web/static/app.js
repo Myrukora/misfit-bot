@@ -481,6 +481,19 @@
     (tkSettings && tkSettings.dataset.guild) || "";
   var tkBase = "/api/tickets/" + encodeURIComponent(tkGuild);
 
+  /* Live updates: the dashboard re-renders the list fragments server-side and
+     pushes them over SSE, so cards appear/disappear without a reload. */
+  if (tkGuild && byId("tk-open-list")) {
+    var tkEvents = new EventSource(tkBase + "/stream");
+    tkEvents.addEventListener("tickets", function (ev) {
+      var payload = JSON.parse(ev.data);
+      var open = byId("tk-open-list");
+      if (open && typeof payload.open === "string") open.innerHTML = payload.open;
+      var closed = byId("tk-closed-list");
+      if (closed && typeof payload.closed === "string") closed.innerHTML = payload.closed;
+    });
+  }
+
   var tkSetChecked = function (box, ids) {
     var map = {};
     (ids || []).forEach(function (id) { map[id] = true; });
@@ -575,23 +588,17 @@
   document.querySelectorAll("[data-picker]").forEach(tkInitPicker);
 
   /* ---------- tickets: close from list or transcript ---------- */
-  document.querySelectorAll(".tk-close").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var guild = btn.dataset.guild;
-      var id = btn.dataset.id;
-      if (!confirm("Close ticket " + id + "? This cannot be undone.")) return;
-      var url = btn.dataset.closeurl || ("/api/tickets/" + encodeURIComponent(guild) + "/" + encodeURIComponent(id) + "/close");
-      btn.disabled = true;
-      api("POST", url, {})
-        .then(function () {
-          toast("Ticket " + id + " closed");
-          setTimeout(function () { location.reload(); }, 700);
-        })
-        .catch(function (e) {
-          toast(e.message, true);
-          btn.disabled = false;
-        });
-    });
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".tk-close");
+    if (!btn || btn.disabled) return;
+    var guild = btn.dataset.guild;
+    var id = btn.dataset.id;
+    if (!confirm("Close ticket " + id + "? The channel is deleted after the transcript is saved.")) return;
+    var url = btn.dataset.closeurl || ("/api/tickets/" + encodeURIComponent(guild) + "/" + encodeURIComponent(id) + "/close");
+    btn.disabled = true;
+    api("POST", url, {})
+      .then(function () { toast("Ticket " + id + " closed"); })
+      .catch(function (e) { toast(e.message, true); btn.disabled = false; });
   });
 
   /* ---------- tickets: settings (log channel) ---------- */
@@ -619,7 +626,7 @@
       typeWelcome = byId("tk-type-welcome"), typeBody = byId("tk-type-body"),
       typeButton = byId("tk-type-button"), typeEmoji = byId("tk-type-emoji"),
       typeColor = byId("tk-type-color"), typeEnabled = byId("tk-type-enabled"),
-      typeClaim = byId("tk-type-claim"), typeClose = byId("tk-type-close"),
+      typeClose = byId("tk-type-close"),
       typeHeading = byId("tk-type-heading"), typeSave = byId("tk-type-save");
     var typeMode = "create";
 
@@ -656,7 +663,6 @@
       typeEmoji.value = t ? t.button_emoji || "" : "";
       typeColor.value = typeColorHex(t ? t.color : 0x5865f2);
       typeEnabled.checked = t ? !!t.enabled : true;
-      typeClaim.checked = !t || t.allow_claim;
       typeClose.checked = !t || t.allow_close;
     };
 
@@ -701,7 +707,6 @@
           button_label: typeButton.value.trim(),
           button_emoji: typeEmoji.value.trim(),
           color: typeColorInt(typeColor.value),
-          allow_claim: typeClaim.checked,
           allow_close: typeClose.checked
         };
         var url = tkBase + "/types";
@@ -851,6 +856,26 @@
         .catch(function (e) { tkFail(e); btn.disabled = false; });
     });
   });
+
+  /* ---------- transcript page: live messages (SSE) ---------- */
+  var tkConv = byId("tk-conversation");
+  if (tkConv && tkConv.dataset.guild && tkConv.dataset.ticket) {
+    var tkConvEvents = new EventSource(
+      "/api/tickets/" + encodeURIComponent(tkConv.dataset.guild) +
+      "/" + encodeURIComponent(tkConv.dataset.ticket) + "/stream");
+    tkConvEvents.addEventListener("messages", function (ev) {
+      var p = JSON.parse(ev.data);
+      var nearBottom = (window.innerHeight + window.scrollY) >= document.documentElement.scrollHeight - 120;
+      tkConv.innerHTML = p.html;
+      var title = byId("tk-conv-title");
+      if (title) title.textContent = "Conversation (" + p.count + " entries)";
+      var status = byId("tk-status");
+      if (status) status.textContent = p.status;
+      var wrap = byId("tk-close-wrap");
+      if (wrap) wrap.hidden = p.status !== "open";
+      if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    });
+  }
 
   /* ---------- transcript page: image lightbox ---------- */
   var lightbox = byId("lightbox");

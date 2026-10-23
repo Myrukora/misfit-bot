@@ -153,6 +153,18 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 	if postToLog && err == nil {
 		m.postTranscriptToLogChannel(tk, g, absPath, closedBy)
 	}
+
+	// The archive is durable at this point: the ticket JSON is persisted and
+	// the transcript file exists (or its failure is logged above). The channel
+	// is now redundant - delete it so closed tickets don't pile up. The
+	// channel-deleted path already has no channel to remove.
+	if reason != "channel_deleted" && tk.ChannelID != "" {
+		if cid, perr := snowflake.Parse(tk.ChannelID); perr == nil {
+			if delErr := m.ctx.Rest.DeleteChannel(cid); delErr != nil {
+				m.ctx.Logger.Warn("Tickets: failed to delete closed channel %s: %v", tk.ChannelID, delErr)
+			}
+		}
+	}
 }
 
 // renderTranscriptToDisk re-renders the ticket's HTML transcript from its

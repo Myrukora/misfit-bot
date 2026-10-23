@@ -48,7 +48,7 @@ func TestAdminTypesCRUD(t *testing.T) {
 		PingRoles: []string{"9"}, HelperRoles: []string{"8", "8"}, AccessRoles: []string{"7"},
 		WelcomeMessage: "hi", EmbedBody: "body",
 		ButtonLabel: "Open", ButtonEmoji: "🎫", Color: 0x5865F2,
-		AllowClaim: true, AllowClose: true,
+		AllowClose: true,
 	})
 	if err != nil {
 		t.Fatalf("CreateType: %v", err)
@@ -75,7 +75,7 @@ func TestAdminTypesCRUD(t *testing.T) {
 	updated, err := m.UpdateType(gid, "support", modules.TypeDetail{
 		Label: "Help desk", Category: "333444555666777888", Enabled: false,
 		PingRoles: []string{"5"}, AccessRoles: []string{}, Color: 0x00FF00,
-		AllowClaim: false, AllowClose: true,
+		AllowClose: true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateType: %v", err)
@@ -83,8 +83,8 @@ func TestAdminTypesCRUD(t *testing.T) {
 	if updated.Key != "support" || updated.Label != "Help desk" || updated.Enabled {
 		t.Fatalf("updated = %+v", updated)
 	}
-	if updated.AllowClaim || !updated.AllowClose {
-		t.Errorf("allow flags = claim %v close %v, want false/true", updated.AllowClaim, updated.AllowClose)
+	if !updated.AllowClose {
+		t.Errorf("allow close = %v, want true", updated.AllowClose)
 	}
 
 	if err := m.DeleteType(gid, "support"); err != nil {
@@ -103,7 +103,7 @@ func TestAdminTypesCRUD(t *testing.T) {
 func TestAdminTypeValidation(t *testing.T) {
 	m := adminModule(t, "")
 	const gid = "111"
-	base := modules.TypeDetail{Key: "ok", Label: "OK", Category: "222333444555666777", AllowClaim: true, AllowClose: true}
+	base := modules.TypeDetail{Key: "ok", Label: "OK", Category: "222333444555666777", AllowClose: true}
 
 	cases := []struct {
 		name string
@@ -160,7 +160,7 @@ func TestAdminPanelsCRUD(t *testing.T) {
 	m := adminModule(t, srv.URL)
 	const gid = "111"
 
-	if _, err := m.CreateType(gid, modules.TypeDetail{Key: "support", Label: "Support", Category: "333444555666777888", Enabled: true, AllowClaim: true, AllowClose: true}); err != nil {
+	if _, err := m.CreateType(gid, modules.TypeDetail{Key: "support", Label: "Support", Category: "333444555666777888", Enabled: true, AllowClose: true}); err != nil {
 		t.Fatalf("CreateType: %v", err)
 	}
 

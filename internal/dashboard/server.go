@@ -69,6 +69,14 @@ func (s *statusWriter) WriteHeader(code int) {
 	s.ResponseWriter.WriteHeader(code)
 }
 
+// Flush forwards flushes (SSE streams) to the wrapped writer; without this the
+// wrapper would hide http.Flusher from the handler.
+func (s *statusWriter) Flush() {
+	if fl, ok := s.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
 // securityHeaders sets conservative security headers (CSP, nosniff, frame denial).
 func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

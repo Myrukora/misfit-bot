@@ -597,8 +597,8 @@ func summaryOf(tk *modules.Ticket) modules.TicketSummary {
 	typ := tk.EffectiveType()
 	return modules.TicketSummary{
 		ID: tk.ID, Type: typ, Group: typ, GuildID: tk.GuildID,
-		OpenerID: tk.OpenerID, ClaimerID: tk.ClaimerID,
-		Status: tk.Status, OpenedAt: tk.OpenedAt, ClosedAt: tk.ClosedAt,
+		OpenerID: tk.OpenerID,
+		Status:   tk.Status, OpenedAt: tk.OpenedAt, ClosedAt: tk.ClosedAt,
 		Preview: recentMedia(tk.Log, 4),
 	}
 }

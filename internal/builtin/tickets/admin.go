@@ -12,7 +12,7 @@ import (
 
 // admin.go — modules.TicketAdmin implementation. The dashboard is the ONLY
 // management surface for ticket types, panels and per-guild settings; the
-// in-channel commands are limited to end-user actions (claim/close/add/remove).
+// in-channel commands are limited to end-user actions (close/rename/add/remove).
 //
 // Every mutation follows the same shape: validate the input, mutate the
 // in-memory guild config under m.mu, persist, then best-effort sync the
@@ -76,7 +76,6 @@ func typeDetail(t *TypeConfig) modules.TypeDetail {
 		ButtonLabel:    t.ButtonLabel,
 		ButtonEmoji:    t.ButtonEmoji,
 		Color:          int(t.Color),
-		AllowClaim:     t.AllowClaimOn(),
 		AllowClose:     t.AllowCloseOn(),
 	}
 }
@@ -140,7 +139,6 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 		ButtonLabel: button,
 		ButtonEmoji: emoji,
 		Color:       colorValue(in.Color),
-		AllowClaim:  boolPtr(in.AllowClaim),
 		AllowClose:  boolPtr(in.AllowClose),
 	}
 	if prev != nil {

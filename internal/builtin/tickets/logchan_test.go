@@ -185,7 +185,7 @@ func TestOpenLogEmbed(t *testing.T) {
 
 func TestCloseLogEmbed(t *testing.T) {
 	tk := &modules.Ticket{
-		ID: "222", GuildID: "111", OpenerID: "999", ClaimerID: "888",
+		ID: "222", GuildID: "111", OpenerID: "999",
 		OpenedAt: time.Now().UTC(),
 	}
 	g := TypeConfig{Key: "support", Label: "Support"}
@@ -197,9 +197,6 @@ func TestCloseLogEmbed(t *testing.T) {
 	}
 	if !strings.Contains(desc, "**Support** (`222`)") {
 		t.Fatalf("desc missing label: %q", desc)
-	}
-	if !strings.Contains(desc, " · claimed by <@888>") {
-		t.Fatalf("desc missing claimer: %q", desc)
 	}
 	if !strings.Contains(desc, " · closed by <@777>") {
 		t.Fatalf("desc missing closed-by: %q", desc)

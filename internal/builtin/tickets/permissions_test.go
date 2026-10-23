@@ -53,15 +53,11 @@ func gateTicket() *modules.Ticket {
 	return &modules.Ticket{ID: "staff-0001", GuildID: gateGuild, Type: "staff", OpenerID: "111", Status: "open"}
 }
 
-func gateResponse(t *testing.T, m *TicketsModule, e *events.ComponentInteractionCreate, close bool, ticketID string) string {
+func gateResponse(t *testing.T, m *TicketsModule, e *events.ComponentInteractionCreate, ticketID string) string {
 	t.Helper()
 	h := &wireHarness{}
 	e.Respond = h.respond
-	if close {
-		m.onCloseButton(e, ticketID)
-	} else {
-		m.onClaimButton(e, ticketID)
-	}
+	m.onCloseButton(e, ticketID)
 	if h.callbackCount() != 1 {
 		t.Fatalf("callbacks = %d, want 1", h.callbackCount())
 	}
@@ -72,79 +68,6 @@ func gateResponse(t *testing.T, m *TicketsModule, e *events.ComponentInteraction
 		t.Fatalf("callback carries no message embed: %+v", h.callbacks[0].data)
 	}
 	return mc.Embeds[0].Description
-}
-
-// TestClaimGate pins who may claim: helpers (helper role, Manage Messages,
-// bot owner/elevated) only. The opener and unrelated ticket members cannot.
-func TestClaimGate(t *testing.T) {
-	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClaim: boolPtr(true)},
-		map[snowflake.ID][]snowflake.ID{333: {7777}})
-	tk := gateTicket()
-	cases := []struct {
-		name  string
-		user  string
-		perms discord.Permissions
-		want  bool
-	}{
-		{"opener", "111", 0, false},
-		{"stranger", "222", 0, false},
-		{"helper role", "333", 0, true},
-		{"manage messages", "444", discord.PermissionManageMessages, true},
-		{"bot owner", "1", 0, true},
-	}
-	for _, tc := range cases {
-		e := buttonEvent(t, "tickets:claim:"+tk.ID, gateGuild, tc.user, tc.perms)
-		if got := m.isHelperInteraction(e, tk); got != tc.want {
-			t.Errorf("%s: helper = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
-// TestClaimButtonRejectsOpener pins the handler wiring, not just the
-// predicate: pressing Claim as the opener must respond and leave the ticket
-// unclaimed.
-func TestClaimButtonRejectsOpener(t *testing.T) {
-	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClaim: boolPtr(true)}, nil)
-	tk := gateTicket()
-	if err := m.store.save(tk); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	desc := gateResponse(t, m, buttonEvent(t, "tickets:claim:"+tk.ID, gateGuild, "111", 0), false, tk.ID)
-	if !strings.Contains(desc, "Only helpers") {
-		t.Fatalf("response = %q, want the helper-only error", desc)
-	}
-	got, _ := m.store.load(gateGuild, tk.ID)
-	if got == nil || got.ClaimerID != "" {
-		t.Fatalf("ticket = %+v, want unclaimed", got)
-	}
-}
-
-// TestClaimButtonHelperClaims pins the successful path and the allow_claim
-// switch: a helper claims, and a type with claiming disabled refuses.
-func TestClaimButtonHelperClaims(t *testing.T) {
-	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClaim: boolPtr(true)},
-		map[snowflake.ID][]snowflake.ID{333: {7777}})
-	tk := gateTicket()
-	if err := m.store.save(tk); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	gateResponse(t, m, buttonEvent(t, "tickets:claim:"+tk.ID, gateGuild, "333", 0), false, tk.ID)
-	got, _ := m.store.load(gateGuild, tk.ID)
-	if got == nil || got.ClaimerID != "333" {
-		t.Fatalf("claimer = %+v, want 333", got)
-	}
-
-	m.mu.Lock()
-	m.guilds[gateGuild].Types["staff"].AllowClaim = boolPtr(false)
-	m.mu.Unlock()
-	tk2 := gateTicket()
-	if err := m.store.save(tk2); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	desc := gateResponse(t, m, buttonEvent(t, "tickets:claim:"+tk2.ID, gateGuild, "333", 0), false, tk2.ID)
-	if !strings.Contains(desc, "Claiming is disabled") {
-		t.Fatalf("response = %q, want the disabled-claiming error", desc)
-	}
 }
 
 // TestCloseGate pins who may close: helpers always; the opener only while the
@@ -187,7 +110,7 @@ func TestCloseGate(t *testing.T) {
 // is persisted, and a missing name yields the usage reply.
 func TestRenameTicket(t *testing.T) {
 	roles := map[snowflake.ID][]snowflake.ID{333: {7777}}
-	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClaim: boolPtr(true), AllowClose: boolPtr(true)}, roles)
+	m := gateModule(t, &TypeConfig{Key: "staff", HelperRoles: []string{"7777"}, AllowClose: boolPtr(true)}, roles)
 	r := m.ctx.Rest.(*mockRest)
 	r.channelTopic = "staff-0001"
 	tk := gateTicket()
@@ -255,7 +178,7 @@ func TestRenameTicket(t *testing.T) {
 // a string option on rename.
 func TestTicketCommandSurface(t *testing.T) {
 	m := &TicketsModule{}
-	names := []string{"close", "claim", "add", "remove", "rename"}
+	names := []string{"close", "add", "remove", "rename"}
 	prefix := map[string]bool{}
 	for _, c := range m.Commands() {
 		prefix[c.Name] = c.Execute != nil
@@ -311,7 +234,7 @@ func TestCloseButtonRejectsStranger(t *testing.T) {
 	if err := m.store.save(tk); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	desc := gateResponse(t, m, buttonEvent(t, "tickets:close:"+tk.ID, gateGuild, "222", 0), true, tk.ID)
+	desc := gateResponse(t, m, buttonEvent(t, "tickets:close:"+tk.ID, gateGuild, "222", 0), tk.ID)
 	if !strings.Contains(desc, "Only helpers or the ticket opener") {
 		t.Fatalf("response = %q, want the close-permission error", desc)
 	}

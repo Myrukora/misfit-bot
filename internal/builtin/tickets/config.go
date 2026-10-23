@@ -38,12 +38,10 @@ type TypeConfig struct {
 	ButtonLabel string     `yaml:"button_label"`
 	ButtonEmoji string     `yaml:"button_emoji"`
 	Color       colorValue `yaml:"color"`
-	AllowClaim  *bool      `yaml:"allow_claim"`
 	AllowClose  *bool      `yaml:"allow_close"`
 	Seq         int        `yaml:"seq"`
 }
 
-func (t *TypeConfig) AllowClaimOn() bool { return t.AllowClaim == nil || *t.AllowClaim }
 func (t *TypeConfig) AllowCloseOn() bool { return t.AllowClose == nil || *t.AllowClose }
 
 // QuestionConfig is one open-time modal field for a panel.

@@ -8,19 +8,49 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/misfit/bot/modules"
 )
 
+// TestFinalizeDeletesChannelAfterArchive pins the close order: the ticket is
+// archived (JSON + transcript file) before the redundant channel is deleted.
+func TestFinalizeDeletesChannelAfterArchive(t *testing.T) {
+	h := &wireHarness{}
+	m, r := newWireModule(t, h, map[string]*Config{gateGuild: {Version: configVersion, Types: map[string]*TypeConfig{}}})
+	tk := &modules.Ticket{
+		ID: "staff-0001", GuildID: gateGuild, Type: "staff", OpenerID: "111",
+		ChannelID: "555", Status: "open", OpenedAt: time.Now().UTC(),
+	}
+	if err := m.store.save(tk); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	m.finalizeTicket(tk, TypeConfig{Key: "staff"}, "111", "user", closeOptions{skipLock: true, skipHistory: true}, false)
+
+	deleted := false
+	for _, c := range r.callsFiltered("/channels/555") {
+		if c.method == "DELETE" {
+			deleted = true
+		}
+	}
+	if !deleted {
+		t.Fatal("closed ticket channel was not deleted")
+	}
+	got, _ := m.store.load(gateGuild, "staff-0001")
+	if got == nil || got.Status != "closed" || got.TranscriptPath == "" {
+		t.Fatalf("archived ticket = %+v, want closed with a transcript path", got)
+	}
+}
+
 // TestOpenMessageCarriesTicketButtons pins the in-channel entry point: the
-// welcome message includes the Claim/Close action row and its message ID is
-// recorded so later claims/closes can edit the buttons.
+// welcome message includes the Close action row and its message ID is
+// recorded so a later close can disable the button.
 func TestOpenMessageCarriesTicketButtons(t *testing.T) {
 	h := &wireHarness{}
 	m, r := newWireModule(t, h, map[string]*Config{"111": {Version: configVersion, Types: map[string]*TypeConfig{}}})
-	g := TypeConfig{Key: "staff", Label: "Staff", Category: "222333444555666777", AllowClaim: boolPtr(true), AllowClose: boolPtr(true)}
+	g := TypeConfig{Key: "staff", Label: "Staff", Category: "222333444555666777", AllowClose: boolPtr(true)}
 	tk, err := m.openTicket(g, discord.User{ID: 42, Username: "vixen"}, "111", "panel", nil)
 	if err != nil {
 		t.Fatalf("openTicket: %v", err)
@@ -33,7 +63,7 @@ func TestOpenMessageCarriesTicketButtons(t *testing.T) {
 		t.Fatalf("welcome posts = %d, want 1", len(calls))
 	}
 	if calls[0].components != 1 {
-		t.Fatalf("welcome components = %d, want the Claim/Close action row", calls[0].components)
+		t.Fatalf("welcome components = %d, want the Close action row", calls[0].components)
 	}
 }
 

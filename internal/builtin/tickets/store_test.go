@@ -643,51 +643,6 @@ func TestMutateConcurrentNoLostUpdates(t *testing.T) {
 	}
 }
 
-// TestMutateClaimCompareAndSet pins the claim path: the check and the write
-// share one store mutation, so the second claimer sees the first winner
-// instead of overwriting them (with the old lock-then-save shape both claims
-// could pass and the later one won silently).
-func TestMutateClaimCompareAndSet(t *testing.T) {
-	st, err := openStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("openStore: %v", err)
-	}
-	if err := st.save(mkTicket("staff-0001", "g1", "staff")); err != nil {
-		t.Fatalf("seed save: %v", err)
-	}
-	claim := func(userID string) (*modules.Ticket, bool) {
-		t.Helper()
-		tk, changed, err := st.mutate("g1", "staff-0001", func(cur *modules.Ticket) bool {
-			if cur.Status != "open" || cur.ClaimerID != "" {
-				return false
-			}
-			cur.ClaimerID = userID
-			cur.ClaimedAt = time.Now().UTC()
-			return true
-		})
-		if err != nil {
-			t.Fatalf("mutate claim %s: %v", userID, err)
-		}
-		return tk, changed
-	}
-
-	first, changed := claim("111")
-	if !changed || first == nil || first.ClaimerID != "111" {
-		t.Fatalf("first claim = (%v, %v), want the caller to win", first, changed)
-	}
-	second, changed := claim("222")
-	if changed {
-		t.Fatal("second claim must not change the ticket")
-	}
-	if second == nil || second.ClaimerID != "111" {
-		t.Fatalf("second claimer saw %+v, want the first winner 111", second)
-	}
-	got, _ := st.load("g1", "staff-0001")
-	if got == nil || got.ClaimerID != "111" {
-		t.Fatalf("persisted claimer = %+v, want 111", got)
-	}
-}
-
 // TestMutateByChannelNeedsOpenTicket pins the channel-keyed variant: it
 // resolves the OPEN ticket owning the channel inside the same lock, returns
 // (nil, false) for unknown channels, and does not write when fn declines.

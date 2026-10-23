@@ -40,9 +40,9 @@ func New() modules.Module {
 }
 
 func (m *TicketsModule) Name() string    { return "tickets" }
-func (m *TicketsModule) Version() string { return "4.1.0" }
+func (m *TicketsModule) Version() string { return "4.2.0" }
 func (m *TicketsModule) Description() string {
-	return "Ticket system: dashboard-managed panels/types, in-channel claim/close, transcripts in the dashboard"
+	return "Ticket system: dashboard-managed panels/types, in-channel close/rename, transcripts in the dashboard"
 }
 func (m *TicketsModule) Author() string { return "misfit-bot" }
 func (m *TicketsModule) Dependencies() []string {
@@ -57,7 +57,6 @@ func (m *TicketsModule) Commands() []commands.Command {
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand {
 	return []commands.SlashCommand{
 		{Name: "close", Description: "Close the ticket in this channel", Category: "Tickets", Execute: m.closeTicketCommand},
-		{Name: "claim", Description: "Claim the ticket in this channel (helpers only)", Category: "Tickets", Execute: m.claimTicketCommand},
 		{
 			Name: "add", Description: "Add a member to the ticket in this channel", Category: "Tickets",
 			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionUser{

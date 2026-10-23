@@ -12,28 +12,18 @@ import (
 )
 
 // open.go — ticket creation: a PRIVATE TEXT CHANNEL under the type's category
-// (v2; v1 used threads). Named {opener}-{MM-DD-YY}, collision-suffixed. The
-// ticket ID lives in the channel topic so [p]close/[p]claim need no args.
+// (v2; v1 used threads). Named from the type's channel-name template. The
+// ticket ID lives in the channel topic so in-channel commands need no args.
 
-// ticketButtons builds the Claim/Close action row inside a ticket channel.
-func ticketButtons(t *modules.Ticket, g TypeConfig, claimLabel string) []discord.LayoutComponent {
-	var buttons []discord.InteractiveComponent
-	if g.AllowClaimOn() {
-		buttons = append(buttons, discord.ButtonComponent{
-			Style: discord.ButtonStylePrimary, Label: claimLabel,
-			CustomID: "tickets:claim:" + t.ID, Disabled: claimLabel != "Claim",
-		})
-	}
-	if g.AllowCloseOn() {
-		buttons = append(buttons, discord.ButtonComponent{
-			Style: discord.ButtonStyleDanger, Label: "Close",
-			CustomID: "tickets:close:" + t.ID,
-		})
-	}
-	if len(buttons) == 0 {
+// ticketButtons builds the Close action row inside a ticket channel.
+func ticketButtons(t *modules.Ticket, g TypeConfig) []discord.LayoutComponent {
+	if !g.AllowCloseOn() {
 		return nil
 	}
-	return []discord.LayoutComponent{discord.NewActionRow(buttons...)}
+	return []discord.LayoutComponent{discord.NewActionRow(discord.ButtonComponent{
+		Style: discord.ButtonStyleDanger, Label: "Close",
+		CustomID: "tickets:close:" + t.ID,
+	})}
 }
 
 func boolPtr(b bool) *bool { return &b }
@@ -210,7 +200,7 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 	create := discord.MessageCreate{
 		Content:    buildPingLine(g.PingRoles, ticket.OpenerID) + "\n" + welcome,
 		Embeds:     []discord.Embed{buildOpenEmbed(ticket, g, fresh, guildName)},
-		Components: ticketButtons(ticket, g, "Claim"),
+		Components: ticketButtons(ticket, g),
 	}
 	if welcomeMsg, err := m.ctx.Rest.CreateMessage(ch.ID(), create); err != nil {
 		m.ctx.Logger.Error("Tickets: welcome post failed in %s: %v", ticket.ChannelID, err)

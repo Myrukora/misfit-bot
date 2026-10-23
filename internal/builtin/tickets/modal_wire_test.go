@@ -126,6 +126,11 @@ func (m *mockRest) UpdateChannel(channelID snowflake.ID, update discord.ChannelU
 	return &discord.GuildTextChannel{}, nil
 }
 
+func (m *mockRest) DeleteChannel(channelID snowflake.ID, _ ...rest.RequestOpt) error {
+	m.record("DELETE", "/channels/"+channelID.String(), "")
+	return nil
+}
+
 func (m *mockRest) callsFiltered(substr string) []restCall {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -114,7 +114,7 @@ func componentEvent(t *testing.T, customID, guildID string) *events.ComponentInt
 
 // TestHandlesRawComponent pins which open buttons the module wants raw
 // (un-deferred): only open buttons whose panel has questions while modals are
-// on. Claim/close and question-less panels stay deferred.
+// on. Close buttons and question-less panels stay deferred.
 func TestHandlesRawComponent(t *testing.T) {
 	const guildID = "111222333444555666"
 	st, err := openStore(t.TempDir())
@@ -145,7 +145,6 @@ func TestHandlesRawComponent(t *testing.T) {
 	}{
 		{"open with questions", "tickets:open:with_q", true},
 		{"open without questions", "tickets:open:no_q", false},
-		{"claim button", "tickets:claim:staff-0001", false},
 		{"close button", "tickets:close:staff-0001", false},
 		{"unknown panel", "tickets:open:missing", false},
 	}

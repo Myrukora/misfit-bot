@@ -1583,15 +1583,6 @@ input[type="color"].field-input {
     background: #0d0d0d;
 }
 
-.ticket-claimed {
-    color: #a1a1aa;
-}
-
-.ticket-unclaimed {
-    color: #71717a;
-    font-style: italic;
-}
-
 .ticket-media {
     display: flex;
     flex-wrap: wrap;

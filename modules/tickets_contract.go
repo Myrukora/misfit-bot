@@ -48,11 +48,9 @@ type Ticket struct {
 	GuildID        string     `json:"guild_id"`
 	ChannelID      string     `json:"channel_id"`             // private text channel holding the conversation
 	ChannelName    string     `json:"channel_name,omitempty"` // stored at creation for collision detection
-	MessageID      string     `json:"message_id"`             // in-channel embed carrying Claim/Close buttons
+	MessageID      string     `json:"message_id"`             // in-channel embed carrying the Close button
 	PanelName      string     `json:"panel_name,omitempty"`
 	OpenerID       string     `json:"opener_id"`
-	ClaimerID      string     `json:"claimer_id"` // "" while unclaimed
-	ClaimedAt      time.Time  `json:"claimed_at"`
 	OpenedAt       time.Time  `json:"opened_at"`
 	ClosedAt       time.Time  `json:"closed_at"`                 // zero while open
 	Status         string     `json:"status"`                    // "open" | "closed"
@@ -103,16 +101,15 @@ type Media struct {
 // carries the newest playable media (image/video/audio) for the open-ticket
 // cards; it is additive and safe for older API consumers.
 type TicketSummary struct {
-	ID        string    `json:"id"`
-	Type      string    `json:"type"`
-	Group     string    `json:"group"` // legacy alias filled from Type
-	GuildID   string    `json:"guild_id"`
-	OpenerID  string    `json:"opener_id"`
-	ClaimerID string    `json:"claimer_id"`
-	Status    string    `json:"status"`
-	OpenedAt  time.Time `json:"opened_at"`
-	ClosedAt  time.Time `json:"closed_at"`
-	Preview   []Media   `json:"preview,omitempty"`
+	ID       string    `json:"id"`
+	Type     string    `json:"type"`
+	Group    string    `json:"group"` // legacy alias filled from Type
+	GuildID  string    `json:"guild_id"`
+	OpenerID string    `json:"opener_id"`
+	Status   string    `json:"status"`
+	OpenedAt time.Time `json:"opened_at"`
+	ClosedAt time.Time `json:"closed_at"`
+	Preview  []Media   `json:"preview,omitempty"`
 }
 
 // TypeSummary describes one configured ticket type (v2 replacement of
@@ -138,7 +135,7 @@ type GroupSummary struct {
 // TicketAdmin is the OPTIONAL interface the tickets module implements for the
 // dashboard's per-guild management surface. The dashboard is the ONLY place
 // ticket types, panels and per-guild settings are managed; the in-channel
-// commands are limited to end-user actions (claim/close/add/remove).
+// commands are limited to end-user actions (close/rename/add/remove).
 //
 // The dashboard resolves the admin at request time (same pattern as
 // TicketProvider / ImageFilterAdmin):
@@ -198,7 +195,6 @@ type TypeDetail struct {
 	ButtonLabel    string   `json:"button_label"`
 	ButtonEmoji    string   `json:"button_emoji"`
 	Color          int      `json:"color"`
-	AllowClaim     bool     `json:"allow_claim"`
 	AllowClose     bool     `json:"allow_close"`
 }
 

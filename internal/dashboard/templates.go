@@ -202,6 +202,16 @@ func (b *templateBundle) render(w io.Writer, page string, data renderData) error
 	return b.tmpl.ExecuteTemplate(w, page, data)
 }
 
+// fragment renders a named template with arbitrary data (live-update
+// fragments: ticket cards, the conversation, …).
+func (b *templateBundle) fragment(name string, data any) (string, error) {
+	var sb strings.Builder
+	if err := b.tmpl.ExecuteTemplate(&sb, name, data); err != nil {
+		return "", err
+	}
+	return sb.String(), nil
+}
+
 // staticFS returns the embedded static subtree rooted at "web/static".
 func staticSubFS() fs.FS {
 	sub, err := fs.Sub(staticFiles, "web/static")

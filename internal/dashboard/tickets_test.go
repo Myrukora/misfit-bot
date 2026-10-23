@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -484,7 +485,7 @@ func TestTicketsTypeCreateForwardsPayload(t *testing.T) {
 		"key": "support", "label": "Support", "category": "123", "enabled": true,
 		"ping_roles": []string{"9"}, "helper_roles": []string{"8"},
 		"access_roles": []string{}, "color": 0x5865F2,
-		"allow_claim": true, "allow_close": true,
+		"allow_close": true,
 	})
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -791,5 +792,41 @@ func TestHubTicketsRouteRedirectsPerServer(t *testing.T) {
 	w = ticketsReq(m, cookie, "GET", "/tickets", "", "")
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (body %s)", w.Code, w.Body.String())
+	}
+}
+
+// TestTicketStreamsEmitSnapshots pins the live-update endpoints: the list
+// stream sends the rendered cards and the transcript stream sends the rendered
+// conversation, as SSE frames.
+func TestTicketStreamsEmitSnapshots(t *testing.T) {
+	stub := &stubTickets{openTickets: []modules.TicketSummary{{
+		ID: "staff-0001", Type: "support", OpenerID: "111", OpenedAt: time.Now(),
+	}}}
+	m, cookie := ticketsTestModule(t, stub)
+
+	stream := func(target string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+		defer cancel()
+		req := httptest.NewRequest("GET", target, nil).WithContext(ctx)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+		w := httptest.NewRecorder()
+		m.buildHandler().ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200 (body %s)", target, w.Code, w.Body.String())
+		}
+		if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/event-stream") {
+			t.Fatalf("%s Content-Type = %q, want text/event-stream", target, ct)
+		}
+		return w.Body.String()
+	}
+
+	list := stream("/api/tickets/1/stream")
+	if !strings.Contains(list, "event: tickets") || !strings.Contains(list, "staff-0001") {
+		t.Fatalf("list stream = %q, want a tickets frame with the open ticket", list)
+	}
+
+	conv := stream("/api/tickets/1/staff-0001/stream")
+	if !strings.Contains(conv, "event: messages") || !strings.Contains(conv, "No messages recorded") {
+		t.Fatalf("transcript stream = %q, want a messages frame", conv)
 	}
 }

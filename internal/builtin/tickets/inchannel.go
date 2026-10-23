@@ -92,10 +92,10 @@ func (m *TicketsModule) applyMemberOverwrite(tk *modules.Ticket, g TypeConfig, m
 	return err
 }
 
-// inchannel.go — [p]close / [p]claim / [p]add / [p]remove: usable ONLY inside
+// inchannel.go — [p]close / [p]rename / [p]add / [p]remove: usable ONLY inside
 // a ticket channel (ticket resolved from the channel topic, zero arguments).
-// Gates: close/claim need helper-role/mods/owner-elevated; opener may close
-// their own ticket when the type allows it.
+// Gates: close needs helper-role/mods/owner-elevated or the opener while the
+// type allows closing; rename/add/remove are helper-only.
 
 // ticketFromChannel resolves the open ticket owning this channel via topic.
 func (m *TicketsModule) ticketFromChannel(ctx *commands.Context) *modules.Ticket {
@@ -163,10 +163,6 @@ func (m *TicketsModule) inChannelCommands() []commands.Command {
 		{
 			Name: "close", Description: "Close this ticket (inside the ticket channel only)",
 			Usage: "close", Category: "Tickets", Execute: m.closeTicketCommand,
-		},
-		{
-			Name: "claim", Description: "Claim this ticket (helpers only)",
-			Usage: "claim", Category: "Tickets", Execute: m.claimTicketCommand,
 		},
 		{
 			Name: "add", Description: "Add a member to this ticket",
@@ -250,43 +246,6 @@ func (m *TicketsModule) closeTicketCommand(ctx *commands.Context) error {
 		return ctx.Respond(embed.Error("❌ Error", "Failed to close: "+err.Error()))
 	}
 	return ctx.Respond(embed.Success("🔒 Ticket closed", "`"+tk.ID+"` — transcript saved to the log channel and dashboard."))
-}
-
-// claimTicketCommand is shared by [p]claim and /claim.
-func (m *TicketsModule) claimTicketCommand(ctx *commands.Context) error {
-	tk := m.ticketFromChannel(ctx)
-	if tk == nil || tk.Status != "open" {
-		return ctx.Respond(embed.Error("❌ Error", "This command only works inside an **open** ticket channel."))
-	}
-	userID := ctx.Author.ID.String()
-	if !m.isHelper(ctx, tk, userID) {
-		return ctx.Respond(embed.Error("❌ Error", "Only helpers can claim tickets."))
-	}
-	if !m.claimEnabled(tk) {
-		return ctx.Respond(embed.Error("❌ Error", "Claiming is disabled for this ticket type."))
-	}
-	claimed, changed, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
-		if cur.Status != "open" || cur.ClaimerID != "" {
-			return false
-		}
-		cur.ClaimerID = userID
-		cur.ClaimedAt = timeNowUTC()
-		return true
-	})
-	if err != nil || claimed == nil {
-		return ctx.Respond(embed.Error("❌ Error", "Failed to claim: ticket no longer exists."))
-	}
-	if !changed {
-		if claimed.ClaimerID != "" {
-			return ctx.Respond(embed.Warning("⚠️ Already claimed", "Claimed by <@"+claimed.ClaimerID+">."))
-		}
-		return ctx.Respond(embed.Error("❌ Error", "This command only works inside an **open** ticket channel."))
-	}
-	g, _ := m.typeOf(claimed.GuildID, claimed.EffectiveType())
-	if claimed.MessageID != "" {
-		m.editTicketButtons(claimed, g, "Claimed by "+ctx.Author.EffectiveName())
-	}
-	return ctx.Respond(embed.Success("✋ Claimed", "<@"+userID+"> is handling this ticket."))
 }
 
 // addRemoveMember grants/revokes a member's individual overwrite + records it.
