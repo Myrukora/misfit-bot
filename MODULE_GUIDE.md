@@ -982,7 +982,7 @@ feature modules (cleanup/tickets) are compiled-in and managed with
    `New() modules.Module`.
 2. Register the constructor in `cmd/bot/main.go`'s
    `ModMgr.RegisterBuiltinsWithFilter(...)` call next to
-   `cleanup.New, tickets.New, imagefilter.New, welcome.New`.
+   `cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New`.
 3. Build and restart. `/modules enable|disable <name>` then gates it through
    the `enabled_modules` config map (a missing key means enabled).
 

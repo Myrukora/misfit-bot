@@ -289,6 +289,8 @@ func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.R
 		m.renderGuildModules(w, r, us, guildID)
 	case "welcome":
 		m.renderGuildWelcome(w, r, us, guildID)
+	case "moderation":
+		m.renderGuildModeration(w, r, us, guildID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -781,6 +783,12 @@ func channelTypeByName(label string) discord.ChannelType {
 		return discord.ChannelTypeGuildText
 	case "Announcement":
 		return discord.ChannelTypeGuildNews
+	case "Public Thread":
+		return discord.ChannelTypeGuildPublicThread
+	case "Private Thread":
+		return discord.ChannelTypeGuildPrivateThread
+	case "Announcement Thread":
+		return discord.ChannelTypeGuildNewsThread
 	default:
 		return discord.ChannelType(-1)
 	}

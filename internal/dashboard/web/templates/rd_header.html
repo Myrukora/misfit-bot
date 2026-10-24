@@ -35,6 +35,12 @@
           <span class="nav-label">Welcome</span>
         </a>
         {{end}}
+        {{if .ShowModeration}}
+        <a class="nav-item{{if eq .Page "gmoderation"}} active{{end}}" href="/g/{{.GuildID}}/moderation">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3 8.2-8 9-5-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <span class="nav-label">Moderation</span>
+        </a>
+        {{end}}
         <a class="nav-item{{if eq .Page "gmodules"}} active{{end}}" href="/g/{{.GuildID}}/modules">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span class="nav-label">Modules</span>

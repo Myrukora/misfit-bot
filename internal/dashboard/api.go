@@ -239,6 +239,12 @@ func channelTypeName(t discord.ChannelType) string {
 		return "Stage"
 	case discord.ChannelTypeGuildForum:
 		return "Forum"
+	case discord.ChannelTypeGuildPublicThread:
+		return "Public Thread"
+	case discord.ChannelTypeGuildPrivateThread:
+		return "Private Thread"
+	case discord.ChannelTypeGuildNewsThread:
+		return "Announcement Thread"
 	default:
 		return "Other"
 	}

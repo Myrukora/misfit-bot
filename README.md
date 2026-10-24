@@ -6,8 +6,9 @@ A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature mo
 
 ## Features
 
-- **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `/load` / `/unload` / `/reload`. The dashboard and the cleanup/tickets/imagefilter/welcome feature modules are compiled into the single binary instead (core infrastructure, always on).
+- **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `/load` / `/unload` / `/reload`. The dashboard and the cleanup/tickets/imagefilter/welcome/moderation feature modules are compiled into the single binary instead (core infrastructure, always on).
 - **Welcome messages** — per-server join/leave messages with a dashboard embed builder: variables like `{mention}`, `{user}`, `{server}`, `{server(members)}`, `{ord:…}` and `{random: …}`, per-event channels, auto-delete, and a "Send test" button.
+- **Moderation** — `/ban`, `/unban`, `/kick`, `/timeout`, `/warn`, `/warnings` and `/unwarn` with role-hierarchy checks, a per-server case audit (dashboard browser + audit-channel posts), warn notifications with the active total/reason, and automatic escalation rules (timeout/kick/ban at warning thresholds).
 - **9 core slash commands**: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `update`.
 - **Three-tier permission system** — bot owner/elevated users bypass everything, guild owners bypass Discord permission requirements, everyone else is checked against Discord role permissions.
 - **Web dashboard** — Discord OAuth2 login (mutual-guild enforced), 4 RBAC tiers (owner / elevated / staff / regular), live metrics, a permission-filtered command catalog, and per-module settings panels rendered from each module's opt-in `WebConfigurable` schema. No dashboard code changes needed to support a new module's settings.
@@ -71,7 +72,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | Section | Keys |
 |---|---|
 | `bot` | `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url` (the `token` lives in `.env`) |
-| `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter, welcome) |
+| `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter, welcome, moderation) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
 | `oauth` | *(the client secret lives in `.env` as `DISCORD_OAUTH_CLIENT_SECRET`)* |
@@ -90,7 +91,7 @@ All user-facing commands are **slash commands** (e.g. `/ping`). The bot register
 | `uptime` | Check bot uptime | Public |
 | `info` | Show bot information | Public |
 | `help` | Show available commands (permission-filtered) | Public |
-| `modules` | List loaded/available modules, or `enable`/`disable <name>` a compiled-in feature (cleanup/tickets/welcome — the config key `modules.enabled_modules` also accepts imagefilter; applies after restart) | Owner |
+| `modules` | List loaded/available modules, or `enable`/`disable <name>` a compiled-in feature (cleanup/tickets/welcome/moderation — the config key `modules.enabled_modules` also accepts imagefilter; applies after restart) | Owner |
 | `load` / `unload` / `reload` | Manage Lua/Python modules (`all` supported) | Owner |
 | `update` | `check` / `now` / `status` / `test` / `set` — self-updater control | Owner |
 
@@ -98,14 +99,14 @@ Elevated-user management lives on the dashboard **Permissions** page; restarts a
 
 ## Modules
 
-The web dashboard and the cleanup/tickets/imagefilter/welcome builtins are **compiled into the single binary** and cannot be loaded or unloaded at runtime. The four builtins are gated by `modules.enabled_modules` (missing key = enabled) and can be toggled with `/modules enable|disable <name>` (cleanup, tickets and welcome; imagefilter is configured per-server on the dashboard). Lua and Python modules stay hot-loadable and live in language folders under `modules/`:
+The web dashboard and the cleanup/tickets/imagefilter/welcome/moderation builtins are **compiled into the single binary** and cannot be loaded or unloaded at runtime. The five builtins are gated by `modules.enabled_modules` (missing key = enabled) and can be toggled with `/modules enable|disable <name>` (cleanup, tickets, welcome and moderation; imagefilter is configured per-server on the dashboard). Lua and Python modules stay hot-loadable and live in language folders under `modules/`:
 
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
 
 Each Lua/Python module's runtime data (config files, saves, logs) lives inside its own folder and is gitignored; source stays tracked. The compiled-in feature modules get a per-module data directory at `modules/<name>/` — the dashboard is the pinned exception, still using `modules/Go/dashboard/`. See [docs/builtin-data-paths.md](docs/builtin-data-paths.md).
 
-In-repo examples of authorable (hot-loadable) modules: `examples/lua/sample.lua` and `examples/python/samplepy/`. The compiled-in Go sources — not user-loadable — live in `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/` (the ticket system), `internal/builtin/imagefilter/` (the CLIP image filter), `internal/builtin/welcome/` (join/leave messages) and `internal/dashboard/` (the web dashboard — core subsystem); `modules/voice.go` is the module-facing `VoiceManager` API.
+In-repo examples of authorable (hot-loadable) modules: `examples/lua/sample.lua` and `examples/python/samplepy/`. The compiled-in Go sources — not user-loadable — live in `internal/builtin/cleanup/` (9-subcommand message cleanup), `internal/builtin/tickets/` (the ticket system), `internal/builtin/imagefilter/` (the CLIP image filter), `internal/builtin/welcome/` (join/leave messages), `internal/builtin/moderation/` (ban/kick/timeout/warn + case audit) and `internal/dashboard/` (the web dashboard — core subsystem); `modules/voice.go` is the module-facing `VoiceManager` API.
 
 A module can implement the optional `WebConfigurable` interface (declare a schema of typed fields — toggle, text, select, channel, secret, …) and the dashboard renders a settings panel for it automatically, with zero dashboard changes. The same request-time resolution drives the other opt-in module contracts (`modules.TicketProvider` / `TicketAdmin` / `TicketTranscript`): a module that implements the contract gets the dashboard surface, one that doesn't gets a stub or a 404. The tickets module is the reference: its entire management surface (types, panels, questions, per-server log channel) lives on the dashboard, and its only commands are the in-channel end-user actions (close/rename/add/remove). `modules.TicketTranscript.RefreshTranscript` is the tickets module's: it rebuilds the ticket's stored conversation log into its HTML transcript and returns the bytes, which backs `GET /api/tickets/<guild>/<ticket>/transcript` (guild-gated, downloads `ticket-<id>.html`) — so the uploaded `.html` is a cache of the log, regenerated at close and on demand, not a frozen close-time snapshot.
 
@@ -216,6 +217,18 @@ Each server has its own join and leave messages on **Server → Welcome** (`/g/<
 
 Messages only mention the affected member — `@everyone`/`@here`/roles in a template never ping. Config lives in `modules/welcome/` (gitignored) as per-server YAML.
 
+### Moderation
+
+Per-server moderation lives on **Server → Moderation** (`/g/<id>/moderation`, staff + guild managers). Enable it per server, then:
+
+- **Commands:** `/ban`, `/unban`, `/kick`, `/timeout`, `/warn`, `/warnings`, `/unwarn`. Role hierarchy is enforced before every punishment (the target must be below both you and the bot; the server owner, yourself and the bot are refused). Bans can delete up to 7 days of recent messages.
+- **Audit log:** every action becomes a numbered case with target, moderator, reason and timestamp. Choose an audit channel **or thread**; the dashboard shows the recent 100 cases with type/user filters, and warning cases can be removed (the record stays with a `Removed` status).
+- **Warn notifications:** post the warned member, moderator, reason, case number and **total active warnings** to the warn channel/thread (empty = fall back to the audit channel). When both point at the same channel, one embed covers both.
+- **Escalation rules:** exact-threshold actions — for example, at 2 active warnings timeout 60 minutes, at 4 warnings ban. Automated actions run through the same hierarchy and bot-permission checks and are recorded as automated cases.
+- **Warnings expire** after the configured number of days (0 = never).
+
+Config and cases live in `modules/moderation/` (gitignored); cases are per-server JSON with atomic writes, and the newest 20,000 are kept per server.
+
 ### Connecting an MCP client
 
 The bot ships a built-in **MCP (Model Context Protocol)** server, mounted at `/mcp` on the dashboard listener (it follows `dashboard.listen` — default `http://127.0.0.1:8080`). Register it with:
@@ -238,7 +251,7 @@ misfit-bot/
 ├── internal/
 │   ├── dashboard/         # Web dashboard — compiled-in core subsystem
 │   ├── mcpserver/         # Built-in MCP server (mounted at /mcp)
-│   ├── builtin/           # Compiled-in feature modules: cleanup, tickets, imagefilter, welcome
+│   ├── builtin/           # Compiled-in feature modules: cleanup, tickets, imagefilter, welcome, moderation
 │   ├── logutil/           # Shared log-file helpers
 │   └── util/              # Small shared helpers
 ├── modules/               # Module loaders + Lua/Python module folders

@@ -1627,4 +1627,131 @@
       e.returnValue = "";
     });
   }
+
+  /* ---------- moderation editor (/g/<id>/moderation) ---------- */
+  var modSave = byId("mod-save");
+  if (modSave) {
+    var modGuild = (byId("mod-guild") || {}).value || "";
+    var modRules = byId("mod-rules");
+    var modTemplate = byId("mod-rule-template");
+    var modDirty = false;
+
+    function modStatus(msg, isErr) {
+      var el = byId("mod-status");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.classList.toggle("mod-status-err", !!isErr);
+    }
+    function modDirtyMark() {
+      modDirty = true;
+      modStatus("");
+    }
+    function modSyncRule(row) {
+      var action = row.querySelector("[data-rule-action]");
+      var duration = row.querySelector("[data-rule-duration]");
+      if (!action || !duration) return;
+      var isTimeout = action.value === "timeout";
+      duration.disabled = !isTimeout;
+      if (!isTimeout) duration.value = "0";
+    }
+    function modBindRule(row) {
+      var action = row.querySelector("[data-rule-action]");
+      if (action) {
+        action.addEventListener("change", function () {
+          modSyncRule(row);
+          modDirtyMark();
+        });
+      }
+      row.querySelectorAll("input, select").forEach(function (el) {
+        el.addEventListener("input", modDirtyMark);
+        el.addEventListener("change", modDirtyMark);
+      });
+      modSyncRule(row);
+    }
+    modRules.querySelectorAll("[data-rule]").forEach(modBindRule);
+
+    byId("mod-add-rule").addEventListener("click", function () {
+      var row = modTemplate.content.firstElementChild.cloneNode(true);
+      modRules.appendChild(row);
+      modBindRule(row);
+      var empty = byId("mod-rules-empty");
+      if (empty) empty.hidden = true;
+      modDirtyMark();
+    });
+    modRules.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-rule-remove]");
+      if (!btn) return;
+      var row = btn.closest("[data-rule]");
+      if (row) row.remove();
+      if (!modRules.querySelector("[data-rule]")) {
+        var empty = byId("mod-rules-empty");
+        if (empty) empty.hidden = false;
+      }
+      modDirtyMark();
+    });
+
+    ["mod-enabled", "mod-audit-channel", "mod-warn-channel", "mod-warn-notify", "mod-warn-expiry", "mod-ban-delete"].forEach(function (id) {
+      var el = byId(id);
+      if (!el) return;
+      var evt = (el.type === "checkbox" || el.tagName === "SELECT") ? "change" : "input";
+      el.addEventListener(evt, modDirtyMark);
+    });
+
+    function modCollect() {
+      var rules = [];
+      modRules.querySelectorAll("[data-rule]").forEach(function (row) {
+        var threshold = parseInt(row.querySelector("[data-rule-threshold]").value, 10) || 0;
+        if (threshold < 1) return;
+        var action = row.querySelector("[data-rule-action]").value;
+        var duration = parseInt(row.querySelector("[data-rule-duration]").value, 10) || 0;
+        if (action !== "timeout") duration = 0;
+        rules.push({ threshold: threshold, action: action, duration_minutes: duration });
+      });
+      return {
+        enabled: byId("mod-enabled").checked,
+        audit_channel: byId("mod-audit-channel").value,
+        warn_channel: byId("mod-warn-channel").value,
+        warn_notify: byId("mod-warn-notify").checked,
+        warn_expiry_days: parseInt(byId("mod-warn-expiry").value, 10) || 0,
+        ban_delete_seconds: parseInt(byId("mod-ban-delete").value, 10) || 0,
+        rules: rules
+      };
+    }
+
+    modSave.addEventListener("click", function () {
+      modSave.disabled = true;
+      modStatus("Saving…");
+      api("POST", "/api/guilds/" + modGuild + "/moderation", modCollect())
+        .then(function () {
+          modDirty = false;
+          modStatus("Saved.");
+          toast("Moderation settings saved");
+        })
+        .catch(function (e) {
+          modStatus(e.message, true);
+          toast("Save failed: " + e.message, true);
+        })
+        .then(function () { modSave.disabled = false; });
+    });
+
+    document.querySelectorAll("[data-mod-unwarn]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var id = btn.getAttribute("data-mod-unwarn");
+        if (!confirm("Remove warning #" + id + "? This is recorded in the audit log.")) return;
+        btn.disabled = true;
+        api("DELETE", "/api/guilds/" + modGuild + "/moderation/cases/" + id)
+          .then(function () { location.reload(); })
+          .catch(function (e) {
+            btn.disabled = false;
+            toast("Remove failed: " + e.message, true);
+          });
+      });
+    });
+
+    window.addEventListener("beforeunload", function (e) {
+      if (!modDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
+  }
 })();

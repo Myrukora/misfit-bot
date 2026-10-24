@@ -311,6 +311,8 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		d.ShowImageFilter = ifOK
 		_, welcomeOK := m.welcomeAdmin()
 		d.ShowWelcome = welcomeOK
+		_, moderationOK := m.moderationAdmin()
+		d.ShowModeration = moderationOK
 	}
 	return d
 }

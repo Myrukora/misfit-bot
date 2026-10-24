@@ -1,0 +1,170 @@
+{{define "rd_moderation"}}{{template "rd_header" .}}
+        <section class="card">
+          <div class="mod-head">
+            <div>
+              <h2 style="margin:0">Moderation</h2>
+              <p class="muted" style="margin:4px 0 0">Ban, kick, timeout and warn members. Every action is recorded in the audit log.</p>
+            </div>
+          </div>
+
+          {{if not .Content.admin}}
+          <p class="muted" style="margin-top:16px">The <strong>moderation</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          {{else}}
+          {{$cfg := .Content.config}}
+          {{with .Content.configError}}<p class="mod-error">Config problem: {{.}}</p>{{end}}
+          {{with .Content.lastError}}<p class="mod-error">Last delivery error: {{.}}</p>{{end}}
+
+          <div class="mod-section">
+            <h3>Settings</h3>
+            <div class="mod-grid">
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="mod-enabled" {{if $cfg.Enabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Moderation commands enabled</span>
+              </label>
+              <div class="field">
+                <label class="field-label" for="mod-warn-expiry">Warnings expire after (days, 0 = never)</label>
+                <input class="field-input" type="number" id="mod-warn-expiry" min="0" max="3650" step="1" value="{{$cfg.WarnExpiryDays}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="mod-ban-delete">Ban deletes recent messages (seconds, 0 = none)</label>
+                <input class="field-input" type="number" id="mod-ban-delete" min="0" max="604800" step="1" value="{{$cfg.BanDeleteSeconds}}">
+              </div>
+            </div>
+            <div class="mod-grid">
+              <div class="field">
+                <label class="field-label" for="mod-audit-channel">Audit log channel (channel or thread)</label>
+                <select class="field-input" id="mod-audit-channel">
+                  <option value="">— none —</option>
+                  {{range .Content.channels}}<option value="{{.ID}}" {{if eq $cfg.AuditChannel .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{with .Content.staleAudit}}<option value="{{.ID}}" selected>Unknown channel ({{.ID}})</option>{{end}}
+                </select>
+              </div>
+              <div class="field">
+                <label class="field-label" for="mod-warn-channel">Warn notification channel (channel or thread)</label>
+                <select class="field-input" id="mod-warn-channel">
+                  <option value="">— use audit channel —</option>
+                  {{range .Content.channels}}<option value="{{.ID}}" {{if eq $cfg.WarnChannel .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{with .Content.staleWarn}}<option value="{{.ID}}" selected>Unknown channel ({{.ID}})</option>{{end}}
+                </select>
+              </div>
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="mod-warn-notify" {{if $cfg.WarnNotify}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Post warn notifications</span>
+              </label>
+            </div>
+            <p class="muted" style="margin:8px 0 0;font-size:13px">Threads work as destinations. Warn notifications include the target, reason and active warning total.</p>
+          </div>
+
+          <div class="mod-section">
+            <div class="mod-section-head">
+              <div>
+                <h3>Automatic escalation</h3>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">When a member reaches exactly N active warnings, the bot applies the action automatically (same role-hierarchy checks as manual commands).</p>
+              </div>
+              <button type="button" class="btn btn-small" id="mod-add-rule">Add rule</button>
+            </div>
+            <div class="mod-rules" id="mod-rules">
+              {{range $cfg.Rules}}
+              <div class="mod-rule" data-rule>
+                <div class="field">
+                  <label class="field-label">Warnings</label>
+                  <input class="field-input" type="number" data-rule-threshold min="1" max="1000" step="1" value="{{.Threshold}}">
+                </div>
+                <div class="field">
+                  <label class="field-label">Action</label>
+                  <select class="field-input" data-rule-action>
+                    <option value="timeout" {{if eq .Action "timeout"}}selected{{end}}>Timeout</option>
+                    <option value="kick" {{if eq .Action "kick"}}selected{{end}}>Kick</option>
+                    <option value="ban" {{if eq .Action "ban"}}selected{{end}}>Ban</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label class="field-label">Duration (minutes)</label>
+                  <input class="field-input" type="number" data-rule-duration min="1" max="40320" step="1" value="{{if .DurationMinutes}}{{.DurationMinutes}}{{else}}60{{end}}">
+                </div>
+                <button type="button" class="btn btn-small" data-rule-remove>Remove</button>
+              </div>
+              {{end}}
+            </div>
+            {{if not $cfg.Rules}}<p class="muted mod-rules-empty" id="mod-rules-empty" style="margin:8px 0 0;font-size:13px">No escalation rules configured.</p>{{end}}
+          </div>
+
+          <div class="mod-actions">
+            <button type="button" class="btn btn-primary" id="mod-save">Save changes</button>
+            <span class="mod-status muted" id="mod-status" role="status" aria-live="polite"></span>
+          </div>
+
+          <div class="mod-section">
+            <div class="mod-filter-head">
+              <div>
+                <h3>Audit log</h3>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">Recent 100 cases{{if or .Content.filterType .Content.filterUser}} (filtered){{end}}.</p>
+              </div>
+              <form method="get" class="mod-filter">
+                <select name="type" class="field-input" aria-label="Case type">
+                  <option value="">All types</option>
+                  <option value="warn" {{if eq .Content.filterType "warn"}}selected{{end}}>Warnings</option>
+                  <option value="ban" {{if eq .Content.filterType "ban"}}selected{{end}}>Bans</option>
+                  <option value="kick" {{if eq .Content.filterType "kick"}}selected{{end}}>Kicks</option>
+                  <option value="timeout" {{if eq .Content.filterType "timeout"}}selected{{end}}>Timeouts</option>
+                  <option value="unban" {{if eq .Content.filterType "unban"}}selected{{end}}>Unbans</option>
+                </select>
+                <input name="user" class="field-input" placeholder="User ID" value="{{.Content.filterUser}}" aria-label="User ID">
+                <button type="submit" class="btn btn-small">Filter</button>
+                {{if or .Content.filterType .Content.filterUser}}<a class="btn btn-small" href="/g/{{.Content.guild}}/moderation">Clear</a>{{end}}
+              </form>
+            </div>
+            {{with .Content.casesError}}<p class="mod-error">{{.}}</p>{{end}}
+            {{if .Content.cases}}
+            <div class="mod-table-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr><th>Case</th><th>Type</th><th>Target</th><th>Moderator</th><th>Reason</th><th>Created (UTC)</th><th>Status</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {{range .Content.cases}}
+                  <tr>
+                    <td>#{{.ID}}</td>
+                    <td>{{.TypeLabel}}{{if .Automated}} <span class="tag">auto</span>{{end}}</td>
+                    <td>{{.Target}}<br><span class="muted">{{.TargetID}}</span></td>
+                    <td>{{.Moderator}}<br><span class="muted">{{.ModeratorID}}</span></td>
+                    <td>{{.Reason}}</td>
+                    <td>{{.Created}}</td>
+                    <td><span class="tag{{if eq .Status "Active"}} ok{{end}}">{{.Status}}</span></td>
+                    <td>{{if .CanRemove}}<button type="button" class="btn btn-small" data-mod-unwarn="{{.ID}}">Remove</button>{{end}}</td>
+                  </tr>
+                  {{end}}
+                </tbody>
+              </table>
+            </div>
+            {{else}}<p class="muted" style="margin-top:12px">No cases yet.</p>{{end}}
+          </div>
+          {{end}}
+        </section>
+
+        <template id="mod-rule-template">
+          <div class="mod-rule" data-rule>
+            <div class="field">
+              <label class="field-label">Warnings</label>
+              <input class="field-input" type="number" data-rule-threshold min="1" max="1000" step="1" value="3">
+            </div>
+            <div class="field">
+              <label class="field-label">Action</label>
+              <select class="field-input" data-rule-action>
+                <option value="timeout" selected>Timeout</option>
+                <option value="kick">Kick</option>
+                <option value="ban">Ban</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label">Duration (minutes)</label>
+              <input class="field-input" type="number" data-rule-duration min="1" max="40320" step="1" value="60">
+            </div>
+            <button type="button" class="btn btn-small" data-rule-remove>Remove</button>
+          </div>
+        </template>
+
+        <input type="hidden" id="mod-guild" value="{{.Content.guild}}">
+{{template "rd_footer" .}}{{end}}

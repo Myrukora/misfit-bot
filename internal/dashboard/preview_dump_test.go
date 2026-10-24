@@ -24,6 +24,7 @@ func previewData(level string) renderData {
 	d.ShowStaff = true
 	d.ShowImageFilter = true
 	d.ShowWelcome = true
+	d.ShowModeration = true
 	return d
 }
 
@@ -74,6 +75,27 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{Event: "join", Label: "Welcome", Channels: welcomePreviewChannels},
 		{Event: "leave", Label: "Leave", Channels: welcomePreviewChannels},
 	}
+	modPreviewCfg := modules.ModerationConfig{
+		Enabled:          true,
+		AuditChannel:     "c1",
+		WarnChannel:      "c2",
+		WarnNotify:       true,
+		WarnExpiryDays:   30,
+		BanDeleteSeconds: 60,
+		Rules: []modules.ModerationRule{
+			{Threshold: 2, Action: modules.ModerationActionTimeout, DurationMinutes: 60},
+			{Threshold: 4, Action: modules.ModerationActionBan},
+		},
+	}
+	modPreviewChannels := []entityOpt{{ID: "c1", Name: "mod-log"}, {ID: "c2", Name: "warn-log"}}
+	modNow := time.Now().UTC()
+	modFuture := modNow.Add(48 * time.Hour)
+	modPreviewCases := []moderationCaseView{
+		moderationCaseViewFrom(modules.ModerationCase{ID: 1, Type: modules.ModerationTypeWarn, TargetID: "111", TargetTag: "Vixen", ModeratorID: "9", ModeratorTag: "Sam", Reason: "Spamming invites", CreatedAt: modNow, ExpiresAt: &modFuture}, modNow),
+		moderationCaseViewFrom(modules.ModerationCase{ID: 2, Type: modules.ModerationTypeBan, TargetID: "222", TargetTag: "Nova", ModeratorID: "9", ModeratorTag: "Sam", Reason: "Raid participation", CreatedAt: modNow.Add(-time.Hour)}, modNow),
+		moderationCaseViewFrom(modules.ModerationCase{ID: 3, Type: modules.ModerationTypeTimeout, TargetID: "333", TargetTag: "Echo", ModeratorID: "99", ModeratorTag: "TestBot", Reason: "Automatic: 2 active warnings", CreatedAt: modNow.Add(-2 * time.Hour), ExpiresAt: &modFuture, Automated: true, RuleThreshold: 2, WarningID: 1}, modNow),
+		moderationCaseViewFrom(modules.ModerationCase{ID: 4, Type: modules.ModerationTypeWarn, TargetID: "444", TargetTag: "Reformed", ModeratorID: "9", ModeratorTag: "Sam", Reason: "Old warning", CreatedAt: modNow.Add(-48 * time.Hour), Removed: true, RemovedByTag: "Sam", RemovedReason: "appeal accepted"}, modNow),
+	}
 	pages := []struct {
 		name    string
 		page    string // renderData.Page (what the real handler sets)
@@ -93,6 +115,17 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"configJSON": template.JS(string(welcomePreviewJSON)),
 			"panels":     welcomePreviewPanels,
 			"channels":   welcomePreviewChannels,
+		}, true},
+		{"moderation.html", "gmoderation", "rd_moderation", map[string]any{
+			"guild":      "1",
+			"admin":      true,
+			"config":     modPreviewCfg,
+			"cases":      modPreviewCases,
+			"count":      len(modPreviewCases),
+			"channels":   modPreviewChannels,
+			"filterType": "",
+			"filterUser": "",
+			"lastError":  "",
 		}, true},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",

@@ -155,6 +155,25 @@ All routes require staff+ managing that guild, plus CSRF on POST. The dashboard
 resolves `modules.WelcomeAdmin` through the module manager, so an unloaded module
 yields a 404 (API) or the "module not loaded" stub (page).
 
+## Moderation editor (`/g/<id>/moderation`)
+
+The moderation builtin's per-server page (staff+): enable toggle, audit and warn
+destinations (text/announcement channels **or threads**), warn-notify toggle,
+warn expiry, ban message deletion, a rules editor (threshold → timeout/kick/ban
+with a timeout duration), and the case audit table (newest 100, filterable by
+type and user ID). Warning rows offer one-click removal.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/guilds/<gid>/moderation` | config + last delivery error |
+| `POST /api/guilds/<gid>/moderation` | validate + save settings and rules |
+| `GET /api/guilds/<gid>/moderation/cases` | filtered cases (`type`, `user`, `limit`) |
+| `DELETE /api/guilds/<gid>/moderation/cases/<id>` | remove a warning (audit-preserving) |
+
+All routes require staff+ managing that guild and CSRF on mutations. The module
+is resolved through `modules.ModerationAdmin`; when unloaded the page shows the
+"module not loaded" stub and the API returns 404.
+
 ## `WebConfigurable` — exposing module settings on the dashboard
 
 Modules are the **single source of truth** for what settings exist and how each

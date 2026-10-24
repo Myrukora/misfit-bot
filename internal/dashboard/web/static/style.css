@@ -2301,6 +2301,141 @@ video.ticket-thumb {
     border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* ================= MODERATION ================= */
+
+.mod-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.mod-section {
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mod-section:first-of-type {
+    margin-top: 14px;
+    padding-top: 0;
+    border-top: none;
+}
+
+.mod-section h3 {
+    color: white;
+    font-size: 15px;
+    margin: 0;
+}
+
+.mod-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.mod-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 16px;
+    align-items: end;
+    margin-top: 14px;
+}
+
+.mod-grid .field {
+    margin-top: 0;
+}
+
+.mod-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.mod-rule {
+    display: grid;
+    grid-template-columns: 110px minmax(160px, 1fr) 170px max-content;
+    gap: 10px;
+    align-items: end;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.mod-rule .field {
+    margin-top: 0;
+}
+
+.mod-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mod-status {
+    font-size: 13px;
+}
+
+.mod-status-err {
+    color: #f87171;
+}
+
+.mod-error {
+    margin: 12px 0 0;
+    padding-left: 8px;
+    color: #f87171;
+    border-left: 2px solid rgba(248, 113, 113, 0.6);
+}
+
+.mod-filter-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.mod-filter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.mod-filter .field-input {
+    width: auto;
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.mod-table-wrap {
+    overflow-x: auto;
+    margin-top: 14px;
+}
+
+.mod-table-wrap .tbl {
+    min-width: 760px;
+}
+
+.mod-rules-empty[hidden] {
+    display: none;
+}
+
+@media (max-width: 899px) {
+    .mod-rule {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ================= WELCOME MESSAGE BUILDER ================= */
 
 .welcome-head {

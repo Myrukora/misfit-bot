@@ -58,6 +58,8 @@ modules/tickets/
 modules/imagefilter/
 # Welcome compiled-in builtin runtime data (per-guild configs)
 modules/welcome/
+# Moderation compiled-in builtin runtime data (per-guild configs + case audit)
+modules/moderation/
 # Legacy Go plugin data dirs (pre-cutover runtime state)
 modules/Go/*/guilds/
 modules/Go/*/tickets/
