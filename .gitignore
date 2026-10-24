@@ -17,6 +17,12 @@ config.yml
 config_backup_*.yml
 config_pre_restore_*.yml
 
+# Terms of Service / Privacy Policy: deployment content edited in place and
+# served at /tos + /policy. The dashboard seeds legal/terms.md and
+# legal/privacy.md with starter text on first render, so these are never
+# committed (edit them locally, not in the repo).
+legal/
+
 # Runtime/bot-generated state (never commit)
 # Module runtime data lives INSIDE each module's folder (modules/<lang>/<name>/):
 # source is tracked, the module's own configs/saves/logs are ignored.
