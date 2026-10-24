@@ -157,6 +157,7 @@ func TestMirrorRunWorker(t *testing.T) {
 	}
 
 	q := newMirrorQueue(testLogger{})
+	q.client = &http.Client{Timeout: 3 * time.Second}
 	stop := make(chan struct{})
 	go q.run(dataDir, st, stop)
 	q.enqueue(mirrorJob{guildID: "111", ticketID: "222"})

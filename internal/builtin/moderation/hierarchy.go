@@ -57,7 +57,7 @@ func (m *ModerationModule) memberTopPosition(guildID snowflake.ID, member *disco
 
 // ensureCanWarn rejects warnings on yourself and the bot (role hierarchy does
 // not matter: a warning is a record, not a Discord punishment).
-func (m *ModerationModule) ensureCanWarn(guildID, moderatorID, targetID snowflake.ID) error {
+func (m *ModerationModule) ensureCanWarn(_ snowflake.ID, moderatorID, targetID snowflake.ID) error {
 	selfID, _ := snowflake.Parse(m.ctx.Bot.GetSelfUserID())
 	if targetID == moderatorID {
 		return fmt.Errorf("you cannot warn yourself")
@@ -68,7 +68,6 @@ func (m *ModerationModule) ensureCanWarn(guildID, moderatorID, targetID snowflak
 	if moderatorID == 0 {
 		return fmt.Errorf("invalid moderator")
 	}
-	_ = guildID
 	return nil
 }
 

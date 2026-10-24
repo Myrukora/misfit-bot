@@ -11,7 +11,7 @@ import (
 // dashboard.py metadata (has_web_config + web_schema) is parsed into the
 // module info the wrapper caches.
 func TestPythonReadyParsesWebConfig(t *testing.T) {
-	log, err := logger.New(t.TempDir(), "error", false)
+	log, err := logger.New(t.TempDir(), "logs/bot.log", "error", false)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestPythonReadyParsesWebConfig(t *testing.T) {
 // TestPythonReadyNoWebConfig pins the absence case: no dashboard.py => no
 // integration metadata.
 func TestPythonReadyNoWebConfig(t *testing.T) {
-	log, err := logger.New(t.TempDir(), "error", false)
+	log, err := logger.New(t.TempDir(), "logs/bot.log", "error", false)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}

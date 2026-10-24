@@ -17,19 +17,22 @@ import (
 )
 
 const (
-	sessionCookie = "dsh_session"
-	csrfHeader    = "X-CSRF-Token"
-	csrfMeta      = "csrf-token"
+	sessionCookie    = "dsh_session"
+	oauthStateCookie = "dsh_oauth_state"
+	csrfHeader       = "X-CSRF-Token"
+	csrfMeta         = "csrf-token"
+	oauthStateTTL    = 10 * time.Minute
 )
 
 // userSession is an in-memory OAuth session for a logged-in dashboard user.
 // Sessions are lost on restart; users simply log in again.
 type userSession struct {
-	mu       sync.Mutex
-	oauth    oauth2.Session
-	userID   snowflake.ID
-	username string
-	avatar   string // Discord CDN avatar URL
+	mu        sync.Mutex
+	refreshMu sync.Mutex // serializes token refresh without blocking session readers
+	oauth     oauth2.Session
+	userID    snowflake.ID
+	username  string
+	avatar    string // Discord CDN avatar URL
 
 	oauthGuilds []discord.OAuth2Guild // cached list of the user's guilds
 	guildsAt    time.Time
@@ -42,13 +45,14 @@ type userSession struct {
 }
 
 type sessionStore struct {
-	mu       sync.RWMutex
-	sessions map[string]*userSession
+	mu        sync.RWMutex
+	sessions  map[string]*userSession
+	lastPrune time.Time
 }
 
 // newSessionStore creates an empty in-memory session store.
 func newSessionStore() *sessionStore {
-	return &sessionStore{sessions: make(map[string]*userSession)}
+	return &sessionStore{sessions: make(map[string]*userSession), lastPrune: time.Now()}
 }
 
 // put stores a session under key.
@@ -58,11 +62,26 @@ func (s *sessionStore) put(key string, us *userSession) {
 	s.sessions[key] = us
 }
 
-// get returns the session stored under key.
+// get returns the session stored under key. It also prunes expired sessions
+// occasionally, so abandoned logins do not accumulate for the process lifetime.
 func (s *sessionStore) get(key string) (*userSession, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	us, ok := s.sessions[key]
+	prune := time.Since(s.lastPrune) > 10*time.Minute
+	s.mu.RUnlock()
+	if prune {
+		s.mu.Lock()
+		if time.Since(s.lastPrune) > 10*time.Minute {
+			now := time.Now()
+			for k, v := range s.sessions {
+				if !v.expiresAt.IsZero() && now.After(v.expiresAt) {
+					delete(s.sessions, k)
+				}
+			}
+			s.lastPrune = now
+		}
+		s.mu.Unlock()
+	}
 	return us, ok
 }
 
@@ -186,15 +205,26 @@ func (m *DashboardModule) authMiddleware(next http.Handler) http.Handler {
 		us, _, ok := m.sessionFromCookie(r)
 		oa := m.oauthClient()
 		if ok && oa != nil {
-			func() {
+			us.mu.Lock()
+			expired := us.oauth.Expired()
+			us.mu.Unlock()
+			if expired {
+				// Serialize refreshes separately from us.mu: VerifySession is a
+				// network call, and holding the session lock across it would
+				// stall every request for this user.
+				us.refreshMu.Lock()
 				us.mu.Lock()
-				defer us.mu.Unlock()
-				if us.oauth.Expired() {
-					if refreshed, err := oa.VerifySession(us.oauth); err == nil {
+				oauth, stillExpired := us.oauth, us.oauth.Expired()
+				us.mu.Unlock()
+				if stillExpired {
+					if refreshed, err := oa.VerifySession(oauth); err == nil {
+						us.mu.Lock()
 						us.oauth = refreshed
+						us.mu.Unlock()
 					}
 				}
-			}()
+				us.refreshMu.Unlock()
+			}
 			r = r.WithContext(setSession(r.Context(), us))
 		}
 		next.ServeHTTP(w, r)
@@ -222,10 +252,15 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	url := oa.GenerateAuthorizationURL(oauth2.AuthorizationURLParams{
+	url, state := oa.GenerateAuthorizationURLState(oauth2.AuthorizationURLParams{
 		RedirectURI: m.redirectBaseURL(r) + "/callback",
 		Scopes:      []discord.OAuth2Scope{discord.OAuth2ScopeIdentify, discord.OAuth2ScopeGuilds},
 	})
+	if !m.setOAuthStateCookie(w, r, state) {
+		m.recordLogin(r, false, nil, "", "session secret unavailable", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, "login is not configured")
+		return
+	}
 	http.Redirect(w, r, url, http.StatusSeeOther)
 }
 
@@ -245,6 +280,13 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "missing code or state parameter")
 		return
 	}
+	if !m.verifyOAuthState(r, state) {
+		m.clearOAuthStateCookie(w, r)
+		m.recordLogin(r, false, nil, "", "invalid login state", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid or expired login state")
+		return
+	}
+	m.clearOAuthStateCookie(w, r)
 	sess, _, err := oa.StartSession(code, state)
 	if err != nil {
 		m.recordLogin(r, false, nil, "", "Discord rejected the login", http.StatusBadGateway)
@@ -322,6 +364,60 @@ func (m *DashboardModule) sharesMutualGuild(guilds []discord.OAuth2Guild) bool {
 		}
 	}
 	return false
+}
+
+// ── OAuth state binding ────────────────────────────────────────────────────
+// DisGo stores the state -> redirect URI map in a process-global controller.
+// Binding the state to the initiating browser with a short-lived signed cookie
+// prevents an attacker from feeding a victim a callback URL carrying the
+// attacker's code+state (login CSRF).
+
+// setOAuthStateCookie stores the signed state for the callback. It returns
+// false when no session secret is available, in which case login must fail
+// closed rather than issue a forgeable binding.
+func (m *DashboardModule) setOAuthStateCookie(w http.ResponseWriter, r *http.Request, state string) bool {
+	if state == "" || m.sessionSecret() == "" {
+		return false
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    m.signCookie("oauth:" + state),
+		Path:     "/callback",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   m.requestIsHTTPS(r),
+		MaxAge:   int(oauthStateTTL.Seconds()),
+	})
+	return true
+}
+
+// verifyOAuthState requires the callback's state to match the signed cookie
+// issued by this browser at login start.
+func (m *DashboardModule) verifyOAuthState(r *http.Request, state string) bool {
+	if state == "" || m.sessionSecret() == "" {
+		return false
+	}
+	c, err := r.Cookie(oauthStateCookie)
+	if err != nil {
+		return false
+	}
+	value, ok := m.verifyCookie(c.Value)
+	if !ok {
+		return false
+	}
+	return hmac.Equal([]byte(value), []byte("oauth:"+state))
+}
+
+func (m *DashboardModule) clearOAuthStateCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthStateCookie,
+		Value:    "",
+		Path:     "/callback",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   m.requestIsHTTPS(r),
+		MaxAge:   -1,
+	})
 }
 
 // checkCSRF validates the X-CSRF-Token header against the session's token.

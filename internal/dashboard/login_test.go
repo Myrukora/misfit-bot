@@ -17,10 +17,11 @@ func newLoginTestModule(t *testing.T, publicURL string) *DashboardModule {
 	t.Helper()
 	m := &DashboardModule{
 		cfg: &DashboardConfig{
-			Listen:       "127.0.0.1:0",
-			PublicURL:    publicURL,
-			ClientID:     "123456789012345678",
-			ClientSecret: "test-secret",
+			Listen:        "127.0.0.1:0",
+			PublicURL:     publicURL,
+			ClientID:      "123456789012345678",
+			ClientSecret:  "test-secret",
+			SessionSecret: "test-secret",
 		},
 		mu:     sync.Mutex{},
 		logger: deadlockLogger{},

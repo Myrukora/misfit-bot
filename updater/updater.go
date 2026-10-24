@@ -129,6 +129,7 @@ type Manager struct {
 	buildVersion string // version of the running binary (main injects it via SetVersion)
 
 	mu        sync.Mutex // guards state, lastCheck, lastError, buildVersion, listTags
+	restMu    sync.RWMutex
 	state     *state
 	lastCheck time.Time
 	lastError string
@@ -221,7 +222,9 @@ func (m *Manager) cachedVersion(scope string) string {
 // because the disgo client is recreated on restart. The first call also
 // releases the poll loop (see restReady).
 func (m *Manager) SetRest(r rest.Rest) {
+	m.restMu.Lock()
 	m.rest = r
+	m.restMu.Unlock()
 	m.restOnce.Do(func() { close(m.restReady) })
 }
 
@@ -479,8 +482,7 @@ func (m *Manager) Check(ctx context.Context) (*CheckResult, error) {
 		branch = "main"
 	}
 
-	fetchArgs := append(m.gitAuthArgs(cfg), "fetch", "origin", branch)
-	if out, err := m.gitOutput(ctx, fetchArgs...); err != nil {
+	if out, err := m.gitNetwork(ctx, cfg, "fetch", "origin", branch); err != nil {
 		return nil, fmt.Errorf("git fetch origin %s: %v (%s)", branch, err, strings.TrimSpace(out))
 	}
 	local, err := m.gitOutput(ctx, "rev-parse", "HEAD")
@@ -557,8 +559,7 @@ func (m *Manager) Apply(ctx context.Context) error {
 	}
 
 	// 1. Fetch + fast-forward merge.
-	fetchArgs := append(m.gitAuthArgs(cfg), "fetch", "origin", branch)
-	if out, err := m.gitOutput(ctx, fetchArgs...); err != nil {
+	if out, err := m.gitNetwork(ctx, cfg, "fetch", "origin", branch); err != nil {
 		return fmt.Errorf("git fetch origin %s: %v (%s)", branch, err, strings.TrimSpace(out))
 	}
 	if out, err := m.gitOutput(ctx, "merge", "--ff-only", "FETCH_HEAD"); err != nil {
@@ -731,8 +732,8 @@ func (m *Manager) listTagsOnce(ctx context.Context, cfg *config.UpdaterConfig) (
 // global in git — a release tagged on some hotfix branch is not an update for
 // this one — so the candidates are filtered by reachability afterwards.
 func (m *Manager) listRemoteTags(ctx context.Context, cfg *config.UpdaterConfig) ([]string, error) {
-	args := append(m.gitAuthArgs(cfg), "ls-remote", "--tags", "origin")
-	out, err := m.gitOutput(ctx, args...)
+	args := []string{"ls-remote", "--tags", "origin"}
+	out, err := m.gitNetwork(ctx, cfg, args...)
 	if err != nil {
 		return nil, fmt.Errorf("git ls-remote --tags origin: %v (%s)", err, strings.TrimSpace(out))
 	}
@@ -900,14 +901,17 @@ func releaseKey(cfg *config.UpdaterConfig, targets []string, version string) str
 
 // sendEmbed posts an embed to a Discord channel via the REST client.
 func (m *Manager) sendEmbed(channelID string, e discord.Embed) error {
-	if m.rest == nil {
+	m.restMu.RLock()
+	client := m.rest
+	m.restMu.RUnlock()
+	if client == nil {
 		return fmt.Errorf("discord rest client unavailable")
 	}
 	id, err := snowflake.Parse(normalizeChannel(channelID))
 	if err != nil {
 		return fmt.Errorf("invalid notify channel %q: %w", channelID, err)
 	}
-	_, err = m.rest.CreateMessage(id, discord.MessageCreate{Embeds: []discord.Embed{e}})
+	_, err = client.CreateMessage(id, discord.MessageCreate{Embeds: []discord.Embed{e}})
 	return err
 }
 
@@ -922,15 +926,28 @@ func normalizeChannel(s string) string {
 	return s
 }
 
-// gitAuthArgs returns the -c arguments that scope credentials to this single
-// git invocation: disable the credential helper so the token never lands in
-// .git/config, and inject the token via a per-request Authorization header.
-func (m *Manager) gitAuthArgs(cfg *config.UpdaterConfig) []string {
-	args := []string{"-c", "credential.helper="}
-	if cfg.Token != "" {
-		args = append(args, "-c", "http.extraheader="+authHeader(cfg.Token))
+// gitEnv scopes credentials to one git invocation through GIT_CONFIG_*
+// environment variables. The token never appears in argv (and therefore never
+// in /proc/<pid>/cmdline) and is never written to .git/config.
+func (m *Manager) gitEnv(cfg *config.UpdaterConfig) []string {
+	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if cfg == nil || cfg.Token == "" {
+		return append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=")
 	}
-	return args
+	return append(env,
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=credential.helper", "GIT_CONFIG_VALUE_0=",
+		"GIT_CONFIG_KEY_1=http.extraheader", "GIT_CONFIG_VALUE_1="+authHeader(cfg.Token),
+	)
+}
+
+// gitNetwork runs a network git command with the credential environment.
+func (m *Manager) gitNetwork(ctx context.Context, cfg *config.UpdaterConfig, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = m.Dir
+	cmd.Env = m.gitEnv(cfg)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
 }
 
 // authHeader builds the basic-auth header git accepts for GitHub tokens.

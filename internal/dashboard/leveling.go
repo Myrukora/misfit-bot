@@ -309,6 +309,16 @@ func (m *DashboardModule) routeLevelingAPI(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+		if err := m.checkChannelInGuild(gid, cfg.AnnounceChannel); err != nil {
+			writeError(w, http.StatusBadRequest, "announcement channel: "+err.Error())
+			return
+		}
+		for _, reward := range cfg.Rewards {
+			if err := m.checkRoleGrant(us, gid, reward.RoleID); err != nil {
+				writeError(w, http.StatusBadRequest, "reward role: "+err.Error())
+				return
+			}
+		}
 		if err := adm.SetGuildConfig(gid, cfg); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -331,6 +341,14 @@ func (m *DashboardModule) routeLevelingAPI(w http.ResponseWriter, r *http.Reques
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if body.Enabled {
+			for _, reward := range cfg.Rewards {
+				if err := m.checkRoleGrant(us, gid, reward.RoleID); err != nil {
+					writeError(w, http.StatusForbidden, "reward role: "+err.Error())
+					return
+				}
+			}
 		}
 		cfg.Enabled = body.Enabled
 		if err := adm.SetGuildConfig(gid, cfg); err != nil {
@@ -375,6 +393,19 @@ func (m *DashboardModule) routeLevelingAPI(w http.ResponseWriter, r *http.Reques
 		if !m.checkCSRF(r) {
 			writeError(w, http.StatusForbidden, "invalid CSRF token")
 			return
+		}
+		// A pre-existing config may predate the role-hierarchy guard; re-check
+		// the stored rewards before a sync grants them.
+		storedCfg, err := adm.GetGuildConfig(gid)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, reward := range storedCfg.Rewards {
+			if err := m.checkRoleGrant(us, gid, reward.RoleID); err != nil {
+				writeError(w, http.StatusForbidden, "reward role: "+err.Error())
+				return
+			}
 		}
 		queued, err := adm.StartRewardSync(gid)
 		if err != nil {

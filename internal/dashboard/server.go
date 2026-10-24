@@ -3,6 +3,7 @@ package dashboard
 import (
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -38,7 +39,7 @@ func (m *DashboardModule) recoverMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				m.logger.Error("Dashboard panic recovered: %v", rec)
+				m.logger.Error("Dashboard panic recovered: %v\n%s", rec, debug.Stack())
 				writeError(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()
@@ -46,17 +47,26 @@ func (m *DashboardModule) recoverMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// logMiddleware logs one line per request with status and duration.
+// logMiddleware logs one line per request with status and duration. The defer
+// runs even when a handler panics, so a crashing request is still auditable
+// (status is reported as 500 when the response never completed).
 func (m *DashboardModule) logMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
+		completed := false
+		defer func() {
+			if !completed {
+				sw.status = http.StatusInternalServerError
+			}
+			uid := ""
+			if us := sessionOf(r); us != nil {
+				uid = us.userID.String()
+			}
+			m.logger.Info("dashboard %s %s -> %d (%s) user=%s", r.Method, r.URL.Path, sw.status, time.Since(start), uid)
+		}()
 		next.ServeHTTP(sw, r)
-		uid := ""
-		if us := sessionOf(r); us != nil {
-			uid = us.userID.String()
-		}
-		m.logger.Info("dashboard %s %s -> %d (%s) user=%s", r.Method, r.URL.Path, sw.status, time.Since(start), uid)
+		completed = true
 	})
 }
 
@@ -90,7 +100,7 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 		// reverse-proxy cache should satisfy a visit without hitting the bot.
 		// The static handler overrides this with its own revalidation header.
 		h.Set("Cache-Control", "no-store")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

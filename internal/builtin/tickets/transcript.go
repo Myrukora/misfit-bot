@@ -8,12 +8,14 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 
+	"github.com/misfit/bot/internal/safehttp"
 	"github.com/misfit/bot/modules"
 )
 
@@ -69,10 +71,10 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 	}
 	// 2) Plan the attachment mirror (downloads, outside the lock).
 	filesDir := filepath.Join(dataDir, "tickets", tk.GuildID, tk.ID, "files")
-	if err := os.MkdirAll(filesDir, 0755); err != nil {
+	if err := ensurePrivateDir(filesDir); err != nil {
 		m.ctx.Logger.Warn("Tickets: mirror mkdir %s: %v", filesDir, err)
 	}
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := safehttp.NewClient(60 * time.Second)
 	fixes := planTicketMedia(client, tk, filesDir, dataDir, m.ctx.Logger)
 
 	// 3) Merge history + media fixes + the close fields onto the stored copy.
@@ -179,16 +181,10 @@ func (m *TicketsModule) renderTranscriptToDisk(guildID, ticketID string) (data [
 	}
 	htmlStr := buildTranscriptHTML(tk, m.resolveGuildName(guildID))
 	htmlPath := filepath.Join(m.ctx.DataDir, "tickets", guildID, ticketID+".html")
-	if err := os.MkdirAll(filepath.Dir(htmlPath), 0755); err != nil {
+	if err := ensurePrivateDir(filepath.Dir(htmlPath)); err != nil {
 		return nil, "", nil, err
 	}
-	// tmp + rename (the house pattern, cf. writeIndexLocked); 0644 is what
-	// this file has always been.
-	tmp := htmlPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(htmlStr), 0644); err != nil {
-		return nil, "", nil, err
-	}
-	if err := os.Rename(tmp, htmlPath); err != nil {
+	if err := writePrivateFile(htmlPath, []byte(htmlStr)); err != nil {
 		return nil, "", nil, err
 	}
 	// Persist the path RELATIVE to DataDir (the dashboard serves it that way);
@@ -322,11 +318,9 @@ func mergeEntriesInto(tk *modules.Ticket, history []modules.LogEntry) bool {
 }
 
 func sortLogByTime(log []modules.LogEntry) {
-	for i := 1; i < len(log); i++ {
-		for j := i; j > 0 && log[j].Timestamp.Before(log[j-1].Timestamp); j-- {
-			log[j], log[j-1] = log[j-1], log[j]
-		}
-	}
+	sort.SliceStable(log, func(i, j int) bool {
+		return log[i].Timestamp.Before(log[j].Timestamp)
+	})
 }
 
 func downloadAttachment(client *http.Client, url, dir, prefix, filename string, maxBytes int64) (string, error) {
@@ -347,11 +341,11 @@ func downloadAttachment(client *http.Client, url, dir, prefix, filename string, 
 		name = "file"
 	}
 	name = prefix + "-" + name
-	path := filepath.Join(dir, name)
-	f, err := os.Create(path)
+	f, err := openPrivateFile(dir, name)
 	if err != nil {
 		return "", err
 	}
+	path := filepath.Join(dir, name)
 	n, err := io.Copy(f, io.LimitReader(resp.Body, maxBytes+1))
 	closeErr := f.Close()
 	if err != nil {

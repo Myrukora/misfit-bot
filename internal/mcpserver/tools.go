@@ -15,6 +15,7 @@ import (
 	"github.com/misfit/bot/commands"
 	"github.com/misfit/bot/config"
 	"github.com/misfit/bot/embed"
+	"github.com/misfit/bot/internal/discordutil"
 	"github.com/misfit/bot/internal/logutil"
 	"github.com/misfit/bot/modules"
 	"github.com/misfit/bot/updater"
@@ -197,7 +198,7 @@ func (s *Server) listChannels(ctx context.Context, req *mcp.CallToolRequest, in 
 		Roles    []roleView    `json:"roles"`
 	}{}
 	for ch := range c.Caches.ChannelsForGuild(gid) {
-		out.Channels = append(out.Channels, channelView{ID: ch.ID().String(), Name: ch.Name(), Type: channelTypeName(ch.Type())})
+		out.Channels = append(out.Channels, channelView{ID: ch.ID().String(), Name: ch.Name(), Type: discordutil.ChannelTypeName(ch.Type())})
 	}
 	sort.Slice(out.Channels, func(i, j int) bool { return out.Channels[i].Name < out.Channels[j].Name })
 	for role := range c.Caches.Roles(gid) {
@@ -206,28 +207,6 @@ func (s *Server) listChannels(ctx context.Context, req *mcp.CallToolRequest, in 
 	sort.Slice(out.Roles, func(i, j int) bool { return out.Roles[i].Position > out.Roles[j].Position })
 	res, err := jsonResult(out)
 	return res, nil, err
-}
-
-// channelTypeName renders a channel type as a short human label. Copied from
-// the dashboard (internal/dashboard/api.go) — deliberately not shared, so the
-// two packages stay independent.
-func channelTypeName(t discord.ChannelType) string {
-	switch t {
-	case discord.ChannelTypeGuildText:
-		return "Text"
-	case discord.ChannelTypeGuildVoice:
-		return "Voice"
-	case discord.ChannelTypeGuildCategory:
-		return "Category"
-	case discord.ChannelTypeGuildNews:
-		return "Announcement"
-	case discord.ChannelTypeGuildStageVoice:
-		return "Stage"
-	case discord.ChannelTypeGuildForum:
-		return "Forum"
-	default:
-		return "Other"
-	}
 }
 
 // GetLogsIn is the input for get_logs.
@@ -347,7 +326,7 @@ func (s *Server) moduleGetConfig(ctx context.Context, req *mcp.CallToolRequest, 
 	if !ok {
 		return nil, nil, fmt.Errorf("module not loaded: %s", in.Module)
 	}
-	wc, ok := modules.IsWebConfigurable(mod)
+	wc, ok := modules.WebConfigFor(mod)
 	if !ok {
 		return nil, nil, fmt.Errorf("module %s has no dashboard integration (not WebConfigurable) — absence is a valid state", in.Module)
 	}
@@ -393,7 +372,7 @@ func (s *Server) moduleSetConfig(ctx context.Context, req *mcp.CallToolRequest, 
 	if !ok {
 		return nil, nil, fmt.Errorf("module not loaded: %s", in.Module)
 	}
-	wc, ok := modules.IsWebConfigurable(mod)
+	wc, ok := modules.WebConfigFor(mod)
 	if !ok {
 		return nil, nil, fmt.Errorf("module %s has no dashboard integration (not WebConfigurable)", in.Module)
 	}

@@ -20,13 +20,6 @@ var startTime = time.Now()
 // start). Used by the dashboard for an honest bot-uptime source.
 func StartTime() time.Time { return startTime }
 
-func fmtErr(err error) string {
-	if err == nil {
-		return "ok"
-	}
-	return err.Error()
-}
-
 // short7 abbreviates a commit SHA to 7 characters for display.
 func short7(sha string) string {
 	if len(sha) > 7 {

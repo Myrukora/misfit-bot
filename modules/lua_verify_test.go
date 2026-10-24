@@ -55,7 +55,7 @@ end
 `
 
 func TestHelloLuaLoadsAndRuns(t *testing.T) {
-	log, err := logger.New(t.TempDir(), "error", false)
+	log, err := logger.New(t.TempDir(), "logs/bot.log", "error", false)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}

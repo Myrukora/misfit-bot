@@ -43,19 +43,25 @@ func (m *Manager) IsElevated(userID string) bool {
 
 func (m *Manager) AddElevated(userID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.elevatedIDs[userID] = true
-	if m.onSave != nil {
-		m.onSave(m.getElevatedIDsLocked())
+	ids := m.getElevatedIDsLocked()
+	onSave := m.onSave
+	m.mu.Unlock()
+	// Persist outside the lock: onSave writes config.yml and must not stall
+	// every IsOwner/IsElevated check for the duration of a disk write.
+	if onSave != nil {
+		onSave(ids)
 	}
 }
 
 func (m *Manager) RemoveElevated(userID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	delete(m.elevatedIDs, userID)
-	if m.onSave != nil {
-		m.onSave(m.getElevatedIDsLocked())
+	ids := m.getElevatedIDsLocked()
+	onSave := m.onSave
+	m.mu.Unlock()
+	if onSave != nil {
+		onSave(ids)
 	}
 }
 

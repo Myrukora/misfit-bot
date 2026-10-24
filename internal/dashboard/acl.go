@@ -93,7 +93,10 @@ func (m *DashboardModule) allBotGuildList() []string {
 // — the allowlist is swapped from gateway goroutines via cmdDashboardSet).
 func (m *DashboardModule) allowed(guildID string) bool {
 	m.mu.Lock()
-	list := m.cfg.AllowedGuilds
+	var list []string
+	if m.cfg != nil {
+		list = m.cfg.AllowedGuilds
+	}
 	m.mu.Unlock()
 	if len(list) == 0 {
 		return true

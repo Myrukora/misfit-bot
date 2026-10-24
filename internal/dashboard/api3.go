@@ -88,7 +88,7 @@ func (m *DashboardModule) routeImageFilterAPI(w http.ResponseWriter, r *http.Req
 			var body struct {
 				Variant string `json:"variant"`
 			}
-			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+			if err := readJSON(r.Body, &body); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid JSON body")
 				return
 			}
@@ -137,9 +137,25 @@ func (m *DashboardModule) routeImageFilterAPI(w http.ResponseWriter, r *http.Req
 				return
 			}
 			var body map[string]string
-			dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
-			if err := dec.Decode(&body); err != nil {
+			if err := readJSON(r.Body, &body); err != nil {
 				writeError(w, http.StatusBadRequest, "invalid JSON body")
+				return
+			}
+			if err := m.checkChannelInGuild(gid, body["log_channel"]); err != nil {
+				writeError(w, http.StatusBadRequest, "log channel: "+err.Error())
+				return
+			}
+			current, err := adm.GetGuildConfig(gid)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			effectivePunishment := current["punishment"]
+			if v, ok := body["punishment"]; ok {
+				effectivePunishment = v
+			}
+			if !m.punishmentAllowed(us, gid, effectivePunishment) {
+				writeError(w, http.StatusForbidden, "you lack the Discord permission for this punishment")
 				return
 			}
 			if err := adm.SetGuildConfig(gid, body); err != nil {
@@ -157,6 +173,21 @@ func (m *DashboardModule) routeImageFilterAPI(w http.ResponseWriter, r *http.Req
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
+			}
+			if enabled {
+				current, err := adm.GetGuildConfig(gid)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				if !m.punishmentAllowed(us, gid, current["punishment"]) {
+					writeError(w, http.StatusForbidden, "you lack the Discord permission for the configured punishment")
+					return
+				}
+				if err := m.checkChannelInGuild(gid, current["log_channel"]); err != nil {
+					writeError(w, http.StatusBadRequest, "log channel: "+err.Error())
+					return
+				}
 			}
 			if err := adm.SetGuildEnabled(gid, enabled); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
@@ -284,7 +315,7 @@ func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http
 		var body struct {
 			URL string `json:"url"`
 		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil || strings.TrimSpace(body.URL) == "" {
+		if err := readJSON(r.Body, &body); err != nil || strings.TrimSpace(body.URL) == "" {
 			writeError(w, http.StatusBadRequest, "expected multipart upload or JSON {\"url\": \"...\"}")
 			return
 		}

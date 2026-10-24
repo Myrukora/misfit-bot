@@ -95,18 +95,18 @@ func TestTemplatesStandaloneLayout(t *testing.T) {
 	}
 }
 
-// TestAdminRedirectsToRoot pins that /admin is a redirect to / (the bot-wide
-// admin panel moved onto the /servers page; /admin is kept as a redirect so
-// old links still land somewhere sensible).
-func TestAdminRedirectsToRoot(t *testing.T) {
+// TestAdminRedirectsToConfig pins that /admin is a redirect to /config (the
+// bot-wide admin panel moved to the Configuration page; /admin is kept as a
+// redirect so old links still land somewhere sensible).
+func TestAdminRedirectsToConfig(t *testing.T) {
 	m := &DashboardModule{}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/admin", nil)
-	m.handleAdminPage(w, r)
+	m.route(w, r)
 	if w.Code != http.StatusSeeOther {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusSeeOther)
 	}
-	if got := w.Header().Get("Location"); got != "/" {
-		t.Errorf("Location = %q, want /", got)
+	if got := w.Header().Get("Location"); got != "/config" {
+		t.Errorf("Location = %q, want /config", got)
 	}
 }

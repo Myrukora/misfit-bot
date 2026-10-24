@@ -5,8 +5,15 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"sort"
+)
+
+var (
+	errClientUnavailable = errors.New("gateway client unavailable")
+	errInvalidGuildID    = errors.New("invalid guild id")
+	errGuildNotCached    = errors.New("guild not in cache")
 )
 
 type ctxKey int

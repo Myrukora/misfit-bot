@@ -115,7 +115,9 @@ func (m *DashboardModule) Start() {
 	}
 	if cfg.ClientID == "" && m.client != nil {
 		cfg.ClientID = m.client.ApplicationID.String()
-		_ = cfg.Save(m.dataDir)
+		if err := cfg.Save(m.dataDir); err != nil {
+			m.logger.Warn("Dashboard: could not persist derived client ID: %v", err)
+		}
 	}
 	if err := cfg.ensureSessionSecret(m.dataDir); err != nil {
 		m.logger.Error("Dashboard: init session secret failed: %v", err)
@@ -641,9 +643,9 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 	m.mu.Lock()
 	cfg := m.cfg
 	m.mu.Unlock()
-	// Secrets are passed through redacted; only the bot owner sees real values
-	// via the dedicated /settings page (handled in pages.go), but WebGetConfig
-	// itself always redacts to be safe, matching the WebConfigurable contract.
+	if cfg == nil {
+		return map[string]string{}, nil
+	}
 	v := map[string]string{
 		"client_id":      cfg.ClientID,
 		"session_secret": redactedIfSet(cfg.SessionSecret),
@@ -784,14 +786,6 @@ func redactedIfSet(s string) string {
 		return ""
 	}
 	return "••••••••"
-}
-
-// boolEmoji renders a boolean as a Discord-friendly check/cross.
-func boolEmoji(b bool) string {
-	if b {
-		return "✅ Yes"
-	}
-	return "⛔ No"
 }
 
 // permMgr is a convenience accessor for the permission manager.

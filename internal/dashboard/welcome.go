@@ -179,6 +179,14 @@ func (m *DashboardModule) routeWelcomeAPI(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+		if err := m.checkChannelInGuild(gid, cfg.Join.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "join channel: "+err.Error())
+			return
+		}
+		if err := m.checkChannelInGuild(gid, cfg.Leave.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "leave channel: "+err.Error())
+			return
+		}
 		if err := adm.SetGuildConfig(gid, cfg); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -200,6 +208,19 @@ func (m *DashboardModule) routeWelcomeAPI(w http.ResponseWriter, r *http.Request
 		event := strings.ToLower(strings.TrimSpace(body.Event))
 		if event != modules.WelcomeEventJoin && event != modules.WelcomeEventLeave {
 			writeError(w, http.StatusBadRequest, "event must be join or leave")
+			return
+		}
+		cfg, err := adm.GetGuildConfig(gid)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		ev := cfg.Join
+		if event == modules.WelcomeEventLeave {
+			ev = cfg.Leave
+		}
+		if err := m.checkChannelInGuild(gid, ev.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "test channel: "+err.Error())
 			return
 		}
 		if err := adm.SendTest(gid, event, us.userID.String()); err != nil {

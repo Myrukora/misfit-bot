@@ -56,7 +56,7 @@ func writeWebTestModule(t *testing.T, withDash bool) string {
 
 func loadWebTestModule(t *testing.T, withDash bool) (*LuaModule, error) {
 	t.Helper()
-	log, err := logger.New(t.TempDir(), "error", false)
+	log, err := logger.New(t.TempDir(), "logs/bot.log", "error", false)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestLuaDashScriptRoundTrip(t *testing.T) {
 // TestLuaDashScriptRequiredFields pins that a dashboard script missing the
 // schema fails the module load.
 func TestLuaDashScriptRequiredFields(t *testing.T) {
-	log, err := logger.New(t.TempDir(), "error", false)
+	log, err := logger.New(t.TempDir(), "logs/bot.log", "error", false)
 	if err != nil {
 		t.Fatalf("logger: %v", err)
 	}

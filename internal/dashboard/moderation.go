@@ -265,6 +265,10 @@ func (m *DashboardModule) routeModerationAPI(w http.ResponseWriter, r *http.Requ
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+		if err := m.checkChannelInGuild(gid, cfg.AuditChannel); err != nil {
+			writeError(w, http.StatusBadRequest, "audit channel: "+err.Error())
+			return
+		}
 		if err := adm.SetGuildConfig(gid, cfg); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

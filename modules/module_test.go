@@ -49,3 +49,43 @@ func TestAllSlashCommandsByModule(t *testing.T) {
 		t.Errorf("load order not preserved: got %s then %s", got[0].Name, got[1].Name)
 	}
 }
+
+// fakeWebMod lets a fakeModule opt into WebConfigurable while reporting
+// HasWebConfig() == false, like a Lua/Python wrapper without a dashboard script.
+type fakeWebMod struct {
+	fakeMod
+	has bool
+}
+
+func (f *fakeWebMod) WebConfigSchema() []ConfigField { return nil }
+func (f *fakeWebMod) WebGetConfig(string) (map[string]string, error) {
+	return nil, nil
+}
+func (f *fakeWebMod) WebSetConfig(string, string, string) error { return nil }
+func (f *fakeWebMod) HasWebConfig() bool                        { return f.has }
+
+func TestWebConfigForHonorsMarker(t *testing.T) {
+	if _, ok := WebConfigFor(&fakeWebMod{fakeMod: fakeMod{name: "plain"}}); ok {
+		t.Fatal("WebConfigFor accepted a wrapper with HasWebConfig() == false")
+	}
+	if _, ok := WebConfigFor(&fakeWebMod{fakeMod: fakeMod{name: "dash"}, has: true}); !ok {
+		t.Fatal("WebConfigFor rejected a wrapper with a dashboard integration")
+	}
+	if _, ok := WebConfigFor(&fakeMod{name: "none"}); ok {
+		t.Fatal("WebConfigFor accepted a non-WebConfigurable module")
+	}
+}
+
+func TestBuiltinCatalog(t *testing.T) {
+	if !IsBuiltin("leveling") || IsBuiltin("sample") {
+		t.Fatalf("IsBuiltin catalog regression: leveling=%v sample=%v", IsBuiltin("leveling"), IsBuiltin("sample"))
+	}
+	names := BuiltinNames()
+	if len(names) == 0 {
+		t.Fatal("BuiltinNames returned an empty catalog")
+	}
+	names[0] = "mutated"
+	if BuiltinNames()[0] == "mutated" {
+		t.Fatal("BuiltinNames returned the internal slice")
+	}
+}

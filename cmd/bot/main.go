@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"syscall"
@@ -103,7 +104,9 @@ func saveLoadedModules() {
 	names := ModMgr.GetNames()
 	filtered := names[:0]
 	for _, n := range names {
-		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+		// Compiled-in modules come back from enabled_modules at startup; they
+		// must never be persisted as dynamically loaded modules.
+		if modules.IsBuiltin(n) {
 			continue
 		}
 		filtered = append(filtered, n)
@@ -129,12 +132,12 @@ func loadSavedModules() []string {
 	if err := json.Unmarshal(data, &names); err != nil {
 		return nil
 	}
-	// Drop builtin names (dashboard/cleanup/tickets) — they were Go plugins
-	// in the old layout and are now compiled-in, so a stale plugin-era state
-	// file must not try to load them as modules.
+	// Drop builtin names — they are compiled-in and registered from
+	// enabled_modules at startup, so a stale plugin-era state file must not
+	// try to load them as modules.
 	var out []string
 	for _, n := range names {
-		if n == "cleanup" || n == "tickets" || n == "dashboard" {
+		if modules.IsBuiltin(n) {
 			continue
 		}
 		out = append(out, n)
@@ -163,7 +166,10 @@ func main() {
 		}
 	}
 
-	setupDirs()
+	if err := setupDirs(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create runtime directories: %v\n", err)
+		os.Exit(1)
+	}
 
 	if !config.Exists(Dir) {
 		Cfg, err = onboarding.Run(Dir)
@@ -182,10 +188,13 @@ func main() {
 	// Logger first: everything below (overrides load, PermMgr save callback,
 	// updater) logs through it.
 	var logErr error
-	Log, logErr = logger.New(Dir, Cfg.Logging.Level, Cfg.Logging.Enabled)
+	Log, logErr = logger.New(Dir, Cfg.Logging.FilePath, Cfg.Logging.Level, Cfg.Logging.Enabled)
 	if logErr != nil {
 		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", logErr)
 		os.Exit(1)
+	}
+	if err := config.EnsurePrivatePermissions(Dir); err != nil {
+		Log.Warn("Could not set config.yml permissions to 0600: %v", err)
 	}
 
 	// Per-command override store (global + per-guild enable/disable/restrict).
@@ -198,8 +207,7 @@ func main() {
 	defer Log.Close()
 
 	PermMgr = permissions.NewManager(Cfg.Bot.OwnerID, func(ids []string) {
-		Cfg.Bot.ElevatedIDs = ids
-		if err := config.Save(Cfg, Dir); err != nil {
+		if err := Cfg.SetElevatedIDs(ids); err != nil {
 			Log.Error("Failed to save elevated users: %v", err)
 		}
 	})
@@ -221,7 +229,10 @@ func main() {
 	// restarts don't spawn duplicate poll loops. Run() is a long-lived
 	// goroutine that checks GitHub notifications + auto-pulls; the exec-based
 	// self-update handoff happens in the restart loop below.
-	updaterMgr = updater.New(Dir, Log, func() *config.UpdaterConfig { return &Cfg.Updater })
+	updaterMgr = updater.New(Dir, Log, func() *config.UpdaterConfig {
+		u := Cfg.UpdaterSnapshot()
+		return &u
+	})
 	// The version stamped into this binary (see VERSION) is the "from" side of
 	// every update comparison. An unstamped build reports "dev" and the updater
 	// falls back to counting commits.
@@ -534,26 +545,6 @@ func onGuildJoin(event *events.GuildJoin) {
 	}
 }
 
-func safeDispatch(event any, eventName string, getHandlers func(*modules.EventHooks) []func(any)) int {
-	hooksList := ModMgr.ListModuleHooks()
-	total := 0
-	for _, hooks := range hooksList {
-		handlers := getHandlers(hooks)
-		for _, h := range handlers {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						Log.Error("Panic in %s handler: %v", eventName, r)
-					}
-				}()
-				h(event)
-			}()
-			total++
-		}
-	}
-	return total
-}
-
 // safeDispatchFor is a generic version of safeDispatch that reduces boilerplate.
 // Each event handler becomes:
 //
@@ -563,14 +554,21 @@ func safeDispatch(event any, eventName string, getHandlers func(*modules.EventHo
 //	    })
 //	}
 func safeDispatchFor[T any](event T, eventName string, getHandlers func(*modules.EventHooks) []func(T)) int {
-	return safeDispatch(event, eventName, func(h *modules.EventHooks) []func(any) {
-		handlers := getHandlers(h)
-		out := make([]func(any), len(handlers))
-		for i, handler := range handlers {
-			out[i] = func(e any) { handler(e.(T)) }
+	total := 0
+	for _, hooks := range ModMgr.ListModuleHooks() {
+		for _, handler := range getHandlers(hooks) {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						Log.Error("Panic in %s handler: %v\n%s", eventName, r, debug.Stack())
+					}
+				}()
+				handler(event)
+			}()
+			total++
 		}
-		return out
-	})
+	}
+	return total
 }
 
 func onGuildLeave(event *events.GuildLeave) {
@@ -879,6 +877,11 @@ type botAdapter struct {
 	updater      *updater.Manager
 	cmdOverrides *commands.CommandOverrides
 
+	// Cached dynamic-module discovery; invalidated on load/unload.
+	moduleCacheMu sync.Mutex
+	moduleCache   []string
+	moduleCacheAt time.Time
+
 	// Gateway capabilities of the CURRENT connection, set once the gateway is
 	// open (the intents can drop on Discord's 4014, so the config alone does
 	// not decide these). Read by the dashboard gating.
@@ -949,7 +952,7 @@ func (b *botAdapter) GetSelfUserID() string {
 }
 
 func (b *botAdapter) GetName() string {
-	return Cfg.Bot.Name
+	return Cfg.Snapshot().Bot.Name
 }
 
 func (b *botAdapter) GetVersion() string {
@@ -957,15 +960,15 @@ func (b *botAdapter) GetVersion() string {
 }
 
 func (b *botAdapter) GetOwnerID() string {
-	return Cfg.Bot.OwnerID
+	return Cfg.Snapshot().Bot.OwnerID
 }
 
 func (b *botAdapter) GetToS() string {
-	return Cfg.Bot.ToS
+	return Cfg.Snapshot().Bot.ToS
 }
 
 func (b *botAdapter) GetPrivacy() string {
-	return Cfg.Bot.Privacy
+	return Cfg.Snapshot().Bot.Privacy
 }
 
 func (b *botAdapter) GetPermissionManager() *permissions.Manager {
@@ -1061,10 +1064,7 @@ func (b *botAdapter) GetMemberRoles(guildID string, userID string) []discord.Rol
 }
 
 func (b *botAdapter) SetConfig(key, value string) error {
-	if err := Cfg.Set(key, value); err != nil {
-		return err
-	}
-	return nil
+	return Cfg.Set(key, value)
 }
 
 func (b *botAdapter) GetConfigDir() string {
@@ -1088,7 +1088,45 @@ func (b *botAdapter) GetAllModuleSlashCommandsByModule() []commands.ModuleSlashC
 }
 
 func (b *botAdapter) GetAvailableModuleNames() []string {
-	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
+	modulesDir := filepath.Join(Dir, Cfg.Snapshot().Modules.Path)
+	b.moduleCacheMu.Lock()
+	if b.moduleCache != nil && time.Since(b.moduleCacheAt) < 5*time.Second {
+		names := append([]string(nil), b.moduleCache...)
+		b.moduleCacheMu.Unlock()
+		return names
+	}
+	b.moduleCacheMu.Unlock()
+
+	names := scanModuleNames(modulesDir)
+	// Compiled-in builtins that are currently enabled (missing enabled_modules
+	// key = enabled). They appear here so consumers see the full catalog —
+	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
+	// Lua/Python modules.
+	for _, name := range modules.BuiltinNames() {
+		if Cfg.BuiltinEnabled(name) {
+			names = append(names, name)
+		}
+	}
+
+	b.moduleCacheMu.Lock()
+	b.moduleCache = append([]string(nil), names...)
+	b.moduleCacheAt = time.Now()
+	b.moduleCacheMu.Unlock()
+	return names
+}
+
+// invalidateModuleCache drops the cached discovery listing after a load or
+// unload so the next catalog read reflects the new state immediately.
+func (b *botAdapter) invalidateModuleCache() {
+	b.moduleCacheMu.Lock()
+	b.moduleCache = nil
+	b.moduleCacheMu.Unlock()
+}
+
+// scanModuleNames lists dynamic Lua/Python modules under modulesDir. AutoLoad
+// and the module catalog share this discovery implementation so they cannot
+// disagree about what is installed.
+func scanModuleNames(modulesDir string) []string {
 	var names []string
 	// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
 	if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
@@ -1111,15 +1149,6 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 			if e.IsDir() && modules.IsPythonModule(filepath.Join(modulesDir, "Python", e.Name())) {
 				names = append(names, e.Name())
 			}
-		}
-	}
-	// Compiled-in builtins that are currently enabled (missing enabled_modules
-	// key = enabled). They appear here so consumers see the full catalog —
-	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
-	// Lua/Python modules.
-	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles", "leveling"} {
-		if enabled, ok := Cfg.Modules.EnabledModules[name]; !ok || enabled {
-			names = append(names, name)
 		}
 	}
 	return names
@@ -1180,11 +1209,7 @@ func moduleDataDir(path string) string {
 // this guard keeps every runtime action path (Discord command, dashboard,
 // MCP) from corrupting a builtin's state.
 func isBuiltinModule(name string) bool {
-	switch name {
-	case "cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles", "leveling":
-		return true
-	}
-	return false
+	return modules.IsBuiltin(name)
 }
 
 func builtinModuleError(name string) error {
@@ -1220,6 +1245,7 @@ func (b *botAdapter) LoadModule(name string) error {
 		return err
 	}
 	Log.Info("Loaded module: %s v%s", mod.Name(), mod.Version())
+	b.invalidateModuleCache()
 	saveLoadedModules()
 	reRegisterSlashCommands()
 	return nil
@@ -1233,6 +1259,7 @@ func (b *botAdapter) UnloadModule(name string) error {
 		return err
 	}
 	Log.Info("Unloaded module: %s", name)
+	b.invalidateModuleCache()
 	saveLoadedModules()
 	reRegisterSlashCommands()
 	return nil
@@ -1442,6 +1469,15 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		return res, err
 	}
 
+	// Per-command overrides are server policy, not a Discord-only concern:
+	// the web/MCP dispatcher must refuse a command disabled or restricted in
+	// the target guild exactly like onSlashCommand does.
+	if ov := b.CommandOverrides(); ov != nil {
+		if !ov.Allowed(name, guildID, channelID, roleIDs(b, guildID, asUserID), isMod(b, guildID, asUserID)) {
+			return res, commands.ErrCommandDisabled
+		}
+	}
+
 	// Virtual context: Respond/ReplyText capture into the result instead of
 	// posting to Discord. Only the first embed is captured (the web result box
 	// is a single unit); the command's other side effects are its own business.
@@ -1490,35 +1526,14 @@ func loadCoreModules(ba *botAdapter) {
 		return
 	}
 
-	modulesDir := filepath.Join(Dir, Cfg.Modules.Path)
+	modulesDir := filepath.Join(Dir, Cfg.Snapshot().Modules.Path)
 
 	saved := loadSavedModules()
 	if len(saved) == 0 {
-		if Cfg.Modules.AutoLoad {
+		if Cfg.Snapshot().Modules.AutoLoad {
 			Log.Info("AutoLoad enabled, scanning for modules...")
-			// Lua modules: modules/Lua/<name>/<name>.lua or main.lua
-			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Lua")); err == nil {
-				for _, entry := range entries {
-					if !entry.IsDir() {
-						continue
-					}
-					name := entry.Name()
-					luaFile := filepath.Join(modulesDir, "Lua", name, name+".lua")
-					if _, err := os.Stat(luaFile); err != nil {
-						luaFile = filepath.Join(modulesDir, "Lua", name, "main.lua")
-					}
-					if _, err := os.Stat(luaFile); err == nil {
-						loadSingleModule(ba, modulesDir, name)
-					}
-				}
-			}
-			// Python modules: modules/Python/<name>/main.py
-			if entries, err := os.ReadDir(filepath.Join(modulesDir, "Python")); err == nil {
-				for _, entry := range entries {
-					if entry.IsDir() && modules.IsPythonModule(filepath.Join(modulesDir, "Python", entry.Name())) {
-						loadSingleModule(ba, modulesDir, entry.Name())
-					}
-				}
+			for _, name := range scanModuleNames(modulesDir) {
+				loadSingleModule(ba, modulesDir, name)
 			}
 			saveLoadedModules()
 		} else {
@@ -1534,7 +1549,7 @@ func loadCoreModules(ba *botAdapter) {
 		}
 
 		disabled := false
-		for _, d := range Cfg.Modules.Disabled {
+		for _, d := range Cfg.Snapshot().Modules.Disabled {
 			if d == name {
 				disabled = true
 				break
@@ -1555,6 +1570,7 @@ func loadSingleModule(ba *botAdapter, modulesDir, name string) {
 		Log.Error("Failed to resolve module %s: %v", name, err)
 		return
 	}
+	snap := Cfg.Snapshot()
 	moduleHooks := modules.NewEventHooks()
 	mod, err := ModMgr.Load(path, moduleHooks)
 	if err != nil {
@@ -1563,8 +1579,8 @@ func loadSingleModule(ba *botAdapter, modulesDir, name string) {
 	}
 
 	if err := mod.OnLoad(&modules.Context{
-		BotName:      Cfg.Bot.Name,
-		OwnerID:      Cfg.Bot.OwnerID,
+		BotName:      snap.Bot.Name,
+		OwnerID:      snap.Bot.OwnerID,
 		DataDir:      moduleDataDir(path),
 		Logger:       Log,
 		Rest:         Client.Rest,
@@ -1614,7 +1630,7 @@ func isMod(b *botAdapter, guildID, userID string) bool {
 	return perms.Has(discord.PermissionManageMessages) || perms.Has(discord.PermissionAdministrator)
 }
 
-func setupDirs() {
+func setupDirs() error {
 	dirs := []string{
 		filepath.Join(Dir, "modules"),
 		filepath.Join(Dir, "modules", "Go"),
@@ -1623,6 +1639,9 @@ func setupDirs() {
 		filepath.Join(Dir, "logs"),
 	}
 	for _, d := range dirs {
-		os.MkdirAll(d, 0755)
+		if err := os.MkdirAll(d, 0755); err != nil {
+			return fmt.Errorf("create %s: %w", d, err)
+		}
 	}
+	return nil
 }

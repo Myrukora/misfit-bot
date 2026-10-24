@@ -138,7 +138,7 @@ func (s *store) saveLocked(tk *modules.Ticket) error {
 		delete(s.reserved, seqKey(cp.GuildID, grp, seq))
 	}
 	dir := filepath.Join(ticketsRoot(s.dataDir), cp.GuildID)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := ensurePrivateDir(dir); err != nil {
 		return err
 	}
 	out, err := json.MarshalIndent(cp, "", "  ")
@@ -146,11 +146,7 @@ func (s *store) saveLocked(tk *modules.Ticket) error {
 		return err
 	}
 	path := filepath.Join(dir, cp.ID+".json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := writePrivateFile(path, out); err != nil {
 		return err
 	}
 	if s.tickets[cp.GuildID] == nil {
@@ -350,11 +346,10 @@ func (s *store) openIDsLocked(guildID string) []string {
 	sort.Strings(ids)
 	out, _ := json.Marshal(ids)
 	// tmp + rename (same pattern as writeIndexLocked): a crash mid-write must
-	// never leave a truncated index.json behind.
-	tmp := idxPath + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err == nil {
-		_ = os.Rename(tmp, idxPath)
-	}
+	// never leave a truncated index.json behind. This is a cache rebuild: a
+	// failed rewrite only costs another directory scan on the next load, so it
+	// stays best-effort instead of failing the read.
+	_ = writePrivateFile(idxPath, out)
 	return ids
 }
 
@@ -370,11 +365,7 @@ func (s *store) writeIndexLocked(guildID string) error {
 		return err
 	}
 	path := filepath.Join(ticketsRoot(s.dataDir), guildID, "index.json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, out, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writePrivateFile(path, out)
 }
 
 // nextSeq returns the next per-guild+group sequence number under the WRITE
@@ -477,7 +468,7 @@ func validTicketID(id string) bool {
 			return false // dots, slashes, spaces, unicode — everything else out
 		}
 	}
-	group, seq, ok := parseTicketID(id)
+	group, _, ok := parseTicketID(id)
 	if !ok || group == "" {
 		return false
 	}
@@ -490,7 +481,6 @@ func validTicketID(id string) bool {
 			return false
 		}
 	}
-	_ = seq
 	return true
 }
 

@@ -82,6 +82,22 @@ func IsWebConfigurable(m Module) (WebConfigurable, bool) {
 	return wc, ok
 }
 
+// WebConfigFor resolves the dashboard config surface for a module, honoring
+// the HasWebConfig marker used by the Lua/Python wrapper types. Both the
+// dashboard and MCP must go through this helper: a wrapper that always
+// satisfies WebConfigurable but reports HasWebConfig() == false has no
+// dashboard integration and must be treated as not configurable.
+func WebConfigFor(m Module) (WebConfigurable, bool) {
+	wc, ok := m.(WebConfigurable)
+	if !ok {
+		return nil, false
+	}
+	if hw, has := m.(HasWebConfig); has && !hw.HasWebConfig() {
+		return nil, false
+	}
+	return wc, true
+}
+
 // Disablable is the optional interface a builtin implements to run graceful
 // teardown when it is disabled via /modules disable (or unloaded). The
 // manager calls OnDisable() instead of OnUnload() for modules that implement
@@ -243,120 +259,120 @@ func (e *EventHooks) AddMessageReactionRemove(h func(event *events.MessageReacti
 }
 
 func (e *EventHooks) GetMessageCreateHandlers() []func(event *events.MessageCreate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.MessageCreate), len(e.OnMessageCreate))
 	copy(h, e.OnMessageCreate)
 	return h
 }
 
 func (e *EventHooks) GetMessageUpdateHandlers() []func(event *events.MessageUpdate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.MessageUpdate), len(e.OnMessageUpdate))
 	copy(h, e.OnMessageUpdate)
 	return h
 }
 
 func (e *EventHooks) GetMessageDeleteHandlers() []func(event *events.MessageDelete) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.MessageDelete), len(e.OnMessageDelete))
 	copy(h, e.OnMessageDelete)
 	return h
 }
 
 func (e *EventHooks) GetGuildMessageCreateHandlers() []func(event *events.GuildMessageCreate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildMessageCreate), len(e.OnGuildMessageCreate))
 	copy(h, e.OnGuildMessageCreate)
 	return h
 }
 
 func (e *EventHooks) GetGuildMessageUpdateHandlers() []func(event *events.GuildMessageUpdate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildMessageUpdate), len(e.OnGuildMessageUpdate))
 	copy(h, e.OnGuildMessageUpdate)
 	return h
 }
 
 func (e *EventHooks) GetGuildMessageDeleteHandlers() []func(event *events.GuildMessageDelete) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildMessageDelete), len(e.OnGuildMessageDelete))
 	copy(h, e.OnGuildMessageDelete)
 	return h
 }
 
 func (e *EventHooks) GetGuildMemberJoinHandlers() []func(event *events.GuildMemberJoin) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildMemberJoin), len(e.OnGuildMemberJoin))
 	copy(h, e.OnGuildMemberJoin)
 	return h
 }
 
 func (e *EventHooks) GetGuildMemberLeaveHandlers() []func(event *events.GuildMemberLeave) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildMemberLeave), len(e.OnGuildMemberLeave))
 	copy(h, e.OnGuildMemberLeave)
 	return h
 }
 
 func (e *EventHooks) GetGuildBanHandlers() []func(event *events.GuildBan) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildBan), len(e.OnGuildBan))
 	copy(h, e.OnGuildBan)
 	return h
 }
 
 func (e *EventHooks) GetGuildUnbanHandlers() []func(event *events.GuildUnban) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildUnban), len(e.OnGuildUnban))
 	copy(h, e.OnGuildUnban)
 	return h
 }
 
 func (e *EventHooks) GetGuildJoinHandlers() []func(event *events.GuildJoin) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildJoin), len(e.OnGuildJoin))
 	copy(h, e.OnGuildJoin)
 	return h
 }
 
 func (e *EventHooks) GetGuildLeaveHandlers() []func(event *events.GuildLeave) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildLeave), len(e.OnGuildLeave))
 	copy(h, e.OnGuildLeave)
 	return h
 }
 
 func (e *EventHooks) GetPresenceUpdateHandlers() []func(event *events.PresenceUpdate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.PresenceUpdate), len(e.OnPresenceUpdate))
 	copy(h, e.OnPresenceUpdate)
 	return h
 }
 
 func (e *EventHooks) GetMessageReactionAddHandlers() []func(event *events.MessageReactionAdd) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.MessageReactionAdd), len(e.OnMessageReactionAdd))
 	copy(h, e.OnMessageReactionAdd)
 	return h
 }
 
 func (e *EventHooks) GetMessageReactionRemoveHandlers() []func(event *events.MessageReactionRemove) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.MessageReactionRemove), len(e.OnMessageReactionRemove))
 	copy(h, e.OnMessageReactionRemove)
 	return h
@@ -369,8 +385,8 @@ func (e *EventHooks) AddVoiceStateUpdate(h func(event *events.GuildVoiceStateUpd
 }
 
 func (e *EventHooks) GetVoiceStateUpdateHandlers() []func(event *events.GuildVoiceStateUpdate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildVoiceStateUpdate), len(e.OnVoiceStateUpdate))
 	copy(h, e.OnVoiceStateUpdate)
 	return h
@@ -383,8 +399,8 @@ func (e *EventHooks) AddGuildChannelDelete(h func(event *events.GuildChannelDele
 }
 
 func (e *EventHooks) GetGuildChannelDeleteHandlers() []func(event *events.GuildChannelDelete) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.GuildChannelDelete), len(e.OnGuildChannelDelete))
 	copy(h, e.OnGuildChannelDelete)
 	return h
@@ -397,8 +413,8 @@ func (e *EventHooks) AddComponentInteraction(h func(event *events.ComponentInter
 }
 
 func (e *EventHooks) GetComponentInteractionHandlers() []func(event *events.ComponentInteractionCreate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.ComponentInteractionCreate), len(e.OnComponentInteraction))
 	copy(h, e.OnComponentInteraction)
 	return h
@@ -411,8 +427,8 @@ func (e *EventHooks) AddModalSubmit(h func(event *events.ModalSubmitInteractionC
 }
 
 func (e *EventHooks) GetModalSubmitHandlers() []func(event *events.ModalSubmitInteractionCreate) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	h := make([]func(*events.ModalSubmitInteractionCreate), len(e.OnModalSubmit))
 	copy(h, e.OnModalSubmit)
 	return h
@@ -480,8 +496,6 @@ func (m *Manager) RegisterBuiltins(ctx *Context, constructors ...func() Module) 
 // already-loaded dynamic module (Lua/Python) is skipped with a warning — the
 // dynamic module wins as an escape hatch.
 func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Context, constructors ...func() Module) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, ctor := range constructors {
 		mod := ctor()
 		name := mod.Name()
@@ -490,12 +504,16 @@ func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Conte
 				continue // explicitly disabled in config
 			}
 		}
-		if _, exists := m.modules[name]; exists {
+		m.mu.Lock()
+		_, exists := m.modules[name]
+		m.mu.Unlock()
+		if exists {
 			// Dynamic module already owns this name — skip the builtin.
 			continue
 		}
-		// Give the builtin its own EventHooks and data dir, then initialize
-		// it. OnLoad failure rolls the builtin back entirely.
+		// Initialize outside the manager lock: OnLoad opens files/databases
+		// and registers hooks, and must never block every module lookup (or
+		// deadlock by calling back into the manager).
 		hooks := NewEventHooks()
 		bctx := *ctx
 		bctx.Events = hooks
@@ -503,12 +521,21 @@ func (m *Manager) RegisterBuiltinsWithFilter(enabled map[string]bool, ctx *Conte
 		if err := mod.OnLoad(&bctx); err != nil {
 			return fmt.Errorf("failed to initialize builtin %s: %w", name, err)
 		}
+		// Publish under the lock, re-checking the collision (another loader
+		// may have won the race while OnLoad was running).
+		m.mu.Lock()
+		if _, exists := m.modules[name]; exists {
+			m.mu.Unlock()
+			_ = mod.OnUnload()
+			continue
+		}
 		m.modules[name] = &LoadedModule{
 			Module:     mod,
 			ModuleType: "builtin",
 			Hooks:      hooks,
 		}
 		m.order = append(m.order, name)
+		m.mu.Unlock()
 		m.AddModuleHooks(hooks)
 	}
 	return nil
@@ -563,34 +590,7 @@ func (m *Manager) loadLuaModule(path string, hooks *EventHooks) (Module, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Lua module %s: %w", path, err)
 	}
-
-	name := mod.Name()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, exists := m.modules[name]; exists {
-		return nil, fmt.Errorf("module %s is already loaded", name)
-	}
-
-	// Check dependencies
-	if err := m.checkDependencies(mod); err != nil {
-		return nil, fmt.Errorf("failed to load module %s: %w", name, err)
-	}
-
-	m.modules[name] = &LoadedModule{
-		Module:     mod,
-		FilePath:   path,
-		ModuleType: "lua",
-		Hooks:      hooks,
-	}
-	m.order = append(m.order, name)
-
-	if hooks != nil {
-		m.AddModuleHooks(hooks)
-	}
-
-	return mod, nil
+	return m.registerModule(mod, path, hooks, "lua")
 }
 
 // loadPythonModule loads a Python module via the Python loader.
@@ -603,7 +603,13 @@ func (m *Manager) loadPythonModule(path string, hooks *EventHooks) (Module, erro
 	if err != nil {
 		return nil, fmt.Errorf("failed to load Python module %s: %w", path, err)
 	}
+	return m.registerModule(mod, path, hooks, "python")
+}
 
+// registerModule publishes a dynamic module's metadata and hooks. It is the
+// shared tail of the Lua and Python loaders, so the collision/dependency rules
+// cannot drift between them.
+func (m *Manager) registerModule(mod Module, path string, hooks *EventHooks, moduleType string) (Module, error) {
 	name := mod.Name()
 
 	m.mu.Lock()
@@ -612,8 +618,6 @@ func (m *Manager) loadPythonModule(path string, hooks *EventHooks) (Module, erro
 	if _, exists := m.modules[name]; exists {
 		return nil, fmt.Errorf("module %s is already loaded", name)
 	}
-
-	// Check dependencies
 	if err := m.checkDependencies(mod); err != nil {
 		return nil, fmt.Errorf("failed to load module %s: %w", name, err)
 	}
@@ -621,15 +625,13 @@ func (m *Manager) loadPythonModule(path string, hooks *EventHooks) (Module, erro
 	m.modules[name] = &LoadedModule{
 		Module:     mod,
 		FilePath:   path,
-		ModuleType: "python",
+		ModuleType: moduleType,
 		Hooks:      hooks,
 	}
 	m.order = append(m.order, name)
-
 	if hooks != nil {
 		m.AddModuleHooks(hooks)
 	}
-
 	return mod, nil
 }
 

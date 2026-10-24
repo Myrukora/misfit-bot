@@ -192,6 +192,25 @@ func (m *LevelingModule) runWorkers() {
 		case <-minute.C:
 			m.awardVoiceXP()
 			m.touchSeenNow()
+			m.pruneCooldowns(time.Now().UTC())
+		}
+	}
+}
+
+// pruneCooldowns drops cooldown entries idle for more than a day. Without this
+// the per-user map grows with every member who ever spoke in a guild.
+func (m *LevelingModule) pruneCooldowns(now time.Time) {
+	const maxAge = 24 * time.Hour
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for guildID, users := range m.cooldown {
+		for userID, last := range users {
+			if now.Sub(last) > maxAge {
+				delete(users, userID)
+			}
+		}
+		if len(users) == 0 {
+			delete(m.cooldown, guildID)
 		}
 	}
 }

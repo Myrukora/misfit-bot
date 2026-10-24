@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/snowflake/v2"
 	"github.com/misfit/bot/config"
+	"github.com/misfit/bot/internal/discordutil"
 	"github.com/misfit/bot/modules"
 	"gopkg.in/yaml.v3"
 )
@@ -184,71 +186,27 @@ func (m *DashboardModule) apiGuild(w http.ResponseWriter, r *http.Request, id st
 		writeError(w, http.StatusForbidden, "insufficient permissions")
 		return
 	}
-	gid, err := snowflake.Parse(id)
+	d, err := m.buildGuildDetail(id)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid guild id")
+		code := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, errInvalidGuildID):
+			code = http.StatusBadRequest
+		case errors.Is(err, errGuildNotCached):
+			code = http.StatusNotFound
+		case errors.Is(err, errClientUnavailable):
+			code = http.StatusServiceUnavailable
+		}
+		writeError(w, code, err.Error())
 		return
-	}
-	if m.client == nil {
-		writeError(w, http.StatusServiceUnavailable, "bot client not ready")
-		return
-	}
-	g, ok := m.client.Caches.Guild(gid)
-	if !ok {
-		writeError(w, http.StatusNotFound, "guild not in cache")
-		return
-	}
-	d := guildDetail{
-		ID:          g.ID.String(),
-		Name:        g.Name,
-		OwnerID:     g.OwnerID.String(),
-		MemberCount: g.MemberCount,
-	}
-	if u := g.IconURL(); u != nil {
-		d.Icon = *u
-	}
-	for ch := range m.client.Caches.ChannelsForGuild(gid) {
-		d.Channels = append(d.Channels, entityOpt{
-			ID: ch.ID().String(), Name: ch.Name(), Type: channelTypeName(ch.Type()),
-		})
-	}
-	sort.Slice(d.Channels, func(i, j int) bool { return d.Channels[i].Name < d.Channels[j].Name })
-	for role := range m.client.Caches.Roles(gid) {
-		d.Roles = append(d.Roles, roleOpt{
-			ID: role.ID.String(), Name: role.Name, Color: role.Color, Position: role.Position,
-		})
-	}
-	sort.Slice(d.Roles, func(i, j int) bool { return d.Roles[i].Position > d.Roles[j].Position })
-	if botMember, ok := m.client.Caches.SelfMember(gid); ok {
-		d.BotPerms = m.client.Caches.MemberPermissions(botMember).String()
 	}
 	writeJSON(w, http.StatusOK, d)
 }
 
-// channelTypeName renders a channel type as a short human label.
+// channelTypeName renders a channel type as a short human label. The switch
+// lives in internal/discordutil so the dashboard and MCP server cannot drift.
 func channelTypeName(t discord.ChannelType) string {
-	switch t {
-	case discord.ChannelTypeGuildText:
-		return "Text"
-	case discord.ChannelTypeGuildVoice:
-		return "Voice"
-	case discord.ChannelTypeGuildCategory:
-		return "Category"
-	case discord.ChannelTypeGuildNews:
-		return "Announcement"
-	case discord.ChannelTypeGuildStageVoice:
-		return "Stage"
-	case discord.ChannelTypeGuildForum:
-		return "Forum"
-	case discord.ChannelTypeGuildPublicThread:
-		return "Public Thread"
-	case discord.ChannelTypeGuildPrivateThread:
-		return "Private Thread"
-	case discord.ChannelTypeGuildNewsThread:
-		return "Announcement Thread"
-	default:
-		return "Other"
-	}
+	return discordutil.ChannelTypeName(t)
 }
 
 // ── /api/modules ──────────────────────────────────────────────────────────
@@ -291,8 +249,7 @@ func (m *DashboardModule) apiModuleAction(w http.ResponseWriter, r *http.Request
 	}
 	// Compiled-in builtins cannot be load/unload/reloaded at runtime — they
 	// come up via enabled_modules at startup.
-	switch name {
-	case "cleanup", "tickets", "imagefilter":
+	if modules.IsBuiltin(name) {
 		writeError(w, http.StatusBadRequest,
 			"module '"+name+"' is a compiled-in builtin — enable/disable it via `modules enable|disable "+name+"`, then restart")
 		return
@@ -440,8 +397,14 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 		// is guild-scoped even though it lives in the core config: require
 		// management rights on that specific server.
 		if gid, ok := strings.CutPrefix(k, "updater_notify_channel:"); ok {
-			if !m.canManageGuild(us, strings.TrimSpace(gid)) {
+			gid = strings.TrimSpace(gid)
+			if !m.canManageGuild(us, gid) {
 				results[k] = "you may not manage this guild"
+				anyErr = true
+				continue
+			}
+			if err := m.checkChannelInGuild(gid, v); err != nil {
+				results[k] = err.Error()
 				anyErr = true
 				continue
 			}

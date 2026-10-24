@@ -380,7 +380,9 @@ func (m *TicketsModule) CreatePanel(guildID string, in modules.PanelInput) (modu
 		// No half-created panel in the registry when the post failed.
 		m.mu.Lock()
 		delete(g.Panels, p.Name)
-		_ = m.saveGuildLocked(guildID)
+		if saveErr := m.saveGuildLocked(guildID); saveErr != nil {
+			m.ctx.Logger.Warn("Tickets: failed to persist panel rollback for %s: %v", guildID, saveErr)
+		}
 		m.mu.Unlock()
 		return modules.PanelSummary{}, err
 	}
@@ -422,7 +424,9 @@ func (m *TicketsModule) UpdatePanel(guildID, name string, in modules.PanelInput)
 		// failed sync cannot leave subsequent edits posting duplicates.
 		m.mu.Lock()
 		g.Panels[name] = prev
-		_ = m.saveGuildLocked(guildID)
+		if saveErr := m.saveGuildLocked(guildID); saveErr != nil {
+			m.ctx.Logger.Warn("Tickets: failed to persist panel rollback for %s/%s: %v", guildID, name, saveErr)
+		}
 		m.mu.Unlock()
 		return modules.PanelSummary{}, err
 	}

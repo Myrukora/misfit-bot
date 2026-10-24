@@ -14,6 +14,11 @@ var ErrWebForbidden = errors.New("command cannot be executed from the web")
 // gate for web execution.
 var ErrInsufficientPerm = errors.New("insufficient permissions")
 
+// ErrCommandDisabled reports a command disabled or restricted for the target
+// guild by the per-command override store. Both dispatchers (Discord and
+// web/MCP) must enforce this after the permission gate.
+var ErrCommandDisabled = errors.New("command is disabled or restricted in this server")
+
 // CanExecuteWeb is the pure permission gate for web (dashboard) command
 // execution. It mirrors the Discord dispatcher's checks exactly:
 //

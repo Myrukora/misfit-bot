@@ -3,10 +3,10 @@ package tickets
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"time"
 
+	"github.com/misfit/bot/internal/safehttp"
 	"github.com/misfit/bot/modules"
 )
 
@@ -23,6 +23,7 @@ type mirrorQueue struct {
 	ch     chan mirrorJob
 	logger modules.Logger
 	stop   chan struct{}
+	client *http.Client // nil = production SSRF-safe client (set by tests)
 }
 
 func newMirrorQueue(logger modules.Logger) *mirrorQueue {
@@ -57,7 +58,10 @@ func (q *mirrorQueue) enqueue(job mirrorJob) {
 // stored copy (apply), so a concurrent log append is never dropped. Per-file
 // errors WARN and never abort the job. Exits on stop.
 func (q *mirrorQueue) run(dataDir string, st *store, stop <-chan struct{}) {
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := q.client
+	if client == nil {
+		client = safehttp.NewClient(60 * time.Second)
+	}
 	for {
 		select {
 		case <-stop:
@@ -68,7 +72,7 @@ func (q *mirrorQueue) run(dataDir string, st *store, stop <-chan struct{}) {
 				continue
 			}
 			filesDir := filepath.Join(ticketsRoot(dataDir), job.guildID, job.ticketID, "files")
-			if err := os.MkdirAll(filesDir, 0755); err != nil {
+			if err := ensurePrivateDir(filesDir); err != nil {
 				q.logger.Warn("Tickets: mirror mkdir %s: %v", filesDir, err)
 				continue
 			}

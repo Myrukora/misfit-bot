@@ -1,7 +1,6 @@
 package dashboard
 
 import (
-	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -83,12 +82,18 @@ func (m *DashboardModule) renderLogin(w http.ResponseWriter, r *http.Request) {
 
 // renderSetup shows the OAuth bootstrap instructions page.
 func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
+	m.mu.Lock()
+	clientID := ""
+	if m.cfg != nil {
+		clientID = m.cfg.ClientID
+	}
+	m.mu.Unlock()
 	d := m.baseData(sessionOf(r))
 	d.ShowSidebar = false // setup is a standalone, centered card — no nav
 	d.Content = map[string]string{
 		"public_url":   m.effectivePublicURL(),
 		"lan_url":      m.lanURL(),
-		"client_id":    m.cfg.ClientID,
+		"client_id":    clientID,
 		"redirect_uri": m.redirectBaseURL(r) + "/callback", // must match what handleLoginStart sends
 		"listen":       m.effectiveListen(),
 	}
@@ -261,15 +266,6 @@ func (m *DashboardModule) imageFilterVariant() string {
 	return ""
 }
 
-// ── /admin (super owner only) ─────────────────────────────────────────────
-
-// handleAdminPage is a redirect: the bot-wide admin panel moved onto the
-// /servers page (super owner). /admin is kept as a redirect so old links
-// still land somewhere sensible. Gated to lvlOwner upstream.
-func (m *DashboardModule) handleAdminPage(w http.ResponseWriter, r *http.Request) {
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
 // ── /g/<id>/{commands,tickets,guild,settings} (server-scoped) ─────────────
 
 // handleGuildScopedPage dispatches one guild's dashboard page. Guild is fixed
@@ -385,15 +381,15 @@ func (m *DashboardModule) renderGuildModules(w http.ResponseWriter, r *http.Requ
 // and the /api/guild/{id} endpoint.
 func (m *DashboardModule) buildGuildDetail(id string) (*guildDetail, error) {
 	if m.client == nil {
-		return nil, fmt.Errorf("gateway client unavailable")
+		return nil, errClientUnavailable
 	}
 	gid, err := snowflake.Parse(id)
 	if err != nil {
-		return nil, fmt.Errorf("invalid guild id")
+		return nil, errInvalidGuildID
 	}
 	g, ok := m.client.Caches.Guild(gid)
 	if !ok {
-		return nil, fmt.Errorf("guild not in cache")
+		return nil, errGuildNotCached
 	}
 	d := &guildDetail{
 		ID:          g.ID.String(),

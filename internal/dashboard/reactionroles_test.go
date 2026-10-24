@@ -270,6 +270,11 @@ func TestReactionRolesAPICreateUpdatePostDelete(t *testing.T) {
 	if w.Code != http.StatusOK || mod.updated.ID != 7 {
 		t.Fatalf("update = %d %+v", w.Code, mod.updated)
 	}
+	mod.cfg = modules.ReactionRolesConfig{Panels: []modules.ReactionPanel{{
+		ID:        7,
+		ChannelID: "c1",
+		Mappings:  []modules.ReactionRoleMapping{{Emoji: "👍", RoleID: "r1"}},
+	}}}
 	w = rrReq(m, cookie, http.MethodPost, "/api/guilds/1/reactionroles/panels/7/post", "", "tok")
 	if w.Code != http.StatusOK || len(mod.posted) != 1 || mod.posted[0] != 7 {
 		t.Fatalf("post = %d %+v", w.Code, mod.posted)

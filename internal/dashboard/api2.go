@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -41,13 +40,7 @@ func (m *DashboardModule) webCfg(name string) (modules.WebConfigurable, bool) {
 	if !ok {
 		return nil, false
 	}
-	wc, ok := modules.IsWebConfigurable(mod)
-	if ok {
-		if hw, has := mod.(modules.HasWebConfig); has && !hw.HasWebConfig() {
-			return nil, false
-		}
-	}
-	return wc, ok
+	return modules.WebConfigFor(mod)
 }
 
 // configurableModulesSchema lists every loaded module that opted into
@@ -178,6 +171,12 @@ func (m *DashboardModule) apiModuleConfigSet(w http.ResponseWriter, r *http.Requ
 		if !m.canManageGuild(us, body.GuildID) {
 			writeError(w, http.StatusForbidden, "you may not manage this guild")
 			return
+		}
+		if field.Type == modules.FieldTypeChannel {
+			if err := m.checkChannelInGuild(body.GuildID, body.Value); err != nil {
+				writeError(w, http.StatusBadRequest, "channel: "+err.Error())
+				return
+			}
 		}
 	} else {
 		// global setting
@@ -352,15 +351,24 @@ func (m *DashboardModule) apiElevatedAction(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		ID string `json:"id"`
 	}
-	if err := readJSON(r.Body, &body); err != nil || body.ID == "" {
-		writeError(w, http.StatusBadRequest, "missing id")
+	if err := readJSON(r.Body, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON")
+		return
+	}
+	id, err := snowflake.Parse(strings.TrimSpace(body.ID))
+	if err != nil || id == 0 {
+		writeError(w, http.StatusBadRequest, "invalid user id")
+		return
+	}
+	if id.String() == m.bot.GetOwnerID() {
+		writeError(w, http.StatusBadRequest, "the owner already has every permission")
 		return
 	}
 	switch action {
 	case "add":
-		m.permMgr().AddElevated(body.ID)
+		m.permMgr().AddElevated(id.String())
 	case "remove":
-		m.permMgr().RemoveElevated(body.ID)
+		m.permMgr().RemoveElevated(id.String())
 	default:
 		writeError(w, http.StatusBadRequest, "unknown action: "+action)
 		return
@@ -472,7 +480,9 @@ func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *us
 	res, err := m.bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
 	if err != nil {
 		code := http.StatusBadRequest
-		if errors.Is(err, commands.ErrWebForbidden) || errors.Is(err, commands.ErrInsufficientPerm) {
+		if errors.Is(err, commands.ErrWebForbidden) ||
+			errors.Is(err, commands.ErrInsufficientPerm) ||
+			errors.Is(err, commands.ErrCommandDisabled) {
 			code = http.StatusForbidden
 		}
 		writeError(w, code, err.Error())
@@ -660,7 +670,7 @@ func (m *DashboardModule) apiRateLimitReset(w http.ResponseWriter, r *http.Reque
 	var body struct {
 		UserID string `json:"user_id"`
 	}
-	if err := json.Unmarshal(readAll(r), &body); err != nil {
+	if err := readJSON(r.Body, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
@@ -781,6 +791,38 @@ func (m *DashboardModule) apiRestart(w http.ResponseWriter, r *http.Request) {
 	go func() { m.bot.Restart() }()
 }
 
+// apiRequire resolves the session and enforces a minimum RBAC tier for a JSON
+// route. It writes the JSON error itself and returns ok=false when the caller
+// must stop. Centralizing this keeps every /api endpoint on the same gate.
+func (m *DashboardModule) apiRequire(w http.ResponseWriter, r *http.Request, min string) (*userSession, bool) {
+	us := sessionOf(r)
+	if us == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	if !levelGEQ(m.resolveLevel(us), min) {
+		writeError(w, http.StatusForbidden, "insufficient permissions")
+		return nil, false
+	}
+	return us, true
+}
+
+// knownAPIPath reports whether parts[0] names a real /api subtree. The router
+// uses it to distinguish 404 (no such endpoint) from 405 (wrong method).
+func knownAPIPath(parts []string) bool {
+	if len(parts) == 0 {
+		return false
+	}
+	switch parts[0] {
+	case "me", "metrics", "commands", "guilds", "guild", "modules", "settings",
+		"tickets", "imagefilter", "ticketfiles", "backups", "nickname",
+		"presence", "permissions", "logs", "exec", "cmdcfg", "ratelimit",
+		"updater", "shutdown", "restart":
+		return true
+	}
+	return false
+}
+
 // routeAPI dispatches /api/* with method + tier + CSRF enforcement.
 func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts []string) {
 	if len(parts) == 0 {
@@ -828,12 +870,22 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			m.routeLevelingAPI(w, r, meth, parts)
 			return
 		}
+		// Only the bare listing is a valid endpoint; an unknown guild
+		// subtree must not silently return the whole guild list.
+		if len(parts) != 1 {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
 		if meth == "GET" {
 			m.apiGuilds(w, r)
 			return
 		}
 	case "guild":
-		if meth == "GET" && len(parts) >= 2 {
+		if len(parts) < 2 {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		if meth == "GET" {
 			m.apiGuild(w, r, parts[1])
 			return
 		}
@@ -842,19 +894,14 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			// Module listing exposes installed module names/versions/load
 			// state — never for unauthenticated clients. Match the POST
 			// action gate (owner/elevated).
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiModules(w, r)
 			return
 		}
 		if meth == "POST" && len(parts) >= 3 {
-			// owner/elevated only
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiModuleAction(w, r, parts[1], parts[2])
@@ -871,9 +918,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 				return
 			}
 			// owner/elevated only
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiSettings(w, r)
@@ -882,9 +927,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		if meth == "POST" && len(parts) >= 2 {
 			switch parts[1] {
 			case "core":
-				us := sessionOf(r)
-				if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-					writeError(w, http.StatusForbidden, "insufficient permissions")
+				if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 					return
 				}
 				m.apiSettingsCore(w, r)
@@ -937,9 +980,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "presence":
 		if meth == "POST" {
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiPresence(w, r)
@@ -947,13 +988,18 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "permissions":
 		if len(parts) >= 2 && parts[1] == "elevated" {
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			us, ok := m.apiRequire(w, r, lvlElevated)
+			if !ok {
 				return
 			}
 			if meth == "GET" {
 				m.apiElevatedList(w, r)
+				return
+			}
+			// Promotion is an ownership decision: only the bot owner may
+			// grant or revoke the elevated tier.
+			if m.resolveLevel(us) != lvlOwner {
+				writeError(w, http.StatusForbidden, "owner only")
 				return
 			}
 			if meth == "POST" && len(parts) >= 3 {
@@ -963,9 +1009,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "logs":
 		if meth == "GET" {
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiLogs(w, r)
@@ -1023,9 +1067,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		return
 	case "shutdown":
 		if meth == "POST" {
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiShutdown(w, r)
@@ -1033,14 +1075,16 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		}
 	case "restart":
 		if meth == "POST" {
-			us := sessionOf(r)
-			if us == nil || !levelGEQ(m.resolveLevel(us), lvlElevated) {
-				writeError(w, http.StatusForbidden, "insufficient permissions")
+			if _, ok := m.apiRequire(w, r, lvlElevated); !ok {
 				return
 			}
 			m.apiRestart(w, r)
 			return
 		}
 	}
-	writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	if knownAPIPath(parts) {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeError(w, http.StatusNotFound, "not found")
 }

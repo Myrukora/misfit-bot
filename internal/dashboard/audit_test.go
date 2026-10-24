@@ -308,11 +308,21 @@ func TestAuditMutationRecordedThroughHandler(t *testing.T) {
 	m, _, cookie := newWelcomeTestModule(t, true)
 	m.audit = newAuditLog(t.TempDir(), deadlockLogger{})
 	w := welcomeReq(m, cookie, http.MethodPost, "/api/does-not-exist", "{}", "tok")
-	if w.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status = %d, want 405", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", w.Code)
 	}
 	entries := m.audit.list(auditFilter{Event: "mutation"})
 	if len(entries) != 1 || entries[0].Action != "POST /api/does-not-exist" || entries[0].Success {
 		t.Fatalf("mutation entries = %+v", entries)
+	}
+}
+
+// TestAPIKnownPathWrongMethodIs405 pins the 404/405 split: an unknown subtree
+// is 404, while a real endpoint called with the wrong method is 405.
+func TestAPIKnownPathWrongMethodIs405(t *testing.T) {
+	m, _, cookie := newWelcomeTestModule(t, true)
+	w := welcomeReq(m, cookie, http.MethodPost, "/api/me", "{}", "tok")
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want 405 (body %s)", w.Code, w.Body.String())
 	}
 }

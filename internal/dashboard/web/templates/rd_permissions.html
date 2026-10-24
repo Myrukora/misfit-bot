@@ -26,7 +26,7 @@
                 <span class="user-name">{{index $.Content.names .}}</span>
                 <span class="user-id muted">{{.}}</span>
               </div>
-              <button class="btn btn-small btn-danger" data-remove-elevated="{{.}}">Remove</button>
+              {{if $.IsOwner}}<button class="btn btn-small btn-danger" data-remove-elevated="{{.}}">Remove</button>{{end}}
             </li>
             {{end}}
           </ul>
@@ -34,6 +34,7 @@
           <p class="muted">No elevated users.</p>
           {{end}}
 
+          {{if .IsOwner}}
           <!-- Add elevated -->
           <div class="add-row">
             <div class="field">
@@ -42,5 +43,8 @@
             </div>
             <button class="btn btn-primary" id="add-elevated">Add</button>
           </div>
+          {{else}}
+          <p class="muted">Only the bot owner can grant or revoke elevated access.</p>
+          {{end}}
         </section>
 {{template "rd_footer" .}}{{end}}

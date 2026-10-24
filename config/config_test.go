@@ -593,3 +593,55 @@ func TestIntentsConfig(t *testing.T) {
 		t.Errorf("persisted intents = %+v, want both off", loaded.Intents)
 	}
 }
+
+// TestSaveCreatesPrivateConfig guards the MCP bearer token: config.yml holds
+// an owner-equivalent credential, so every save must leave the file 0600.
+func TestSaveCreatesPrivateConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yml")
+	if err := Save(&Config{FilePath: path}, dir); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if got := st.Mode().Perm(); got != 0o600 {
+		t.Fatalf("config.yml mode = %o, want 600", got)
+	}
+}
+
+// TestSetValidatesOwnerAndUpdaterRefs pins the values that reach git argv and
+// the permission check: a malformed owner ID would lock the owner out, and an
+// option-shaped branch/repo would be interpreted by git.
+func TestSetValidatesOwnerAndUpdaterRefs(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{FilePath: filepath.Join(dir, "config.yml")}
+
+	bad := []struct{ key, value string }{
+		{"owner_id", "not-a-snowflake"},
+		{"owner_id", "0"},
+		{"updater_repo", "missing-slash"},
+		{"updater_repo", "a/b/c"},
+		{"updater_repo", "-owner/name"},
+		{"updater_branch", "-x"},
+		{"updater_branch", "a..b"},
+		{"updater_branch", "main branch"},
+	}
+	for _, tc := range bad {
+		if err := cfg.Set(tc.key, tc.value); err == nil {
+			t.Errorf("Set(%q, %q) accepted an invalid value", tc.key, tc.value)
+		}
+	}
+
+	good := []struct{ key, value string }{
+		{"owner_id", "123456789012345678"},
+		{"updater_repo", "owner/name"},
+		{"updater_branch", "feature/login-flow"},
+	}
+	for _, tc := range good {
+		if err := cfg.Set(tc.key, tc.value); err != nil {
+			t.Errorf("Set(%q, %q) rejected a valid value: %v", tc.key, tc.value, err)
+		}
+	}
+}

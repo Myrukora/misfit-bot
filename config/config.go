@@ -290,42 +290,132 @@ func Load(dir string) (*Config, error) {
 	return &cfg, nil
 }
 
+// cfgMu serializes every read/write of a live Config and every write of
+// config.yml. The bot holds one long-lived *Config: HTTP/MCP handlers call Set
+// while the updater poll and command dispatchers read it, which would otherwise
+// be a data race (and two concurrent Save calls could interleave the file).
+// Scalar readers should prefer Snapshot; map readers must use the accessors
+// that take this lock.
+var cfgMu sync.RWMutex
+
 func Save(cfg *Config, dir string) error {
-	if cfg.FilePath == "" {
-		cfg.FilePath = filepath.Join(dir, "config.yml")
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	return cfg.saveLocked(dir)
+}
+
+// saveLocked marshals and atomically replaces config.yml. The caller must hold
+// cfgMu (Set/SetImageFilter call it directly to avoid a non-reentrant deadlock).
+// The temp-file + rename sequence means a crash or a concurrent reader never
+// observes a truncated config. The file is 0600: it carries the owner-equivalent
+// MCP bearer token.
+func (c *Config) saveLocked(dir string) error {
+	if c.FilePath == "" {
+		c.FilePath = filepath.Join(dir, "config.yml")
 	}
 
 	// Marshal under the notify-channel read guard: the marshal walks the
-	// live NotifyChannels map, which the updater poll and Set mutate
-	// concurrently. The lock is released before the (slow) file write.
+	// live NotifyChannels map, which Set mutates.
 	notifyMu.RLock()
-	data, err := yaml.Marshal(cfg)
+	data, err := yaml.Marshal(c)
 	notifyMu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0755); err != nil {
+	dirPath := filepath.Dir(c.FilePath)
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
-
-	return os.WriteFile(cfg.FilePath, data, 0644)
+	tmp, err := os.CreateTemp(dirPath, ".config-*.yml")
+	if err != nil {
+		return fmt.Errorf("failed to create temp config: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // no-op after a successful rename
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to write temp config: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("failed to sync temp config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("failed to close temp config: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return fmt.Errorf("failed to chmod temp config: %w", err)
+	}
+	if err := os.Rename(tmpName, c.FilePath); err != nil {
+		return fmt.Errorf("failed to replace config: %w", err)
+	}
+	return nil
 }
 
+// Snapshot returns a shallow copy of the live config under the read lock.
+// Scalar fields are safe to read from the copy; maps are shared and must not
+// be mutated by callers.
+func (c *Config) Snapshot() Config {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	return *c
+}
+
+// UpdaterSnapshot returns a copy of the updater section, including a private
+// copy of NotifyChannels, for the updater poll loop.
+func (c *Config) UpdaterSnapshot() UpdaterConfig {
+	cfgMu.RLock()
+	u := c.Updater
+	cfgMu.RUnlock()
+	notifyMu.RLock()
+	if u.NotifyChannels != nil {
+		channels := make(map[string]string, len(u.NotifyChannels))
+		for guild, ch := range u.NotifyChannels {
+			channels[guild] = ch
+		}
+		u.NotifyChannels = channels
+	}
+	notifyMu.RUnlock()
+	return u
+}
+
+// SetElevatedIDs replaces the elevated-user list and persists it under the
+// config lock, so permission changes cannot race config snapshots.
+func (c *Config) SetElevatedIDs(ids []string) error {
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+	c.Bot.ElevatedIDs = append([]string(nil), ids...)
+	return c.saveLocked(filepath.Dir(c.FilePath))
+}
+
+// BuiltinEnabled reports the enabled_modules state for a compiled-in module
+// (missing key = enabled). It is safe to call while config writes are in flight.
+func (c *Config) BuiltinEnabled(name string) bool {
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
+	enabled, ok := c.Modules.EnabledModules[name]
+	return !ok || enabled
+}
+
+// EnsurePrivatePermissions tightens an existing config.yml to 0600. Fresh
+// saves already create the file private; this upgrades installs created before
+// the MCP bearer token made the permission matter.
+func EnsurePrivatePermissions(dir string) error {
+	return os.Chmod(filepath.Join(dir, "config.yml"), 0o600)
+}
+
+// Exists reports whether a config.yml exists in dir.
 func Exists(dir string) bool {
 	path := filepath.Join(dir, "config.yml")
 	_, err := os.Stat(path)
 	return !os.IsNotExist(err)
 }
 
-// imageFilterMu serializes image-filter section reads/writes; the core Config
-// itself carries no mutex, so the builtin guards its own section.
-var imageFilterMu sync.Mutex
-
 // GetImageFilter returns a copy of the image-filter section.
 func (c *Config) GetImageFilter() ImageFilterConfig {
-	imageFilterMu.Lock()
-	defer imageFilterMu.Unlock()
+	cfgMu.RLock()
+	defer cfgMu.RUnlock()
 	sec := c.ImageFilter
 	if sec.Guilds != nil {
 		guilds := make(map[string]ImageFilterGuild, len(sec.Guilds))
@@ -341,11 +431,11 @@ func (c *Config) GetImageFilter() ImageFilterConfig {
 // the save fails, the previous section is restored: a config the disk doesn't
 // have must never drive detection (the image-filter setters rely on this).
 func (c *Config) SetImageFilter(sec ImageFilterConfig) error {
-	imageFilterMu.Lock()
-	defer imageFilterMu.Unlock()
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
 	prev := c.ImageFilter
 	c.ImageFilter = sec
-	if err := Save(c, filepath.Dir(c.FilePath)); err != nil {
+	if err := c.saveLocked(filepath.Dir(c.FilePath)); err != nil {
 		c.ImageFilter = prev
 		return err
 	}
@@ -353,6 +443,9 @@ func (c *Config) SetImageFilter(sec ImageFilterConfig) error {
 }
 
 func (c *Config) Set(key, value string) error {
+	cfgMu.Lock()
+	defer cfgMu.Unlock()
+
 	// Per-server update notify channel: "updater_notify_channel:<guild_id>"
 	// sets one server's channel (an empty value clears it). Handled before the
 	// switch because the key carries a guild ID suffix.
@@ -369,7 +462,7 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid updater_notify_channel: %v", err)
 		}
 		c.Updater.SetNotifyChannel(guildID, v)
-		return Save(c, filepath.Dir(c.FilePath))
+		return c.saveLocked(filepath.Dir(c.FilePath))
 	}
 	switch key {
 	case "token":
@@ -382,7 +475,11 @@ func (c *Config) Set(key, value string) error {
 		}
 		c.Bot.Token = v
 	case "owner_id":
-		c.Bot.OwnerID = value
+		v := strings.TrimSpace(value)
+		if id, err := strconv.ParseUint(v, 10, 64); err != nil || id == 0 {
+			return fmt.Errorf("invalid owner_id: %q is not a Discord user ID", value)
+		}
+		c.Bot.OwnerID = v
 	case "tos_url":
 		c.Bot.ToS = value
 	case "privacy_url":
@@ -489,17 +586,14 @@ func (c *Config) Set(key, value string) error {
 		c.Updater.Enabled = v
 	case "updater_repo":
 		v := strings.TrimSpace(value)
-		if v == "" {
-			return fmt.Errorf("updater repo cannot be empty")
-		}
-		if !strings.Contains(v, "/") || strings.HasPrefix(v, "/") || strings.HasSuffix(v, "/") {
-			return fmt.Errorf("updater repo must be in owner/name form, e.g. Myrukora/misfit-bot")
+		if err := validateRepo(v); err != nil {
+			return err
 		}
 		c.Updater.Repo = v
 	case "updater_branch":
 		v := strings.TrimSpace(value)
-		if v == "" {
-			return fmt.Errorf("updater branch cannot be empty")
+		if err := validateBranch(v); err != nil {
+			return err
 		}
 		c.Updater.Branch = v
 	case "updater_token":
@@ -534,7 +628,55 @@ func (c *Config) Set(key, value string) error {
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
-	return Save(c, filepath.Dir(c.FilePath))
+	return c.saveLocked(filepath.Dir(c.FilePath))
+}
+
+// validateRepo enforces the owner/name GitHub form before the value reaches
+// git argv. Rejecting leading dashes and path-ish segments keeps a typo from
+// being interpreted as a git option or escaping the repository namespace.
+func validateRepo(v string) error {
+	if v == "" {
+		return fmt.Errorf("updater repo cannot be empty")
+	}
+	parts := strings.Split(v, "/")
+	if len(parts) != 2 {
+		return fmt.Errorf("updater repo must be in owner/name form, e.g. Myrukora/misfit-bot")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, "-") {
+			return fmt.Errorf("invalid updater repo %q", v)
+		}
+		for _, r := range part {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+				(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+				continue
+			}
+			return fmt.Errorf("invalid character %q in updater repo", r)
+		}
+	}
+	return nil
+}
+
+// validateBranch rejects refs that git would treat as options or that are not
+// legal ref names. A branch is passed as an argv element, so a leading dash
+// must never reach git.
+func validateBranch(v string) error {
+	if v == "" {
+		return fmt.Errorf("updater branch cannot be empty")
+	}
+	if len(v) > 255 {
+		return fmt.Errorf("updater branch is too long")
+	}
+	if strings.HasPrefix(v, "-") || strings.HasSuffix(v, "/") || strings.HasSuffix(v, ".") ||
+		strings.Contains(v, "//") || strings.Contains(v, "..") || strings.Contains(v, "@{") {
+		return fmt.Errorf("invalid updater branch %q", v)
+	}
+	for _, r := range v {
+		if r <= ' ' || strings.ContainsRune("~^:?*[\\", r) {
+			return fmt.Errorf("invalid character %q in updater branch", r)
+		}
+	}
+	return nil
 }
 
 // normalizeChannelID accepts a Discord channel mention (<#1234567890>) or a

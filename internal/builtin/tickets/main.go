@@ -91,6 +91,8 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	if err != nil {
 		return err
 	}
+	// Tighten modes left by older builds; best-effort and symlink-safe.
+	hardenTicketTree(ticketsRoot(ctx.DataDir), ctx.Logger)
 
 	m.mu.Lock()
 	m.module = mod

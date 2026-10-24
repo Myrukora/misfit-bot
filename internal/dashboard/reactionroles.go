@@ -226,6 +226,16 @@ func (m *DashboardModule) routeReactionRolesAPI(w http.ResponseWriter, r *http.R
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
 		}
+		if err := m.checkChannelInGuild(gid, panel.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
+			return
+		}
+		for _, mapping := range panel.Mappings {
+			if err := m.checkRoleGrant(us, gid, mapping.RoleID); err != nil {
+				writeError(w, http.StatusBadRequest, "mapping role: "+err.Error())
+				return
+			}
+		}
 		created, err := adm.CreatePanel(gid, panel)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
@@ -244,6 +254,33 @@ func (m *DashboardModule) routeReactionRolesAPI(w http.ResponseWriter, r *http.R
 			return
 		}
 		if len(parts) == 6 && parts[5] == "post" {
+			cfg, err := adm.GetGuildConfig(gid)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			found := false
+			for _, p := range cfg.Panels {
+				if p.ID != panelID {
+					continue
+				}
+				found = true
+				if err := m.checkChannelInGuild(gid, p.ChannelID); err != nil {
+					writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
+					return
+				}
+				for _, mapping := range p.Mappings {
+					if err := m.checkRoleGrant(us, gid, mapping.RoleID); err != nil {
+						writeError(w, http.StatusBadRequest, "mapping role: "+err.Error())
+						return
+					}
+				}
+				break
+			}
+			if !found {
+				writeError(w, http.StatusNotFound, "panel not found")
+				return
+			}
 			if err := adm.PostPanel(gid, panelID); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -259,6 +296,16 @@ func (m *DashboardModule) routeReactionRolesAPI(w http.ResponseWriter, r *http.R
 		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&panel); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
 			return
+		}
+		if err := m.checkChannelInGuild(gid, panel.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
+			return
+		}
+		for _, mapping := range panel.Mappings {
+			if err := m.checkRoleGrant(us, gid, mapping.RoleID); err != nil {
+				writeError(w, http.StatusBadRequest, "mapping role: "+err.Error())
+				return
+			}
 		}
 		panel.ID = panelID
 		updated, err := adm.UpdatePanel(gid, panel)

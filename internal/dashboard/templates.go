@@ -238,10 +238,18 @@ func (b *templateBundle) fragment(name string, data any) (string, error) {
 }
 
 // staticFS returns the embedded static subtree rooted at "web/static".
+// A broken embed layout is a build defect; returning an error FS keeps the bot
+// alive and surfaces the failure as a normal 500 instead of panicking inside
+// the dashboard's startup path.
 func staticSubFS() fs.FS {
 	sub, err := fs.Sub(staticFiles, "web/static")
 	if err != nil {
-		panic(err)
+		return errorFS{err: err}
 	}
 	return sub
 }
+
+// errorFS is an fs.FS whose Open always fails with err.
+type errorFS struct{ err error }
+
+func (e errorFS) Open(string) (fs.File, error) { return nil, e.err }

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -149,7 +151,7 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	}
-	if !m.allowed(parts[1]) {
+	if !m.allowed(parts[1]) || !m.canManageGuild(us, parts[1]) {
 		writeError(w, http.StatusForbidden, "no access to this guild")
 		return
 	}
@@ -186,6 +188,10 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 			writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
 			return
 		}
+		if err := m.checkChannelInGuild(guildID, in.LogChannel); err != nil {
+			writeError(w, http.StatusBadRequest, "log channel: "+err.Error())
+			return
+		}
 		if err := adm.SetGuildSettings(guildID, in); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
 			return
@@ -212,6 +218,10 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 
 		case meth == "GET" && len(parts) == 4 && parts[3] == "transcript":
 			guildID, ticketID := parts[1], parts[2]
+			if !m.canManageGuild(us, guildID) {
+				writeError(w, http.StatusForbidden, "guild management required")
+				return
+			}
 			if tk, err := tp.GetTicket(guildID, ticketID); err != nil || tk == nil {
 				writeError(w, http.StatusNotFound, "ticket not found")
 				return
@@ -292,6 +302,10 @@ func (m *DashboardModule) routeTicketTypes(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
 			return
 		}
+		if err := m.checkChannelInGuild(guildID, in.Category); err != nil {
+			writeError(w, http.StatusBadRequest, "category: "+err.Error())
+			return
+		}
 		t, err := adm.CreateType(guildID, in)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -306,6 +320,10 @@ func (m *DashboardModule) routeTicketTypes(w http.ResponseWriter, r *http.Reques
 		var in modules.TypeDetail
 		if err := json.Unmarshal(readAll(r), &in); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
+			return
+		}
+		if err := m.checkChannelInGuild(guildID, in.Category); err != nil {
+			writeError(w, http.StatusBadRequest, "category: "+err.Error())
 			return
 		}
 		t, err := adm.UpdateType(guildID, parts[3], in)
@@ -366,6 +384,10 @@ func (m *DashboardModule) routeTicketPanels(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
 			return
 		}
+		if err := m.checkChannelInGuild(guildID, in.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
+			return
+		}
 		p, err := adm.CreatePanel(guildID, in)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -380,6 +402,10 @@ func (m *DashboardModule) routeTicketPanels(w http.ResponseWriter, r *http.Reque
 		var in modules.PanelInput
 		if err := json.Unmarshal(readAll(r), &in); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
+			return
+		}
+		if err := m.checkChannelInGuild(guildID, in.ChannelID); err != nil {
+			writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
 			return
 		}
 		p, err := adm.UpdatePanel(guildID, parts[3], in)
@@ -406,6 +432,17 @@ func (m *DashboardModule) routeTicketPanels(w http.ResponseWriter, r *http.Reque
 			writeError(w, http.StatusBadRequest, "unsupported action")
 			return
 		}
+		if action == "resend" {
+			stored, err := adm.GetPanel(guildID, name)
+			if err != nil {
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			}
+			if err := m.checkChannelInGuild(guildID, stored.ChannelID); err != nil {
+				writeError(w, http.StatusBadRequest, "panel channel: "+err.Error())
+				return
+			}
+		}
 		p, err := adm.PanelAction(guildID, name, action)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err.Error())
@@ -428,7 +465,7 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, "/login", http.StatusFound)
 		return
 	}
-	if !m.allowed(guildID) {
+	if !m.allowed(guildID) || !m.canManageGuild(us, guildID) {
 		http.Error(w, "403", http.StatusForbidden)
 		return
 	}
@@ -458,7 +495,31 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
+	// Ticket attachments are attacker-uploaded. Serve only known media
+	// extensions inline; everything else is a download with an inert type, and
+	// every ticketfile response is sandboxed so an uploaded HTML/JS/SVG file
+	// cannot execute in the dashboard origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	if !isInlineTicketMedia(filename) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+			"filename": filepath.Base(filename),
+		}))
+	}
 	http.ServeContent(w, r, filename, st.ModTime(), f)
+}
+
+// isInlineTicketMedia reports whether a mirrored ticket attachment may be
+// rendered as an inline image/video/audio preview. SVG and every other active
+// or opaque format is intentionally excluded.
+func isInlineTicketMedia(name string) bool {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".bmp",
+		".mp4", ".webm", ".mov", ".m4v", ".mkv", ".avi",
+		".mp3", ".wav", ".ogg", ".oga", ".m4a", ".flac", ".opus", ".aac", ".wma", ".weba":
+		return true
+	}
+	return false
 }
 
 // ── Page handlers ─────────────────────────────────────────────────────────
@@ -615,8 +676,8 @@ func (m *DashboardModule) renderTicketsList(w http.ResponseWriter, us *userSessi
 }
 
 func (m *DashboardModule) handleTranscriptPage(w http.ResponseWriter, r *http.Request, us *userSession, level string, guildID, ticketID string) {
-	if !m.allowed(guildID) {
-		http.Error(w, "403 no access to this guild", http.StatusForbidden)
+	if !m.allowed(guildID) || !m.canManageGuild(us, guildID) {
+		http.NotFound(w, r)
 		return
 	}
 	tp, ok := m.ticketProvider()

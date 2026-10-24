@@ -24,17 +24,20 @@ type LogEntry struct {
 	Time    time.Time
 }
 
-func New(dir string, level string, fileEnabled bool) (*Logger, error) {
+func New(dir, filePath, level string, fileEnabled bool) (*Logger, error) {
 	var writers []io.Writer
 	writers = append(writers, os.Stdout)
 
 	var file io.Closer
 	if fileEnabled {
-		logPath := filepath.Join(dir, "logs", "bot.log")
-		// Derive directory and basename from the configured file path.
-		// e.g. "logs/bot.log" → dir="logs", basename="bot"
-		logDir := filepath.Dir(logPath)
-		base := strings.TrimSuffix(filepath.Base(logPath), ".log")
+		if filePath == "" {
+			filePath = "logs/bot.log"
+		}
+		if !filepath.IsAbs(filePath) {
+			filePath = filepath.Join(dir, filePath)
+		}
+		logDir := filepath.Dir(filePath)
+		base := strings.TrimSuffix(filepath.Base(filePath), ".log")
 
 		var err error
 		var rw *DailyRotatingWriter
