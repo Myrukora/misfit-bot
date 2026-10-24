@@ -287,6 +287,8 @@ func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.R
 		m.renderGuildTickets(w, r, us, guildID)
 	case "modules":
 		m.renderGuildModules(w, r, us, guildID)
+	case "welcome":
+		m.renderGuildWelcome(w, r, us, guildID)
 	default:
 		http.NotFound(w, r)
 	}

@@ -2,7 +2,7 @@
 
 ## Overview
 
-A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilter feature modules are compiled into the single binary (core infrastructure, always on); Lua scripts (`.lua` files) and Python modules (directories with `main.py`) load dynamically via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
+A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilter/welcome feature modules are compiled into the single binary (core infrastructure, always on); Lua scripts (`.lua` files) and Python modules (directories with `main.py`) load dynamically via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
 
 ## Tech Stack
 
@@ -12,7 +12,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 | Discord Library | [disgo](https://github.com/disgoorg/disgo) | v0.19.6 |
 | Config | YAML (`gopkg.in/yaml.v3`) | v3.0.1 |
 | Snowflake IDs | `github.com/disgoorg/snowflake/v2` | v2.0.3 |
-| Module System | Compiled-in core (dashboard, cleanup, tickets, imagefilter) + dynamic Lua/Python modules | stdlib |
+| Module System | Compiled-in core (dashboard, cleanup, tickets, imagefilter, welcome) + dynamic Lua/Python modules | stdlib |
 | Lua Modules | [gopher-lua](https://github.com/yuin/gopher-lua) | v1.1.2 |
 | Python Modules | Subprocess IPC (per-module venv) | Python 3 |
 | MCP Server | [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) | v1.8.0 |
@@ -118,7 +118,8 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   └── builtin/              # Compiled-in feature modules (gated by enabled_modules)
 │       ├── cleanup/          # Message cleanup (9 subcommands)
 │       ├── tickets/          # Ticket system
-│       └── imagefilter/      # CLIP image filter (dashboard-only)
+│       ├── imagefilter/      # CLIP image filter (dashboard-only)
+│       └── welcome/          # Join/leave messages + dashboard embed builder
 ├── loaded_modules.json       # Module persistence (auto-managed)
 └── logs/
     └── bot-YYYY-MM-DD.log    # JSON log output (daily rotation, 30 files kept)
@@ -135,7 +136,7 @@ Startup sequence:
 4. Initializes the voice manager
 5. Registers the Lua and Python loaders with the module manager
 6. `loadCoreModules(ba)` — loads saved modules (from `loaded_modules.json`) or AutoLoad-scans `modules/Lua/` + `modules/Python/`
-7. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter), gated by `enabled_modules`
+8. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter/welcome), gated by `enabled_modules`
 8. `registerSlashCommands()` — registers all slash commands with Discord
 9. MCP token generation (if empty) + `mcpserver.New`
 10. `dashboard.New` + `dash.Start()` — the dashboard gets `Deps.MCP` (the MCP handler)
@@ -201,7 +202,7 @@ type Interface interface {
     CommandOverrides() *CommandOverrides       // per-command override store (nil when disabled)
     GetAllModuleSlashCommandsByModule() []ModuleSlashCommands // module name → its slash commands (load order); used by /help
     GetAvailableModuleNames() []string
-    IsBuiltinModule(name string) bool          // true for cleanup/tickets — imagefilter is also gated by enabled_modules but is not Discord-toggleable
+    IsBuiltinModule(name string) bool          // true for cleanup/tickets/welcome — imagefilter is also gated by enabled_modules but is not Discord-toggleable
     SetEnabledModule(name string, enabled bool) error // persists enabled_modules; applies on next restart
     GetPermissionManager() *permissions.Manager
     SetPresence(activityType string, status, text string) error
@@ -237,7 +238,7 @@ type CommandResult struct {
 
 **`core.go`** — 9 core slash commands (`/help`, `/modules`, …; there is no prefix dispatcher):
 - `ping`, `uptime`, `info`, `help` — public
-- `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets only; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
+- `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets/welcome; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
 - `load`, `unload`, `reload` — `OwnerOnly: true`, supports `all`
 - `update` — `OwnerOnly: true` — check/now/status/test/set subcommands for the self-updater
 
@@ -609,6 +610,42 @@ against that guild's blacklisted reference images.
   (The Python image_spam_filter module was retired 2026-09; a full backup lives
   in `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`, gitignored.)
 
+### Welcome Messages (`internal/builtin/welcome/`)
+
+Compiled-in builtin (gated by `enabled_modules.welcome`, missing key = enabled),
+**dashboard-only configuration** — it registers no Discord commands. It listens
+to `AddGuildMemberJoin` / `AddGuildMemberLeave` and posts a configurable message
+(plus an optional embed) to a per-event channel.
+
+- **Config:** one YAML file per guild at `modules/welcome/guilds/<guildID>.yaml`
+  (0600, atomic tmp+rename). The dashboard loads/saves it through
+  `modules.WelcomeAdmin` (`GetGuildConfig` / `SetGuildConfig` / `SendTest` /
+  `LastError`); saves are validated against Discord's limits (2000-char content,
+  256 title, 4096 description, 25 fields, 1024 field value, 2048 footer, 6000
+  embed total, http(s) URLs, `#rrggbb` color, RFC3339 timestamp, canonical
+  snowflakes).
+- **Events:** join and leave are independent (`enabled`, `channel_id`,
+  `message`, `auto_delete` seconds, embed). An empty event is a no-op. Delivery
+  failures are logged and surfaced as `LastError` on the dashboard (in-memory).
+- **Variables:** `{mention}`, `{user}` (display name), `{user(proper)}` (account
+  tag, including the legacy discriminator; disgo's `User.Tag()`), `{user(id)}`,
+  `{username}`, `{nickname}`, `{user(avatar)}`, `{user(created)}`,
+  `{user(joined)}`, `{server}`, `{server(id)}`, `{server(members)}` (the
+  post-event count — disgo increments/decrements the cached guild before
+  dispatching the hook), `{server(icon)}`, `{ord:…}` and
+  `{random: a, b, c}`. Unknown placeholders stay verbatim.
+- **Embed builder:** `/g/<id>/welcome` (`rd_welcome`) with Join/Leave tabs,
+  message + variable chips, color picker, advanced builder (author / title /
+  description / fields with inline + reorder / image / thumbnail / footer /
+  footer icon / timestamp), live counters, deleted-channel preservation, Save
+  and "Send test" (saves first, then posts with the clicking user as the
+  sample). `app.js` hydrates the builder from an embedded JSON config.
+- **Safety:** messages permit only the event member's mention
+  (`AllowedMentions{Parse: []}` + an explicit user), so `@everyone`/roles can
+  never be pinged. Embed URLs that stop being valid after variable expansion
+  are omitted rather than rejecting the message; an embed over 6000 chars after
+  expansion is dropped while the content is still delivered.
+
 ### MCP Server (`internal/mcpserver/`)
 
 Compiled-in core subsystem (always on, like the dashboard) that exposes the bot
@@ -788,13 +825,15 @@ Both are configurable from the `/config` page (Intents section) and via
 - Module dependencies — `Dependencies() []string` method on Module interface, checked at load time, fails if dependency missing
 - Python graceful shutdown — 5-second timeout for graceful shutdown, then force kill
 - Web dashboard (`internal/dashboard/`, compiled-in core — always on, no plugin): black & white monochrome redesign (2026-09). Login → `/` server picker → `/g/<id>/…` per-server pages; `/config` = bot-wide core config (**owner + elevated**; secrets are redacted/locked for elevated and the owner-only action cards are hidden).
-  - **Pages** (all `rd_*` templates): `/`+`/login` → `rd_servers`/`rd_login`, `/tos` + `/policy` → standalone public `rd_legal` (no OAuth; GitHub-flavoured Markdown from `legal/terms.md` / `legal/privacy.md`, seeded on first render, read per request; raw HTML omitted), `/overview`, `/config`, `/permissions`, `/logs`, `/modules` (owner module mgmt), `/g/<id>/{commands,tickets,modules,imagefilter}`, `/tickets/<g>/<t>` → standalone `rd_transcript` (renders the conversation live from the ticket's stored log, never the `.html`; its Download transcript link hits `GET /api/tickets/<g>/<t>/transcript` — guild-gated like `/api/ticketfiles`, a GET so no CSRF — which regenerates the file from the log and downloads it as `ticket-<id>.html`). First-run setup is NOT a route: `/login` renders `rd_setup` instead of `rd_login` while the OAuth client is unconfigured. Legacy redirects: `/guild/<id>` → `/g/<id>/commands`, `/settings` → `/configuration`, `/admin` → `/config`. JSON API under `/api/*`, tiered + CSRF.
+  - **Pages** (all `rd_*` templates): `/`+`/login` → `rd_servers`/`rd_login`, `/tos` + `/policy` → standalone public `rd_legal` (no OAuth; GitHub-flavoured Markdown from `legal/terms.md` / `legal/privacy.md`, seeded on first render, read per request; raw HTML omitted), `/overview`, `/config`, `/permissions`, `/logs`, `/modules` (owner module mgmt), `/g/<id>/{commands,tickets,welcome,modules,imagefilter}`, `/tickets/<g>/<t>` → standalone `rd_transcript` (renders the conversation live from the ticket's stored log, never the `.html`; its Download transcript link hits `GET /api/tickets/<g>/<t>/transcript` — guild-gated like `/api/ticketfiles`, a GET so no CSRF — which regenerates the file from the log and downloads it as `ticket-<id>.html`). First-run setup is NOT a route: `/login` renders `rd_setup` instead of `rd_login` while the OAuth client is unconfigured. Legacy redirects: `/guild/<id>` → `/g/<id>/commands`, `/settings` → `/configuration`, `/admin` → `/config`. JSON API under `/api/*`, tiered + CSRF.
   - **rd_* convention**: one template per page in `web/templates/rd_<name>.html`; shared chrome = `rd_header.html` (renders the hub OR guild sidebar from `d.Page`/`d.GuildID`) + `rd_footer.html`. Handler shape: `d := m.baseData(us); d.Page = "x"; d.Content = …; m.tmpl.render(w, "rd_x", d)`. Schema-driven settings render through the `rd_field` partial (fieldRender struct, unchanged data contract).
   - **CSS**: single `web/static/style.css` — custom-property design tokens at the top, components below; extend tokens, never duplicate rules; black & white only, flat backgrounds (login/setup keep the branded gradient card). CSP lives in `server.go` (Google Fonts allowed).
   - **JS**: single vanilla `web/static/app.js`, no framework, no inline `<script>`. Page-activation pattern: each block activates only when its elements exist (`if (!byId("x")) return;` — see the file's header comment); CSRF from `<meta name="csrf-token">`; fetch to `/api/*`.
   - Auth: Discord OAuth2 via disgo `oauth2` (no new deps), signed session cookies (HMAC-SHA256), in-memory sessions, mutual-guild restriction. 4 RBAC tiers (`owner` > `elevated` > `staff` > `regular`) computed per request; config hidden from non-staff. The Config page is owner+elevated: its owner-only cards (Updater, Rate limiting, CLIP variant) are hidden for elevated, while the **Bot control** card (Restart / Shut down, `POST /api/restart` / `/api/shutdown`) is available to both. Elevated users are managed on the **Permissions** page (`/api/permissions/elevated…`). **Gated mode:** when the gateway lacks the Server Members intent, `resolveLevel` returns regular for everyone except the owner/elevated (OAuth guild permissions are deliberately ignored — fail closed), the server picker is empty for them, guild pages 403, and every page shows a gated-mode banner. Command exec `POST /api/exec` runs only names on the `exec_allowlist` (an EMPTY allowlist means nothing is runnable) and applies the dispatcher's own rules — SuperOwnerOnly is never web-reachable. Core config editable on `/config` in sections (Bot/Intents/Logging/Dashboard/Updater/Secrets — secrets owner-only, locked for elevated).
   - Backup admin: `GET /api/backups` (list) + `POST /api/backups` (create/verify/restore) — owner-only, backed by `config.BackupService`; restore requires `confirm=true`.
 - Built-in MCP server (`internal/mcpserver/`, compiled-in core — always on): MCP streamable-HTTP endpoint mounted at `/mcp` on the dashboard listener (handler injected via `dashboard.Deps.MCP`; the dashboard never imports it — follows `dashboard.listen`). Bearer-token auth (`mcp.token` in core `config.yml`, auto-generated on first start and saved, logged once); config re-read per request as a live kill switch (`mcp_enabled=false` → 404, empty token → 503, bad token → 401). Enabled by default. **13 tools**: `bot_status`, `list_guilds`, `list_channels`, `get_logs`, `list_commands`, `get_config` (secrets redacted), `module_get_config` (reads); `set_config`, `module_set_config`, `run_command` (internal dispatcher + virtual captured context — nothing posted to Discord), `send_message`, `module_action` (load/unload/reload), `update_action` (status/check/apply/test). Full owner-level access — the token is the owner identity.
+
+- Welcome module (`internal/builtin/welcome/`): per-guild join/leave messages with a dashboard embed builder at `/g/<id>/welcome`. Message + embed support `{mention}`, `{user}`, `{user(proper)}`, `{server}`, `{server(members)}`, `{ord:…}`, `{random: …}` and the rest of the documented variables; per-event channel, enabled toggle, auto-delete, Save/Test, in-memory last-error surfacing. Configs are per-guild YAML under `modules/welcome/` (gitignored), validated against Discord's limits server-side; `modules.WelcomeAdmin` is the dashboard contract. Only the event member can be mentioned (no @everyone/role parsing). Toggleable via `/modules enable|disable welcome`.
 
 **Not Yet Done:**
 - [ ] Discord channel logging (separate module, not core feature)
@@ -821,7 +860,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 2. **`snowflake.ID`** is `uint64`. Use `.String()` to convert — never `string(id)`.
 3. **`discord.Permissions`** (plural) is the type, not `discord.Permission`.
 4. **`WithFields(fields...)` REPLACES** `e.Fields`, does NOT append. Build the slice first, pass once.
-5. **No Go plugin modules** — only Lua files and Python dirs stay dynamic; `DetectModuleType` returns `""` for anything else and `Manager.Load` errors out. The feature modules (cleanup/tickets/imagefilter) are compiled-in, gated by `enabled_modules` and toggled with `/modules enable|disable` (applies on restart).
+5. **No Go plugin modules** — only Lua files and Python dirs stay dynamic; `DetectModuleType` returns `""` for anything else and `Manager.Load` errors out. The feature modules (cleanup/tickets/imagefilter/welcome) are compiled-in, gated by `enabled_modules` and toggled with `/modules enable|disable` (applies on restart).
 6. **A failed reload loses the module** — `ReloadModule` is Unload + LoadModule with no rollback: once unloaded, the old instance is gone, so a failure logs `Reload of module '<name>' failed after unload — module lost until bot restart`. Prefer `load` for a first attempt and expect a restart to recover.
 7. **Slash command re-registration** is mutex-serialized. Concurrent load/unload operations queue on `SetGlobalCommands`.
 8. **Logger `Close()`** waits for the processLogs goroutine to drain via `done` channel. Never close file before drain completes.
@@ -852,3 +891,4 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 33. **`client_secret` lives in core `config.yml`** — set via the dashboard Admin page (`/config`, or `SetConfig("oauth_client_secret", …)`); `listen`/`public_url` go to core `config.yml` (`dashboard:` section). All three can also be set by hand in `config.yml`. **A bind failure (e.g. 8080 in use) does NOT fail startup** — the dashboard stays up so the owner can rebind via the `dashboard.listen` key in core `config.yml` and restart. Effective listen = core `dashboard.listen` if set, else `127.0.0.1:8080`; a URL-shaped value (`http://host:port/`) is normalized to `host:port` at write and bind time (`NormalizeListen`).
 34. **Dashboard integration is a separate file per module, and absence = no integration** — compiled-in modules implement `WebConfigurable` in their package (tickets `webconfig.go`, the dashboard itself in `main.go`); Lua modules add `modules/Lua/<name>/<name>.dashboard.lua` (global table `D` with `schema`/`get`/`set`, its own Lua state, `ctx.data_dir` available); Python modules add `dashboard.py` next to `main.py` (`web_schema` + `web_get_config`/`web_set_config`, imported by the runner, IPC `web_get_config`/`web_set_config` messages). No file ⇒ no settings panel and no config API writes. `*.dashboard.lua` files are NOT modules: AutoLoad, `/load all`, `GetAvailableModuleNames`, and `DiscoverLuaModules` all skip them (`IsLuaDashboardScript`), and `LuaLoader.Load` rejects them with a clear error. Lua `min`/`max`/`step` are presence-based (0 values survive); Python config values are coerced to strings in Go (bools → "true"/"false").
 35. **`/tos` and `/policy` are public and file-backed** — linked from the login card, they render `legal/terms.md` / `legal/privacy.md` (gitignored folder under the bot dir) via goldmark GFM on every request, so edits need no restart and no rebuild. The route is registered with the public routes (no `requireAuthed`/OAuth); raw HTML in the markdown is omitted by goldmark (no `html.WithUnsafe`), and missing files are seeded with starter text on first render. The bot's `tos_url`/`privacy_url` config keys are unrelated (external links used by `/info`).
+36. **Welcome messages are per-guild and dashboard-only** — `internal/builtin/welcome/` stores `modules/welcome/guilds/<gid>.yaml` (gitignored) and the dashboard talks to it through `modules.WelcomeAdmin`; there are no Discord commands. `{user(proper)}` is disgo's `User.Tag()` (username, or `username#discriminator` for legacy accounts). Variables expand at delivery: saves validate the raw template against Discord's limits, and an embed that expands past 6000 characters is dropped while the content is still sent. Mentions are restricted to the event member (`AllowedMentions.Parse` is empty), so `@everyone`/roles never ping.

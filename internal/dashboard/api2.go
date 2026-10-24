@@ -808,6 +808,10 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		// Guild-scoped module subtrees (e.g. /api/guilds/<gid>/imagefilter…)
 		// live in their own dispatcher; must be checked before the GET-only
 		// listing below, so POST/DELETE reach it too.
+		if len(parts) >= 3 && parts[2] == "welcome" {
+			m.routeWelcomeAPI(w, r, meth, parts)
+			return
+		}
 		if len(parts) >= 3 && parts[2] == "imagefilter" {
 			m.routeImageFilterAPI(w, r, meth, parts)
 			return

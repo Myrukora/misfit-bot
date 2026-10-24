@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/disgoorg/snowflake/v2"
+
 	"github.com/misfit/bot/modules"
 )
 
@@ -298,19 +300,16 @@ func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http
 // maxImageFilterBytes is the per-file read cap (mirrors the module's 50 MiB).
 const maxImageFilterBytes = 50 * 1024 * 1024
 
-// validGuildID mirrors the module's own directory-name rule: a Discord
-// snowflake is digits only and non-zero. "null" must be rejected explicitly
-// because snowflake.Parse maps it to (0, nil).
+// validGuildID mirrors the module's own directory-name rule: a canonical,
+// non-zero Discord snowflake. "null" must be rejected explicitly because
+// snowflake.Parse maps it to (0, nil); the String() round-trip rejects leading
+// zeros and values that overflow the snowflake range.
 func validGuildID(gid string) bool {
 	if gid == "" || gid == "0" {
 		return false
 	}
-	for _, r := range gid {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	id, err := snowflake.Parse(gid)
+	return err == nil && id != 0 && id.String() == gid
 }
 
 // readAll reads the request body with a 1 MiB cap (config/enable JSON bodies).

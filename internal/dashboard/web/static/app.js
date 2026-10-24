@@ -1274,4 +1274,357 @@
       });
     });
   }
+
+  /* ---------- welcome message editor (/g/<id>/welcome) ---------- */
+  var welcomeData = byId("welcome-data");
+  if (welcomeData && document.querySelector("[data-welcome-panel]")) {
+    var welcomeGuild = (byId("welcome-guild") || {}).value || "";
+    var welcomeFieldTemplate = byId("welcome-field-template");
+    var welcomeCfg = {};
+    try {
+      welcomeCfg = (JSON.parse(welcomeData.textContent || "{}").config) || {};
+    } catch (err) {
+      welcomeCfg = {};
+    }
+    var welcomeEvent = "join";
+    var welcomeDirty = false;
+
+    function welcomePanel(event) {
+      return document.querySelector('[data-welcome-panel="' + event + '"]');
+    }
+    function welcomeEl(event, name) {
+      var panel = welcomePanel(event);
+      return panel ? panel.querySelector("[data-welcome-" + name + "]") : null;
+    }
+    function welcomeStatus(msg, isErr) {
+      var el = document.querySelector("[data-welcome-status]");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.classList.toggle("welcome-status-err", !!isErr);
+    }
+    function welcomeDirtyMark() {
+      welcomeDirty = true;
+      welcomeStatus("");
+    }
+    function welcomeCounter(input, counter) {
+      if (!input || !counter) return;
+      var max = input.getAttribute("maxlength") || "";
+      counter.textContent = input.value.length + (max ? "/" + max : "");
+    }
+    function welcomeBindCounter(event, inputName, counterName) {
+      var input = welcomeEl(event, inputName);
+      var counter = welcomeEl(event, counterName);
+      if (!input || !counter) return;
+      input.addEventListener("input", function () { welcomeCounter(input, counter); });
+      welcomeCounter(input, counter);
+    }
+    function welcomeFieldCount(event) {
+      var panel = welcomePanel(event);
+      if (!panel) return;
+      var box = panel.querySelector("[data-welcome-fields]");
+      var counter = panel.querySelector("[data-welcome-field-count]");
+      if (box && counter) counter.textContent = box.children.length + "/25";
+    }
+    function welcomeFieldRow(field) {
+      var row = welcomeFieldTemplate.content.firstElementChild.cloneNode(true);
+      row.querySelector("[data-field-name]").value = field.name || "";
+      row.querySelector("[data-field-value]").value = field.value || "";
+      row.querySelector("[data-field-inline]").checked = !!field.inline;
+      return row;
+    }
+    function welcomeAddField(event, field) {
+      var panel = welcomePanel(event);
+      if (!panel) return;
+      var box = panel.querySelector("[data-welcome-fields]");
+      if (!box) return;
+      if (box.children.length >= 25) {
+        toast("An embed can hold at most 25 fields", true);
+        return;
+      }
+      box.appendChild(welcomeFieldRow(field || {}));
+      welcomeFieldCount(event);
+    }
+    function welcomeSetColor(event, value) {
+      var panel = welcomePanel(event);
+      if (!panel) return;
+      var swatch = panel.querySelector("[data-welcome-color]");
+      var hex = panel.querySelector("[data-welcome-color-hex]");
+      value = (value || "").trim();
+      if (/^#[0-9a-fA-F]{3}$/.test(value)) {
+        value = "#" + value[1] + value[1] + value[2] + value[2] + value[3] + value[3];
+      }
+      value = value.toLowerCase();
+      if (/^#[0-9a-f]{6}$/.test(value)) {
+        if (swatch) swatch.value = value;
+        if (hex) hex.value = value;
+      } else if (value === "" && hex) {
+        hex.value = "";
+      }
+    }
+    function isoLocal(iso) {
+      if (!iso) return "";
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      var pad = function (n) { return (n < 10 ? "0" : "") + n; };
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+    }
+    function localISO(value) {
+      if (!value) return "";
+      var d = new Date(value);
+      return isNaN(d.getTime()) ? "" : d.toISOString();
+    }
+    function welcomeClearEmbed(event) {
+      ["author-icon", "author-name", "author-url", "title", "title-url", "description", "image", "thumbnail", "footer", "footer-icon", "timestamp"].forEach(function (name) {
+        var el = welcomeEl(event, name);
+        if (el) el.value = "";
+      });
+      var embedEnabled = welcomeEl(event, "embed-enabled");
+      if (embedEnabled) embedEnabled.checked = false;
+      var box = welcomePanel(event).querySelector("[data-welcome-fields]");
+      if (box) box.innerHTML = "";
+      welcomeSetColor(event, "");
+      var swatch = welcomeEl(event, "color");
+      if (swatch) swatch.value = "#5865f2";
+      welcomeFieldCount(event);
+      welcomeCounter(welcomeEl(event, "title"), welcomeEl(event, "title-count"));
+      welcomeCounter(welcomeEl(event, "description"), welcomeEl(event, "desc-count"));
+      welcomeCounter(welcomeEl(event, "footer"), welcomeEl(event, "footer-count"));
+    }
+    function welcomeHydrate(event) {
+      var cfg = welcomeCfg[event] || {};
+      var embed = cfg.embed || {};
+      var author = embed.author || {};
+      welcomeEl(event, "enabled").checked = !!cfg.enabled;
+      welcomeEl(event, "channel").value = cfg.channel_id || "";
+      welcomeEl(event, "autodelete").value = cfg.auto_delete || 0;
+      welcomeEl(event, "message").value = cfg.message || "";
+      welcomeEl(event, "embed-enabled").checked = !!embed.enabled;
+      welcomeEl(event, "author-icon").value = author.icon_url || "";
+      welcomeEl(event, "author-name").value = author.name || "";
+      welcomeEl(event, "author-url").value = author.url || "";
+      welcomeEl(event, "title").value = embed.title || "";
+      welcomeEl(event, "title-url").value = embed.title_url || "";
+      welcomeEl(event, "description").value = embed.description || "";
+      welcomeEl(event, "image").value = embed.image_url || "";
+      welcomeEl(event, "thumbnail").value = embed.thumbnail_url || "";
+      welcomeEl(event, "footer").value = embed.footer || "";
+      welcomeEl(event, "footer-icon").value = embed.footer_icon || "";
+      welcomeEl(event, "timestamp").value = isoLocal(embed.timestamp || "");
+      var hex = welcomeEl(event, "color-hex");
+      var swatch = welcomeEl(event, "color");
+      var color = (embed.color || "").toLowerCase();
+      if (hex) hex.value = color;
+      if (swatch) swatch.value = /^#[0-9a-f]{6}$/.test(color) ? color : "#5865f2";
+      var box = welcomePanel(event).querySelector("[data-welcome-fields]");
+      box.innerHTML = "";
+      (embed.fields || []).forEach(function (f) { box.appendChild(welcomeFieldRow(f)); });
+      welcomeCounter(welcomeEl(event, "message"), welcomeEl(event, "count"));
+      welcomeCounter(welcomeEl(event, "title"), welcomeEl(event, "title-count"));
+      welcomeCounter(welcomeEl(event, "description"), welcomeEl(event, "desc-count"));
+      welcomeCounter(welcomeEl(event, "footer"), welcomeEl(event, "footer-count"));
+      welcomeFieldCount(event);
+    }
+
+    ["join", "leave"].forEach(function (event) {
+      var panel = welcomePanel(event);
+      if (!panel) return;
+      panel.querySelectorAll("input, textarea, select").forEach(function (el) {
+        var evt = (el.tagName === "SELECT" || el.type === "checkbox" || el.type === "color" || el.type === "datetime-local") ? "change" : "input";
+        el.addEventListener(evt, welcomeDirtyMark);
+      });
+      welcomeBindCounter(event, "message", "count");
+      welcomeBindCounter(event, "title", "title-count");
+      welcomeBindCounter(event, "description", "desc-count");
+      welcomeBindCounter(event, "footer", "footer-count");
+      var fieldsBox = panel.querySelector("[data-welcome-fields]");
+      if (fieldsBox) {
+        fieldsBox.addEventListener("input", welcomeDirtyMark);
+        fieldsBox.addEventListener("change", welcomeDirtyMark);
+      }
+
+      panel.querySelector("[data-welcome-add-field]").addEventListener("click", function () {
+        welcomeAddField(event, {});
+        welcomeDirtyMark();
+      });
+      panel.querySelector("[data-welcome-fields]").addEventListener("click", function (e) {
+        var btn = e.target.closest("button");
+        if (!btn) return;
+        var row = btn.closest("[data-field-row]");
+        if (!row) return;
+        if (btn.hasAttribute("data-field-up")) {
+          if (row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
+        } else if (btn.hasAttribute("data-field-down")) {
+          if (row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
+        } else if (btn.hasAttribute("data-field-remove")) {
+          row.remove();
+        } else {
+          return;
+        }
+        welcomeFieldCount(event);
+        welcomeDirtyMark();
+      });
+
+      panel.querySelector("[data-welcome-color]").addEventListener("input", function () {
+        var hex = welcomeEl(event, "color-hex");
+        if (hex) hex.value = this.value;
+        welcomeDirtyMark();
+      });
+      panel.querySelector("[data-welcome-color-hex]").addEventListener("change", function () {
+        var value = this.value.trim();
+        if (value && value.charAt(0) !== "#") value = "#" + value;
+        welcomeSetColor(event, value);
+        welcomeDirtyMark();
+      });
+      var colorToggle = panel.querySelector("[data-welcome-color-toggle]");
+      var colorRow = panel.querySelector("[data-welcome-color-row]");
+      colorToggle.addEventListener("click", function () { colorRow.hidden = !colorRow.hidden; });
+      panel.querySelector("[data-welcome-color-clear]").addEventListener("click", function () {
+        welcomeSetColor(event, "");
+        var swatch = welcomeEl(event, "color");
+        if (swatch) swatch.value = "#5865f2";
+        welcomeDirtyMark();
+      });
+
+      var advToggle = panel.querySelector("[data-welcome-advanced]");
+      var advBody = panel.querySelector("[data-welcome-advanced-body]");
+      advToggle.addEventListener("click", function () {
+        advBody.hidden = !advBody.hidden;
+        advToggle.textContent = advBody.hidden ? "Advanced" : "Hide";
+        advToggle.setAttribute("aria-expanded", advBody.hidden ? "false" : "true");
+      });
+
+      panel.querySelector("[data-welcome-embed-clear]").addEventListener("click", function () {
+        welcomeClearEmbed(event);
+        welcomeDirtyMark();
+      });
+      panel.querySelector("[data-welcome-timestamp-now]").addEventListener("click", function () {
+        welcomeEl(event, "timestamp").value = isoLocal(new Date().toISOString());
+        welcomeDirtyMark();
+      });
+      panel.querySelector("[data-welcome-timestamp-clear]").addEventListener("click", function () {
+        welcomeEl(event, "timestamp").value = "";
+        welcomeDirtyMark();
+      });
+
+      panel.querySelectorAll("[data-welcome-var]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var ta = welcomeEl(event, "message");
+          var token = btn.getAttribute("data-welcome-var") || "";
+          var start = typeof ta.selectionStart === "number" ? ta.selectionStart : ta.value.length;
+          var end = typeof ta.selectionEnd === "number" ? ta.selectionEnd : ta.value.length;
+          ta.value = ta.value.slice(0, start) + token + ta.value.slice(end);
+          ta.focus();
+          ta.selectionStart = ta.selectionEnd = start + token.length;
+          welcomeCounter(ta, welcomeEl(event, "count"));
+          welcomeDirtyMark();
+        });
+      });
+
+      welcomeHydrate(event);
+    });
+
+    document.querySelectorAll("[data-welcome-tab]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        welcomeEvent = btn.getAttribute("data-welcome-tab");
+        document.querySelectorAll("[data-welcome-tab]").forEach(function (b) {
+          var on = b === btn;
+          b.classList.toggle("cmd-tab-active", on);
+          b.setAttribute("aria-selected", on ? "true" : "false");
+        });
+        document.querySelectorAll("[data-welcome-panel]").forEach(function (p) {
+          p.hidden = p.getAttribute("data-welcome-panel") !== welcomeEvent;
+        });
+        welcomeStatus("");
+      });
+    });
+
+    function welcomeCollectEvent(event) {
+      var fields = [];
+      welcomePanel(event).querySelectorAll("[data-field-row]").forEach(function (row) {
+        fields.push({
+          name: row.querySelector("[data-field-name]").value,
+          value: row.querySelector("[data-field-value]").value,
+          inline: row.querySelector("[data-field-inline]").checked
+        });
+      });
+      return {
+        enabled: welcomeEl(event, "enabled").checked,
+        channel_id: welcomeEl(event, "channel").value,
+        message: welcomeEl(event, "message").value,
+        auto_delete: parseInt(welcomeEl(event, "autodelete").value, 10) || 0,
+        embed: {
+          enabled: welcomeEl(event, "embed-enabled").checked,
+          color: welcomeEl(event, "color-hex").value.trim(),
+          author: {
+            name: welcomeEl(event, "author-name").value,
+            url: welcomeEl(event, "author-url").value,
+            icon_url: welcomeEl(event, "author-icon").value
+          },
+          title: welcomeEl(event, "title").value,
+          title_url: welcomeEl(event, "title-url").value,
+          description: welcomeEl(event, "description").value,
+          fields: fields,
+          image_url: welcomeEl(event, "image").value,
+          thumbnail_url: welcomeEl(event, "thumbnail").value,
+          footer: welcomeEl(event, "footer").value,
+          footer_icon: welcomeEl(event, "footer-icon").value,
+          timestamp: localISO(welcomeEl(event, "timestamp").value)
+        }
+      };
+    }
+    function welcomeSave() {
+      return api("POST", "/api/guilds/" + welcomeGuild + "/welcome", {
+        join: welcomeCollectEvent("join"),
+        leave: welcomeCollectEvent("leave")
+      });
+    }
+
+    var welcomeSaveBtn = document.querySelector("[data-welcome-save]");
+    if (welcomeSaveBtn) {
+      welcomeSaveBtn.addEventListener("click", function () {
+        welcomeSaveBtn.disabled = true;
+        welcomeStatus("Saving…");
+        welcomeSave().then(function () {
+          welcomeDirty = false;
+          welcomeStatus("Saved.");
+          toast("Welcome settings saved");
+        }).catch(function (e) {
+          welcomeStatus(e.message, true);
+          toast("Save failed: " + e.message, true);
+        }).then(function () { welcomeSaveBtn.disabled = false; });
+      });
+    }
+    var welcomeTestBtn = document.querySelector("[data-welcome-test]");
+    if (welcomeTestBtn) {
+      welcomeTestBtn.addEventListener("click", function () {
+        welcomeTestBtn.disabled = true;
+        welcomeStatus("Saving and sending a test…");
+        welcomeSave().then(function () {
+          welcomeDirty = false;
+          return api("POST", "/api/guilds/" + welcomeGuild + "/welcome/test", { event: welcomeEvent });
+        }).then(function () {
+          welcomeStatus("Test sent to the configured channel.");
+          toast("Test message sent");
+        }).catch(function (e) {
+          welcomeStatus(e.message, true);
+          toast("Test failed: " + e.message, true);
+        }).then(function () { welcomeTestBtn.disabled = false; });
+      });
+    }
+    var welcomeClearBtn = document.querySelector("[data-welcome-clear]");
+    if (welcomeClearBtn) {
+      welcomeClearBtn.addEventListener("click", function () {
+        if (!confirm("Clear the " + welcomeEvent + " message and embed? The change is only applied when you save.")) return;
+        welcomeEl(welcomeEvent, "message").value = "";
+        welcomeClearEmbed(welcomeEvent);
+        welcomeCounter(welcomeEl(welcomeEvent, "message"), welcomeEl(welcomeEvent, "count"));
+        welcomeDirtyMark();
+      });
+    }
+    window.addEventListener("beforeunload", function (e) {
+      if (!welcomeDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
+  }
 })();

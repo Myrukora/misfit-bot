@@ -136,6 +136,25 @@ $EDITOR legal/terms.md legal/privacy.md
 - Rendered in the dashboard's monochrome card style (`rd_legal` template,
   `.markdown` rules in `style.css`).
 
+## Welcome editor (`/g/<id>/welcome`)
+
+The welcome builtin's editor (staff+ for the guild) is a bespoke page, not a
+`WebConfigurable` schema: Join/Leave tabs, per-event channel, message + variable
+chips, and the embed builder (author/title/description/fields with inline +
+reorder, image/thumbnail, footer/icon, timestamp, color picker). `app.js`
+hydrates it from an embedded JSON config; the server renders channel options and
+preserves a saved-but-deleted channel as a stale option.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/guilds/<gid>/welcome` | config + last delivery errors |
+| `POST /api/guilds/<gid>/welcome` | validate + save the whole config |
+| `POST /api/guilds/<gid>/welcome/test` | post a sample (the page saves first) |
+
+All routes require staff+ managing that guild, plus CSRF on POST. The dashboard
+resolves `modules.WelcomeAdmin` through the module manager, so an unloaded module
+yields a 404 (API) or the "module not loaded" stub (page).
+
 ## `WebConfigurable` — exposing module settings on the dashboard
 
 Modules are the **single source of truth** for what settings exist and how each

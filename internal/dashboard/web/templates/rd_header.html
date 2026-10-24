@@ -29,6 +29,12 @@
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.5a2.5 2.5 0 0 0 0 5V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.5a2.5 2.5 0 0 0 0-5z"/><line x1="14" y1="8" x2="14" y2="16" stroke-dasharray="2 2"/></svg></span>
           <span class="nav-label">Tickets</span>
         </a>
+        {{if .ShowWelcome}}
+        <a class="nav-item{{if eq .Page "gwelcome"}} active{{end}}" href="/g/{{.GuildID}}/welcome">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H8l-4 3V6a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h5"/></svg></span>
+          <span class="nav-label">Welcome</span>
+        </a>
+        {{end}}
         <a class="nav-item{{if eq .Page "gmodules"}} active{{end}}" href="/g/{{.GuildID}}/modules">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span class="nav-label">Modules</span>

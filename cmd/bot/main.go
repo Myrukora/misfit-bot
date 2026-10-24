@@ -23,6 +23,7 @@ import (
 	"github.com/misfit/bot/internal/builtin/cleanup"
 	"github.com/misfit/bot/internal/builtin/imagefilter"
 	"github.com/misfit/bot/internal/builtin/tickets"
+	"github.com/misfit/bot/internal/builtin/welcome"
 	"github.com/misfit/bot/internal/dashboard"
 	"github.com/misfit/bot/internal/mcpserver"
 	"github.com/misfit/bot/logger"
@@ -408,7 +409,7 @@ func run() bool {
 		Bot:          ba,
 		VoiceManager: vm,
 		CoreConfig:   Cfg,
-	}, cleanup.New, tickets.New, imagefilter.New); err != nil {
+	}, cleanup.New, tickets.New, imagefilter.New, welcome.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()
@@ -1074,7 +1075,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 	// key = enabled). They appear here so consumers see the full catalog —
 	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
 	// Lua/Python modules.
-	for _, name := range []string{"cleanup", "tickets", "imagefilter"} {
+	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome"} {
 		if enabled, ok := Cfg.Modules.EnabledModules[name]; !ok || enabled {
 			names = append(names, name)
 		}
@@ -1084,7 +1085,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 
 // IsBuiltinModule reports whether a module name is a compiled-in feature.
 func (b *botAdapter) IsBuiltinModule(name string) bool {
-	return name == "cleanup" || name == "tickets"
+	return name == "cleanup" || name == "tickets" || name == "welcome"
 }
 
 // SetEnabledModule persists the enabled_modules config for a builtin (applies

@@ -1,0 +1,220 @@
+{{define "rd_welcome"}}{{template "rd_header" .}}
+        <section class="card welcome-card">
+          <div class="welcome-head">
+            <div>
+              <h2 style="margin:0">Welcome message</h2>
+              <p class="muted" style="margin:4px 0 0">Send a message when a member joins or leaves this server. Variables expand when the event fires.</p>
+            </div>
+            {{if .Content.admin}}
+            <div class="cmd-tabs" role="tablist" aria-label="Event">
+              {{range $i, $p := .Content.panels}}<button type="button" class="cmd-tab{{if eq $i 0}} cmd-tab-active{{end}}" data-welcome-tab="{{$p.Event}}" role="tab" aria-selected="{{if eq $i 0}}true{{else}}false{{end}}">{{$p.Label}}</button>{{end}}
+            </div>
+            {{end}}
+          </div>
+
+          {{if not .Content.admin}}
+          <p class="muted" style="margin-top:16px">The <strong>welcome</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          {{else}}
+          {{with .Content.configError}}<p class="welcome-error">{{.}}</p>{{end}}
+
+          <details class="welcome-vars-doc">
+            <summary>Variable reference</summary>
+            <div class="welcome-vars-grid">
+              <code>{mention}</code><span>Mentions the member.</span>
+              <code>{user}</code><span>Display name (server nickname, then global name, then username).</span>
+              <code>{user(proper)}</code><span>Account name incl. the legacy four-digit tag when one exists.</span>
+              <code>{user(id)}</code><span>User ID.</span>
+              <code>{username}</code><span>Discord username, without nickname.</span>
+              <code>{nickname}</code><span>Server nickname (empty when none).</span>
+              <code>{user(avatar)}</code><span>Avatar URL.</span>
+              <code>{user(created)}</code><span>Account creation date (Discord timestamp).</span>
+              <code>{user(joined)}</code><span>Server join date (Discord timestamp).</span>
+              <code>{server}</code><span>Server name.</span>
+              <code>{server(id)}</code><span>Server ID.</span>
+              <code>{server(members)}</code><span>Member count after this event.</span>
+              <code>{server(icon)}</code><span>Server icon URL.</span>
+              <code>{ord:{server(members)}}</code><span>Ordinal form: 82nd, 1,024th, …</span>
+              <code>{random: one, two, three}</code><span>Picks one item at random.</span>
+            </div>
+          </details>
+
+          {{range $i, $p := .Content.panels}}
+          <div class="welcome-panel" data-welcome-panel="{{$p.Event}}"{{if ne $i 0}} hidden{{end}}>
+            <p class="welcome-error" data-welcome-error{{if not $p.LastError}} hidden{{end}}>{{$p.LastError}}</p>
+
+            <div class="welcome-controls">
+              <label class="toggle">
+                <input type="checkbox" data-welcome-enabled>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Enabled</span>
+              </label>
+              <label class="welcome-channel">
+                <span class="field-label">Channel</span>
+                <select class="field-input" data-welcome-channel>
+                  <option value="">— none —</option>
+                  {{range $p.Channels}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+                  {{with $p.Stale}}<option value="{{.ID}}">Unknown channel ({{.ID}})</option>{{end}}
+                </select>
+              </label>
+              <label class="welcome-autodelete">
+                <span class="field-label">Auto-delete after (seconds, 0 = keep)</span>
+                <input type="number" class="field-input" data-welcome-autodelete min="0" max="86400" step="1" value="0">
+              </label>
+            </div>
+
+            <div class="field">
+              <div class="welcome-label-row">
+                <label class="field-label">Message</label>
+                <span class="welcome-counter" data-welcome-count>0/2000</span>
+              </div>
+              <textarea class="field-input welcome-message" data-welcome-message rows="6" maxlength="2000" placeholder="{{if eq $p.Event "join"}}Welcome {mention} to {server}!{{else}}Goodbye {user}, we'll miss you.{{end}}"></textarea>
+            </div>
+
+            <div class="welcome-vars">
+              <span class="muted">Insert:</span>
+              <button type="button" class="welcome-var" data-welcome-var="{mention}">{mention}</button>
+              <button type="button" class="welcome-var" data-welcome-var="{user}">{user}</button>
+              <button type="button" class="welcome-var" data-welcome-var="{user(proper)}">{user(proper)}</button>
+              <button type="button" class="welcome-var" data-welcome-var="{server}">{server}</button>
+              <button type="button" class="welcome-var" data-welcome-var="{server(members)}">{server(members)}</button>
+              <button type="button" class="welcome-var" data-welcome-var="{random: one, two, three}">{random: …}</button>
+            </div>
+
+            <div class="welcome-toolbar">
+              <button type="button" class="btn btn-small" data-welcome-color-toggle>Toggle color picker</button>
+              <button type="button" class="btn btn-small" data-welcome-advanced aria-expanded="false">Advanced</button>
+              <span class="welcome-spacer"></span>
+              <button type="button" class="btn btn-small" data-welcome-embed-clear>Clear</button>
+            </div>
+
+            <div class="welcome-color-row" data-welcome-color-row hidden>
+              <span class="field-label">Embed color</span>
+              <input type="color" class="welcome-color-input" data-welcome-color value="#5865f2" aria-label="Embed color">
+              <input type="text" class="field-input welcome-color-hex" data-welcome-color-hex value="#5865f2" maxlength="7" spellcheck="false" aria-label="Embed color hex">
+              <button type="button" class="btn btn-small" data-welcome-color-clear>Clear</button>
+            </div>
+
+            <div class="welcome-advanced" data-welcome-advanced-body hidden>
+              <label class="toggle welcome-embed-toggle">
+                <input type="checkbox" data-welcome-embed-enabled>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Include an embed</span>
+              </label>
+
+              <div class="welcome-grid welcome-grid-3">
+                <div class="field">
+                  <label class="field-label">Author icon URL</label>
+                  <input class="field-input" data-welcome-author-icon placeholder="https://…">
+                </div>
+                <div class="field">
+                  <label class="field-label">Author name</label>
+                  <input class="field-input" data-welcome-author-name maxlength="256" placeholder="{server}">
+                </div>
+                <div class="field">
+                  <label class="field-label">Author URL</label>
+                  <input class="field-input" data-welcome-author-url placeholder="https://…">
+                </div>
+              </div>
+
+              <div class="welcome-grid welcome-grid-title">
+                <div class="field">
+                  <div class="welcome-label-row">
+                    <label class="field-label">Title</label>
+                    <span class="welcome-counter" data-welcome-title-count>0/256</span>
+                  </div>
+                  <input class="field-input" data-welcome-title maxlength="256">
+                </div>
+                <div class="field">
+                  <label class="field-label">Title URL</label>
+                  <input class="field-input" data-welcome-title-url placeholder="https://…">
+                </div>
+              </div>
+
+              <div class="field">
+                <div class="welcome-label-row">
+                  <label class="field-label">Description</label>
+                  <span class="welcome-counter" data-welcome-desc-count>0/4096</span>
+                </div>
+                <textarea class="field-input" data-welcome-description rows="5" maxlength="4096"></textarea>
+              </div>
+
+              <div class="welcome-fields-head">
+                <div>
+                  <span class="field-label">Fields</span>
+                  <span class="welcome-counter" data-welcome-field-count>0/25</span>
+                </div>
+                <button type="button" class="btn btn-small" data-welcome-add-field>Add field</button>
+              </div>
+              <div class="welcome-fields" data-welcome-fields></div>
+
+              <div class="welcome-grid">
+                <div class="field">
+                  <label class="field-label">Image URL (big at the bottom)</label>
+                  <input class="field-input" data-welcome-image placeholder="https://…">
+                </div>
+                <div class="field">
+                  <label class="field-label">Thumbnail URL (small top right)</label>
+                  <input class="field-input" data-welcome-thumbnail placeholder="https://…">
+                </div>
+              </div>
+
+              <div class="welcome-grid welcome-grid-3">
+                <div class="field">
+                  <div class="welcome-label-row">
+                    <label class="field-label">Footer</label>
+                    <span class="welcome-counter" data-welcome-footer-count>0/2048</span>
+                  </div>
+                  <input class="field-input" data-welcome-footer maxlength="2048">
+                </div>
+                <div class="field">
+                  <label class="field-label">Footer icon URL</label>
+                  <input class="field-input" data-welcome-footer-icon placeholder="https://…">
+                </div>
+                <div class="field">
+                  <label class="field-label">Timestamp</label>
+                  <div class="welcome-date-row">
+                    <input type="datetime-local" class="field-input" data-welcome-timestamp>
+                    <button type="button" class="btn btn-small" data-welcome-timestamp-now title="Use the current time">Now</button>
+                    <button type="button" class="btn btn-small" data-welcome-timestamp-clear title="Remove the timestamp">Clear</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {{end}}
+
+          <div class="welcome-actions">
+            <button type="button" class="btn btn-primary" data-welcome-save>Save changes</button>
+            <button type="button" class="btn" data-welcome-test>Send test</button>
+            <button type="button" class="btn" data-welcome-clear>Clear</button>
+            <span class="welcome-status muted" data-welcome-status role="status" aria-live="polite"></span>
+          </div>
+          {{end}}
+        </section>
+
+        <template id="welcome-field-template">
+          <div class="welcome-field" data-field-row>
+            <div class="field welcome-field-name">
+              <label class="field-label">Name</label>
+              <input class="field-input" data-field-name maxlength="256" placeholder="Field name">
+            </div>
+            <div class="field welcome-field-value">
+              <label class="field-label">Value</label>
+              <textarea class="field-input" data-field-value rows="2" maxlength="1024" placeholder="Field value"></textarea>
+            </div>
+            <label class="toggle welcome-inline">
+              <input type="checkbox" data-field-inline>
+              <span class="toggle-track"></span>
+              <span class="toggle-label">Inline</span>
+            </label>
+            <div class="welcome-field-actions">
+              <button type="button" class="btn btn-small" data-field-up title="Move up">↑</button>
+              <button type="button" class="btn btn-small" data-field-down title="Move down">↓</button>
+              <button type="button" class="btn btn-small" data-field-remove title="Remove field">✕</button>
+            </div>
+          </div>
+        </template>
+
+        <input type="hidden" id="welcome-guild" value="{{.Content.guild}}">
+        <script type="application/json" id="welcome-data">{{.Content.configJSON}}</script>
+{{template "rd_footer" .}}{{end}}

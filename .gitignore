@@ -56,6 +56,8 @@ modules/Lua/*/logs/
 modules/tickets/
 # Imagefilter compiled-in builtin runtime data (source lives in internal/builtin/imagefilter/)
 modules/imagefilter/
+# Welcome compiled-in builtin runtime data (per-guild configs)
+modules/welcome/
 # Legacy Go plugin data dirs (pre-cutover runtime state)
 modules/Go/*/guilds/
 modules/Go/*/tickets/

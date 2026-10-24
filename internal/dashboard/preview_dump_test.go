@@ -6,6 +6,7 @@ package dashboard
 
 import (
 	"bytes"
+	"encoding/json"
 	"html/template"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ func previewData(level string) renderData {
 	d.ShowConfig = level == lvlOwner || level == lvlElevated
 	d.ShowStaff = true
 	d.ShowImageFilter = true
+	d.ShowWelcome = true
 	return d
 }
 
@@ -45,6 +47,33 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		legalBody = template.HTML(buf.String())
 	}
 
+	welcomePreviewCfg := modules.WelcomeConfig{
+		Join: modules.WelcomeEvent{
+			Enabled:   true,
+			ChannelID: "c1",
+			Message:   "Hello {mention}, welcome to {server}! You are member #{ord:{server(members)}}.",
+			Embed: modules.WelcomeEmbed{
+				Enabled:     true,
+				Color:       "#5865f2",
+				Title:       "Welcome to {server}",
+				Description: "Glad to have you here, {user}.",
+				Fields:      []modules.WelcomeEmbedField{{Name: "Member", Value: "#{ord:{server(members)}}", Inline: true}},
+				Footer:      "Enjoy your stay",
+				Timestamp:   time.Now().UTC().Format(time.RFC3339),
+			},
+		},
+		Leave: modules.WelcomeEvent{
+			Enabled:   true,
+			ChannelID: "c2",
+			Message:   "Goodbye {user}, we'll miss you.",
+		},
+	}
+	welcomePreviewJSON, _ := json.Marshal(map[string]any{"config": welcomePreviewCfg})
+	welcomePreviewChannels := []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "farewell"}}
+	welcomePreviewPanels := []welcomePanel{
+		{Event: "join", Label: "Welcome", Channels: welcomePreviewChannels},
+		{Event: "leave", Label: "Leave", Channels: welcomePreviewChannels},
+	}
 	pages := []struct {
 		name    string
 		page    string // renderData.Page (what the real handler sets)
@@ -57,6 +86,14 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"title": "Terms of Service",
 			"body":  legalBody,
 		}, false},
+		{"welcome.html", "gwelcome", "rd_welcome", map[string]any{
+			"guild":      "1",
+			"admin":      true,
+			"config":     welcomePreviewCfg,
+			"configJSON": template.JS(string(welcomePreviewJSON)),
+			"panels":     welcomePreviewPanels,
+			"channels":   welcomePreviewChannels,
+		}, true},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",
 			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080",

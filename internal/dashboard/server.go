@@ -309,6 +309,8 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		d.ShowStaff = level == lvlOwner || level == lvlElevated || level == lvlStaff
 		_, ifOK := m.imageFilterAdmin()
 		d.ShowImageFilter = ifOK
+		_, welcomeOK := m.welcomeAdmin()
+		d.ShowWelcome = welcomeOK
 	}
 	return d
 }

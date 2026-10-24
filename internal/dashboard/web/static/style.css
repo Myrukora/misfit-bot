@@ -2301,6 +2301,280 @@ video.ticket-thumb {
     border-color: rgba(255, 255, 255, 0.35);
 }
 
+/* ================= WELCOME MESSAGE BUILDER ================= */
+
+.welcome-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.welcome-head .cmd-tabs {
+    margin: 0;
+}
+
+.welcome-vars-doc {
+    margin-top: 16px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.welcome-vars-doc summary {
+    cursor: pointer;
+    color: #a1a1aa;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.welcome-vars-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 16px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: #a1a1aa;
+}
+
+.welcome-vars-grid code,
+.welcome-vars .welcome-var {
+    font-size: 12px;
+}
+
+.welcome-panel {
+    margin-top: 18px;
+}
+
+.welcome-panel[hidden] {
+    display: none;
+}
+
+.welcome-controls {
+    display: grid;
+    grid-template-columns: max-content minmax(180px, 1fr) minmax(180px, 240px);
+    gap: 16px;
+    align-items: end;
+}
+
+.welcome-controls .toggle {
+    margin-top: 0;
+}
+
+.welcome-channel,
+.welcome-autodelete {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.welcome-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.welcome-counter {
+    color: #71717a;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+}
+
+.welcome-message {
+    min-height: 140px;
+}
+
+.welcome-vars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 10px;
+}
+
+.welcome-var {
+    appearance: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: #d4d4d8;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.welcome-var:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+}
+
+.welcome-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
+.welcome-spacer {
+    flex: 1;
+}
+
+.welcome-color-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+
+.welcome-color-row[hidden] {
+    display: none;
+}
+
+.welcome-color-input {
+    width: 44px;
+    height: 36px;
+    padding: 2px;
+    background: #0d0d0d;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.welcome-color-hex {
+    width: 110px;
+}
+
+.welcome-advanced {
+    margin-top: 12px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.welcome-advanced[hidden] {
+    display: none;
+}
+
+.welcome-embed-toggle {
+    margin-top: 0;
+}
+
+.welcome-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.welcome-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.welcome-grid-title {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+.welcome-fields-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 18px;
+}
+
+.welcome-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.welcome-field {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) max-content max-content;
+    gap: 10px;
+    align-items: end;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+}
+
+.welcome-field .field {
+    margin-top: 0;
+}
+
+.welcome-field-value textarea {
+    min-height: 68px;
+}
+
+.welcome-inline {
+    margin-top: 0;
+}
+
+.welcome-field-actions {
+    display: flex;
+    gap: 4px;
+    padding-bottom: 2px;
+}
+
+.welcome-date-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.welcome-date-row .field-input {
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.welcome-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.welcome-status {
+    font-size: 13px;
+}
+
+.welcome-status-err {
+    color: #f87171;
+}
+
+.welcome-error {
+    margin: 12px 0 0;
+    padding-left: 8px;
+    color: #f87171;
+    border-left: 2px solid rgba(248, 113, 113, 0.6);
+}
+
+@media (max-width: 899px) {
+    .welcome-controls,
+    .welcome-grid,
+    .welcome-grid-3,
+    .welcome-grid-title {
+        grid-template-columns: 1fr;
+    }
+
+    .welcome-field {
+        grid-template-columns: 1fr;
+    }
+
+    .welcome-field-actions {
+        justify-content: flex-start;
+    }
+}
+
 /* ============================================================
    MOBILE — off-canvas sidebar drawer + responsive topbar.
    Desktop (>=900px) is untouched: the sidebar stays a fixed

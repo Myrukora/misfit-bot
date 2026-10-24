@@ -47,6 +47,9 @@ type renderData struct {
 	// ShowImageFilter: the imagefilter module is loaded — server-scoped
 	// sidebars render its tab (the page itself still guards staff access).
 	ShowImageFilter bool
+	// ShowWelcome: the welcome builtin is loaded — server sidebars render the
+	// Welcome tab (the page itself still guards staff access).
+	ShowWelcome bool
 	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
 	// header.html renders the server-scoped sidebar (server name + back-to-servers
 	// + Commands/Tickets/Modules/Server info) instead of the global nav. Empty
@@ -157,6 +160,8 @@ func pageTitle(page string) string {
 		return "Tickets"
 	case "gmodules":
 		return "Modules"
+	case "gwelcome":
+		return "Welcome"
 	case "modules":
 		return "Modules"
 	case "settings":

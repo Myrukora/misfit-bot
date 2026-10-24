@@ -11,6 +11,7 @@ built into the binary and their data home moved with them: each builtin's
 | `cleanup` | *(none)* | Stateless — the builtin performs no `DataDir` writes at all (its `RequiredPerm` is `ManageMessages`; it only calls Discord's REST delete endpoints). |
 | `tickets` | `modules/tickets/` | `config.yml` (bot-wide: `version`, `storage_retention_days`, `allow_dashboard_close`, `modals_enabled`), `guilds/<guildID>.yml` (per-guild `log_channel`, `types`, `panels`), and `tickets/<guildID>/` — one `<ticketID>.json` per ticket, an `index.json` open-ticket cache, `<ticketID>.html` transcripts, and `<ticketID>/files/` mirrored attachments. |
 | `imagefilter` | `modules/imagefilter/` | `config.json` (`clip_variant` + per-guild `enabled`/`threshold`/`punishment`/`mute_duration`/`log_channel`/`delete_on_none`), `spam_images/<guildID>/` (that guild's reference-image gallery), and `models/clip-vision-<variant>.onnx` (gitignored; provisioned by `scripts/setup_imagefilter.sh`). |
+| `welcome` | `modules/welcome/` | `guilds/<guildID>.yaml` (0600, atomic): per-guild join/leave message, channel, auto-delete and embed builder config. No other state; delivery errors for the dashboard are in-memory only. |
 
 ## Notes
 
@@ -18,8 +19,8 @@ built into the binary and their data home moved with them: each builtin's
   `run()` constructs it with `DataDir: filepath.Join(Dir, Cfg.Modules.Path,
   "Go", "dashboard")`.
 - **`.gitignore` covers the runtime state, not the source.** The relevant
-  rules are `modules/tickets/` and `modules/imagefilter/` (whole builtin data
-  dirs), `modules/Go/*/{guilds,tickets,spam_images}/` and
+  rules are `modules/tickets/`, `modules/imagefilter/` and `modules/welcome/`
+  (whole builtin data dirs), `modules/Go/*/{guilds,tickets,spam_images}/` and
   `modules/Go/*/config.json` (legacy plugin-era state), the generic
   `modules/{Go,Lua,Python}/*/{config*.yml,config.json,data,logs}` module-data
   rules, `*.so` and `modules/Go/*/*.so`, `*.tmp` (the temp file every atomic
