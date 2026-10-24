@@ -115,6 +115,27 @@ command catalog uses the **exact** `canUse` filter the bot applies at dispatch
 **Login restriction:** a Discord account that shares no server with the bot is
 refused at the `/callback` step with a friendly message.
 
+## Legal pages (`/tos`, `/policy`)
+
+The login card shows **Terms of Service** and **Privacy Policy** links. Both
+pages are **public** — they skip the OAuth gate by design, because a visitor
+reads them before signing in.
+
+Content is read per request from `legal/terms.md` and `legal/privacy.md` in the
+bot's directory (the folder beside `config.yml`), so edits apply immediately:
+
+```bash
+$EDITOR legal/terms.md legal/privacy.md
+```
+
+- GitHub-flavoured Markdown via `github.com/yuin/goldmark` (headings, lists,
+  tables, links, code, blockquotes, task lists).
+- Raw HTML in the markdown is omitted, so a document can never inject markup
+  into the page.
+- Missing files are created with starter text on the first request.
+- Rendered in the dashboard's monochrome card style (`rd_legal` template,
+  `.markdown` rules in `style.css`).
+
 ## `WebConfigurable` — exposing module settings on the dashboard
 
 Modules are the **single source of truth** for what settings exist and how each

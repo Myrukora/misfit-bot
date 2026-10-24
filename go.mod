@@ -9,6 +9,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/yalue/onnxruntime_go v1.36.0
+	github.com/yuin/goldmark v1.8.6
 	github.com/yuin/gopher-lua v1.1.2
 	golang.org/x/image v0.46.0
 	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302

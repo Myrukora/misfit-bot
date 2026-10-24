@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body class="login-page">
+  <div class="login-stack">
   <div class="login-card">
     <div class="login-brand">
       {{if .BotAvatar}}<img class="login-avatar" src="{{.BotAvatar}}" alt="{{.Bot}}">{{else}}<span class="login-avatar login-avatar-fallback">{{initial .Bot}}</span>{{end}}
@@ -25,6 +26,8 @@
     <p class="muted login-hint">
       Access is limited to members of a shared server.
     </p>
+  </div>
+  {{template "legal_links" .}}
   </div>
 </body>
 </html>

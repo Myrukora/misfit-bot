@@ -84,7 +84,7 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
-		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https://cdn.discordapp.com https://media.discordapp.net data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'")
+		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }
@@ -109,6 +109,18 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 		} else {
 			m.handleLoginStart(w, r)
 		}
+		return
+	case "tos", "policy":
+		// Public: linked from the login card, so no session is required.
+		if r.Method != "GET" {
+			methodNotAllowed(w)
+			return
+		}
+		doc := "terms"
+		if parts[0] == "policy" {
+			doc = "privacy"
+		}
+		m.handleLegalPage(w, r, doc)
 		return
 	case "logout":
 		m.handleLogout(w, r)

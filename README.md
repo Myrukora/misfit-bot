@@ -196,6 +196,14 @@ The dashboard **Commands** tab lists every slash command once and runs them in-p
 
 Each command card's **Run** button executes the command in-process with **no arguments** (`POST /api/exec` takes an optional `args` array; the commands tab sends an empty one). The JSON catalog (`GET /api/commands`) does expose each command's slash-option schema — subcommand groups, typed options and their choices — for tools that want to build their own argument forms, but the dashboard page itself renders no argument inputs.
 
+### Terms of Service and Privacy Policy
+
+The login card links two **public** documents (no OAuth required): `/tos` and `/policy`. They are rendered from `legal/terms.md` and `legal/privacy.md` in the bot directory as GitHub-flavoured Markdown (headings, lists, tables, links, code, blockquotes; raw HTML is omitted so a document can never inject markup). The files are seeded with starter text on first request when missing and are read per request, so editing them takes effect immediately — no restart, no rebuild.
+
+```bash
+$EDITOR legal/terms.md legal/privacy.md
+```
+
 ### Connecting an MCP client
 
 The bot ships a built-in **MCP (Model Context Protocol)** server, mounted at `/mcp` on the dashboard listener (it follows `dashboard.listen` — default `http://127.0.0.1:8080`). Register it with:
@@ -230,6 +238,7 @@ misfit-bot/
 ├── onboarding/            # First-run setup wizard
 ├── permissions/           # Three-tier permission system
 ├── ratelimit/             # Per-user rate limiting
+├── legal/                 # Editable Terms of Service + Privacy Policy markdown (/tos, /policy)
 ├── updater/               # GitHub self-updater + notifications
 ├── sdk/python/misfit/     # Python module SDK
 ├── examples/              # Sample Lua + Python modules

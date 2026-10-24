@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body class="login-page">
+  <div class="login-stack">
   <div class="login-card setup-card">
     <div class="login-brand">
       {{if .BotAvatar}}<img class="login-avatar" src="{{.BotAvatar}}" alt="{{.Bot}}">{{else}}<span class="login-avatar login-avatar-fallback">{{initial .Bot}}</span>{{end}}
@@ -23,6 +24,8 @@
       <li>Client ID used (auto-derived): <code>{{.Content.client_id}}</code></li>
       <li>Listening on: <code>{{.Content.listen}}</code> — localhost only by default; set <code>dashboard.listen: 0.0.0.0:8080</code> in <code>config.yml</code> to accept LAN connections. When bound, the dashboard is reachable at <code>{{.Content.lan_url}}</code>.</li>
     </ol>
+  </div>
+  {{template "legal_links" .}}
   </div>
 </body>
 </html>

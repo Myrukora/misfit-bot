@@ -5,6 +5,8 @@ package dashboard
 // the pages without running the bot. Skipped unless PREVIEW_DUMP=1.
 
 import (
+	"bytes"
+	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +36,15 @@ func TestPreviewDumpRedesign(t *testing.T) {
 	out := "/tmp/dash-preview"
 	_ = os.MkdirAll(out, 0o755)
 
+	var legalBody template.HTML
+	{
+		var buf bytes.Buffer
+		if err := legalMarkdown.Convert([]byte(defaultTermsMD), &buf); err != nil {
+			t.Fatal(err)
+		}
+		legalBody = template.HTML(buf.String())
+	}
+
 	pages := []struct {
 		name    string
 		page    string // renderData.Page (what the real handler sets)
@@ -42,6 +53,10 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		scoped  bool
 	}{
 		{"login.html", "", "rd_login", nil, false},
+		{"legal.html", "", "rd_legal", map[string]any{
+			"title": "Terms of Service",
+			"body":  legalBody,
+		}, false},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",
 			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080",
