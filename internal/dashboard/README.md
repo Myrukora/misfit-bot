@@ -199,10 +199,16 @@ is resolved through `modules.ReactionRolesAdmin`.
 Owner + elevated only. A durable JSONL activity log at
 `<bot dir>/logs/dashboard-audit.jsonl` (0600) records:
 
-- **Page visits** — every HTML page, including the public `/tos` and `/policy`
-  (anonymous visitors are identified by IP only).
+- **Page visits** — every dashboard page, including the public `/tos` and
+  `/policy` (anonymous visitors are identified by IP only). Known page routes
+  are logged even when a proxy or handler leaves an unexpected content type;
+  unknown paths are logged only when the response is HTML.
 - **Login** success/failure, **logout**, and every **authenticated mutation**
   (settings, module config, panels, backups, bot control, …).
+
+Dashboard responses also carry `Cache-Control: no-store`, so a browser or
+reverse proxy cannot serve a cached page (or a stale `/audit` view) without the
+request reaching the bot.
 
 Each entry carries time (UTC), user ID/name, role level, IP, action
 (method + path / "Discord OAuth"), a short detail and the HTTP result. Entries
