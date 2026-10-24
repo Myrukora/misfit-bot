@@ -60,6 +60,8 @@ modules/imagefilter/
 modules/welcome/
 # Moderation compiled-in builtin runtime data (per-guild configs + case audit)
 modules/moderation/
+# Reaction roles compiled-in builtin runtime data (per-guild panels)
+modules/reactionroles/
 # Legacy Go plugin data dirs (pre-cutover runtime state)
 modules/Go/*/guilds/
 modules/Go/*/tickets/

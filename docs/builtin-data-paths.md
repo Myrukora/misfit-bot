@@ -13,6 +13,7 @@ built into the binary and their data home moved with them: each builtin's
 | `imagefilter` | `modules/imagefilter/` | `config.json` (`clip_variant` + per-guild `enabled`/`threshold`/`punishment`/`mute_duration`/`log_channel`/`delete_on_none`), `spam_images/<guildID>/` (that guild's reference-image gallery), and `models/clip-vision-<variant>.onnx` (gitignored; provisioned by `scripts/setup_imagefilter.sh`). |
 | `welcome` | `modules/welcome/` | `guilds/<guildID>.yaml` (0600, atomic): per-guild join/leave message, channel, auto-delete and embed builder config. No other state; delivery errors for the dashboard are in-memory only. |
 | `moderation` | `modules/moderation/` | `guilds/<guildID>.yml` (0600, atomic): enabled, audit/warn channels, warn expiry, ban delete seconds and escalation rules. `cases/<guildID>.json` (0600, atomic): the per-guild case audit (`next_id` + newest 20,000 cases, including removed warnings and automated actions). |
+| `reactionroles` | `modules/reactionroles/` | `guilds/<guildID>.yml` (0600, atomic): panel list with name/enabled/channel/embed/mappings and module-owned posted state (message ID, posted channel, synced emoji list). |
 
 ## Notes
 
@@ -20,8 +21,9 @@ built into the binary and their data home moved with them: each builtin's
   `run()` constructs it with `DataDir: filepath.Join(Dir, Cfg.Modules.Path,
   "Go", "dashboard")`.
 - **`.gitignore` covers the runtime state, not the source.** The relevant
-  rules are `modules/tickets/`, `modules/imagefilter/`, `modules/welcome/` and
-  `modules/moderation/` (whole builtin data dirs), `modules/Go/*/{guilds,tickets,spam_images}/` and
+  rules are `modules/tickets/`, `modules/imagefilter/`, `modules/welcome/`,
+  `modules/moderation/` and `modules/reactionroles/` (whole builtin data dirs),
+  `modules/Go/*/{guilds,tickets,spam_images}/` and
   `modules/Go/*/config.json` (legacy plugin-era state), the generic
   `modules/{Go,Lua,Python}/*/{config*.yml,config.json,data,logs}` module-data
   rules, `*.so` and `modules/Go/*/*.so`, `*.tmp` (the temp file every atomic

@@ -23,6 +23,7 @@ import (
 	"github.com/misfit/bot/internal/builtin/cleanup"
 	"github.com/misfit/bot/internal/builtin/imagefilter"
 	"github.com/misfit/bot/internal/builtin/moderation"
+	"github.com/misfit/bot/internal/builtin/reactionroles"
 	"github.com/misfit/bot/internal/builtin/tickets"
 	"github.com/misfit/bot/internal/builtin/welcome"
 	"github.com/misfit/bot/internal/dashboard"
@@ -310,7 +311,8 @@ func run() bool {
 			// FlagChannels: the dashboard's per-guild pages enumerate channels
 			// from the cache (imagefilter log-channel picker, command-run
 			// channel targets). Without it ChannelsForGuild is always empty.
-			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles, cache.FlagChannels),
+			// FlagEmojis: the reaction-roles picker lists server emojis.
+			cache.WithCaches(cache.FlagGuilds, cache.FlagMembers, cache.FlagRoles, cache.FlagChannels, cache.FlagEmojis),
 		),
 		bot.WithGatewayConfigOpts(
 			gateway.WithIntents(gatewayIntents(Cfg)),
@@ -410,7 +412,7 @@ func run() bool {
 		Bot:          ba,
 		VoiceManager: vm,
 		CoreConfig:   Cfg,
-	}, cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New); err != nil {
+	}, cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()
@@ -1076,7 +1078,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 	// key = enabled). They appear here so consumers see the full catalog —
 	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
 	// Lua/Python modules.
-	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome", "moderation"} {
+	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles"} {
 		if enabled, ok := Cfg.Modules.EnabledModules[name]; !ok || enabled {
 			names = append(names, name)
 		}
@@ -1086,7 +1088,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 
 // IsBuiltinModule reports whether a module name is a compiled-in feature.
 func (b *botAdapter) IsBuiltinModule(name string) bool {
-	return name == "cleanup" || name == "tickets" || name == "welcome" || name == "moderation"
+	return name == "cleanup" || name == "tickets" || name == "welcome" || name == "moderation" || name == "reactionroles"
 }
 
 // SetEnabledModule persists the enabled_modules config for a builtin (applies

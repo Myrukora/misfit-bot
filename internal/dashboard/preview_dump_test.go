@@ -25,6 +25,7 @@ func previewData(level string) renderData {
 	d.ShowImageFilter = true
 	d.ShowWelcome = true
 	d.ShowModeration = true
+	d.ShowReactionRoles = true
 	return d
 }
 
@@ -96,6 +97,31 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		moderationCaseViewFrom(modules.ModerationCase{ID: 3, Type: modules.ModerationTypeTimeout, TargetID: "333", TargetTag: "Echo", ModeratorID: "99", ModeratorTag: "TestBot", Reason: "Automatic: 2 active warnings", CreatedAt: modNow.Add(-2 * time.Hour), ExpiresAt: &modFuture, Automated: true, RuleThreshold: 2, WarningID: 1}, modNow),
 		moderationCaseViewFrom(modules.ModerationCase{ID: 4, Type: modules.ModerationTypeWarn, TargetID: "444", TargetTag: "Reformed", ModeratorID: "9", ModeratorTag: "Sam", Reason: "Old warning", CreatedAt: modNow.Add(-48 * time.Hour), Removed: true, RemovedByTag: "Sam", RemovedReason: "appeal accepted"}, modNow),
 	}
+	rrPreviewPanel := modules.ReactionPanel{
+		ID:              1,
+		Name:            "Pick roles",
+		Enabled:         true,
+		ChannelID:       "c1",
+		MessageID:       "500",
+		PostedChannelID: "c1",
+		PostedEmojis:    []string{"👍", "wave:123"},
+		RemoveOnUnreact: true,
+		Embed: modules.ReactionRoleEmbed{
+			Title:        "Choose your roles",
+			Description:  "React below to receive a role. Remove the reaction to drop it.",
+			Color:        "#5865f2",
+			Footer:       "Roles",
+			ThumbnailURL: "https://cdn.example/icon.png",
+		},
+		Mappings: []modules.ReactionRoleMapping{
+			{Emoji: "👍", RoleID: "r2"},
+			{Emoji: "wave:123", RoleID: "r3"},
+		},
+	}
+	rrPreviewChannels := []entityOpt{{ID: "c1", Name: "roles"}, {ID: "c2", Name: "general"}}
+	rrPreviewRoles := []roleOpt{{ID: "r2", Name: "Verified"}, {ID: "r3", Name: "Artist"}}
+	rrPreviewEmojis := []emojiOpt{{Key: "wave:123", Label: ":wave:"}, {Key: "🔥", Label: "🔥"}}
+	rrPreviewPanels := []rrPanelView{{ID: 1, Name: "Pick roles", Enabled: true, Posted: true, Mappings: 2, Channel: "roles", Active: true}}
 	pages := []struct {
 		name    string
 		page    string // renderData.Page (what the real handler sets)
@@ -126,6 +152,16 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"filterType": "",
 			"filterUser": "",
 			"lastError":  "",
+		}, true},
+		{"reactionroles.html", "greactionroles", "rd_reactionroles", map[string]any{
+			"guild":    "1",
+			"admin":    true,
+			"panels":   rrPreviewPanels,
+			"panel":    rrPreviewPanel,
+			"isNew":    false,
+			"channels": rrPreviewChannels,
+			"roles":    rrPreviewRoles,
+			"emojis":   rrPreviewEmojis,
 		}, true},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",

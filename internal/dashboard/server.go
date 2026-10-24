@@ -313,6 +313,8 @@ func (m *DashboardModule) baseData(us *userSession) renderData {
 		d.ShowWelcome = welcomeOK
 		_, moderationOK := m.moderationAdmin()
 		d.ShowModeration = moderationOK
+		_, reactionOK := m.reactionRolesAdmin()
+		d.ShowReactionRoles = reactionOK
 	}
 	return d
 }

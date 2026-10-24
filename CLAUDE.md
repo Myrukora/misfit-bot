@@ -2,7 +2,7 @@
 
 ## Overview
 
-A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilter/welcome/moderation feature modules are compiled into the single binary (core infrastructure, always on); Lua scripts (`.lua` files) and Python modules (directories with `main.py`) load dynamically via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
+A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilter/welcome/moderation/reactionroles feature modules are compiled into the single binary (core infrastructure, always on); Lua scripts (`.lua` files) and Python modules (directories with `main.py`) load dynamically via subprocess IPC. Inspired by Red-DiscordBot but fully standalone. Designed for Linux only.
 
 ## Tech Stack
 
@@ -12,7 +12,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 | Discord Library | [disgo](https://github.com/disgoorg/disgo) | v0.19.6 |
 | Config | YAML (`gopkg.in/yaml.v3`) | v3.0.1 |
 | Snowflake IDs | `github.com/disgoorg/snowflake/v2` | v2.0.3 |
-| Module System | Compiled-in core (dashboard, cleanup, tickets, imagefilter, welcome, moderation) + dynamic Lua/Python modules | stdlib |
+| Module System | Compiled-in core (dashboard, cleanup, tickets, imagefilter, welcome, moderation, reactionroles) + dynamic Lua/Python modules | stdlib |
 | Lua Modules | [gopher-lua](https://github.com/yuin/gopher-lua) | v1.1.2 |
 | Python Modules | Subprocess IPC (per-module venv) | Python 3 |
 | MCP Server | [modelcontextprotocol/go-sdk](https://github.com/modelcontextprotocol/go-sdk) | v1.8.0 |
@@ -120,7 +120,8 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │       ├── tickets/          # Ticket system
 │       ├── imagefilter/      # CLIP image filter (dashboard-only)
 │       ├── welcome/          # Join/leave messages + dashboard embed builder
-│       └── moderation/       # Ban/kick/timeout/warn + case audit + rules
+│       ├── moderation/       # Ban/kick/timeout/warn + case audit + rules
+│       └── reactionroles/    # Reaction role panels (Unicode + custom emojis)
 ├── loaded_modules.json       # Module persistence (auto-managed)
 └── logs/
     └── bot-YYYY-MM-DD.log    # JSON log output (daily rotation, 30 files kept)
@@ -137,7 +138,7 @@ Startup sequence:
 4. Initializes the voice manager
 5. Registers the Lua and Python loaders with the module manager
 6. `loadCoreModules(ba)` — loads saved modules (from `loaded_modules.json`) or AutoLoad-scans `modules/Lua/` + `modules/Python/`
-8. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter/welcome/moderation), gated by `enabled_modules`
+8. `ModMgr.RegisterBuiltinsWithFilter(...)` — registers the compiled-in builtins (cleanup/tickets/imagefilter/welcome/moderation/reactionroles), gated by `enabled_modules`
 8. `registerSlashCommands()` — registers all slash commands with Discord
 9. MCP token generation (if empty) + `mcpserver.New`
 10. `dashboard.New` + `dash.Start()` — the dashboard gets `Deps.MCP` (the MCP handler)
@@ -203,7 +204,7 @@ type Interface interface {
     CommandOverrides() *CommandOverrides       // per-command override store (nil when disabled)
     GetAllModuleSlashCommandsByModule() []ModuleSlashCommands // module name → its slash commands (load order); used by /help
     GetAvailableModuleNames() []string
-    IsBuiltinModule(name string) bool          // true for cleanup/tickets/welcome/moderation — imagefilter is also gated by enabled_modules but is not Discord-toggleable
+    IsBuiltinModule(name string) bool          // true for cleanup/tickets/welcome/moderation/reactionroles — imagefilter is also gated by enabled_modules but is not Discord-toggleable
     SetEnabledModule(name string, enabled bool) error // persists enabled_modules; applies on next restart
     GetPermissionManager() *permissions.Manager
     SetPresence(activityType string, status, text string) error
@@ -239,7 +240,7 @@ type CommandResult struct {
 
 **`core.go`** — 9 core slash commands (`/help`, `/modules`, …; there is no prefix dispatcher):
 - `ping`, `uptime`, `info`, `help` — public
-- `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets/welcome/moderation; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
+- `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets/welcome/moderation/reactionroles; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
 - `load`, `unload`, `reload` — `OwnerOnly: true`, supports `all`
 - `update` — `OwnerOnly: true` — check/now/status/test/set subcommands for the self-updater
 
@@ -655,6 +656,37 @@ escalation.
 - **Mentions:** audit and warn posts set `AllowedMentions{Parse: []}`, so
   target/moderator names never ping.
 
+### Reaction Roles (`internal/builtin/reactionroles/`)
+
+Compiled-in builtin (gated by `enabled_modules.reactionroles`), dashboard-only
+configuration, no Discord commands. It listens to `MessageReactionAdd` /
+`MessageReactionRemove` and maps a posted panel's reactions to roles.
+
+- **Panels:** one YAML per guild at `modules/reactionroles/guilds/<gid>.yml`
+  (0600, atomic), up to 50 panels. Each panel has a name, enabled flag, channel,
+  embed (title/description/color/footer/image/thumbnail), remove-on-unreact and
+  up to 20 emoji→role mappings. Panel IDs are per-guild; posted state (message
+  ID, channel, posted emojis) is module-owned and preserved across dashboard
+  edits.
+- **Emoji handling:** canonical storage is Discord's reaction string (the
+  Unicode character or `name:id`). The dashboard accepts `<:name:id>`,
+  `<a:name:id>`, `:name:id` and `name:id`; matching custom emojis by ID means a
+  renamed emoji keeps working. The picker lists the guild's cached emojis —
+  `cache.FlagEmojis` is enabled in `cmd/bot/main.go` for this.
+- **Posting:** `PostPanel` edits the existing message when the channel is
+  unchanged, otherwise deletes the old message and posts a new one. It adds a
+  reaction per mapping, removes the bot's own stale reactions (members' own
+  reactions are never touched), and stores the posted state. Roles are
+  validated first: exists, not `@everyone`, not integration-managed, below the
+  bot's highest role, and the bot holds Manage Roles.
+- **Reaction handling:** add → grant the mapped role (bots/self, disabled
+  panels, unknown messages and unmapped emojis are ignored); remove → revoke it
+  when the panel's `remove_on_unreact` is on. Failures are logged and surfaced
+  as `LastError`.
+- **Dashboard:** `/g/<id>/reactionroles` with the panel list, editor, server
+  emoji datalist, role picker, Save / Save & Post / Delete;
+  `modules.ReactionRolesAdmin` is the contract.
+
 ### Welcome Messages (`internal/builtin/welcome/`)
 
 Compiled-in builtin (gated by `enabled_modules.welcome`, missing key = enabled),
@@ -870,7 +902,7 @@ Both are configurable from the `/config` page (Intents section) and via
 - Module dependencies — `Dependencies() []string` method on Module interface, checked at load time, fails if dependency missing
 - Python graceful shutdown — 5-second timeout for graceful shutdown, then force kill
 - Web dashboard (`internal/dashboard/`, compiled-in core — always on, no plugin): black & white monochrome redesign (2026-09). Login → `/` server picker → `/g/<id>/…` per-server pages; `/config` = bot-wide core config (**owner + elevated**; secrets are redacted/locked for elevated and the owner-only action cards are hidden).
-  - **Pages** (all `rd_*` templates): `/`+`/login` → `rd_servers`/`rd_login`, `/tos` + `/policy` → standalone public `rd_legal` (no OAuth; GitHub-flavoured Markdown from `legal/terms.md` / `legal/privacy.md`, seeded on first render, read per request; raw HTML omitted), `/overview`, `/config`, `/permissions`, `/logs`, `/modules` (owner module mgmt), `/g/<id>/{commands,tickets,welcome,moderation,modules,imagefilter}`, `/tickets/<g>/<t>` → standalone `rd_transcript` (renders the conversation live from the ticket's stored log, never the `.html`; its Download transcript link hits `GET /api/tickets/<g>/<t>/transcript` — guild-gated like `/api/ticketfiles`, a GET so no CSRF — which regenerates the file from the log and downloads it as `ticket-<id>.html`). First-run setup is NOT a route: `/login` renders `rd_setup` instead of `rd_login` while the OAuth client is unconfigured. Legacy redirects: `/guild/<id>` → `/g/<id>/commands`, `/settings` → `/configuration`, `/admin` → `/config`. JSON API under `/api/*`, tiered + CSRF.
+  - **Pages** (all `rd_*` templates): `/`+`/login` → `rd_servers`/`rd_login`, `/tos` + `/policy` → standalone public `rd_legal` (no OAuth; GitHub-flavoured Markdown from `legal/terms.md` / `legal/privacy.md`, seeded on first render, read per request; raw HTML omitted), `/overview`, `/config`, `/permissions`, `/logs`, `/modules` (owner module mgmt), `/g/<id>/{commands,tickets,welcome,moderation,reactionroles,modules,imagefilter}`, `/tickets/<g>/<t>` → standalone `rd_transcript` (renders the conversation live from the ticket's stored log, never the `.html`; its Download transcript link hits `GET /api/tickets/<g>/<t>/transcript` — guild-gated like `/api/ticketfiles`, a GET so no CSRF — which regenerates the file from the log and downloads it as `ticket-<id>.html`). First-run setup is NOT a route: `/login` renders `rd_setup` instead of `rd_login` while the OAuth client is unconfigured. Legacy redirects: `/guild/<id>` → `/g/<id>/commands`, `/settings` → `/configuration`, `/admin` → `/config`. JSON API under `/api/*`, tiered + CSRF.
   - **rd_* convention**: one template per page in `web/templates/rd_<name>.html`; shared chrome = `rd_header.html` (renders the hub OR guild sidebar from `d.Page`/`d.GuildID`) + `rd_footer.html`. Handler shape: `d := m.baseData(us); d.Page = "x"; d.Content = …; m.tmpl.render(w, "rd_x", d)`. Schema-driven settings render through the `rd_field` partial (fieldRender struct, unchanged data contract).
   - **CSS**: single `web/static/style.css` — custom-property design tokens at the top, components below; extend tokens, never duplicate rules; black & white only, flat backgrounds (login/setup keep the branded gradient card). CSP lives in `server.go` (Google Fonts allowed).
   - **JS**: single vanilla `web/static/app.js`, no framework, no inline `<script>`. Page-activation pattern: each block activates only when its elements exist (`if (!byId("x")) return;` — see the file's header comment); CSRF from `<meta name="csrf-token">`; fetch to `/api/*`.
@@ -881,6 +913,8 @@ Both are configurable from the `/config` page (Intents section) and via
 - Welcome module (`internal/builtin/welcome/`): per-guild join/leave messages with a dashboard embed builder at `/g/<id>/welcome`. Message + embed support `{mention}`, `{user}`, `{user(proper)}`, `{server}`, `{server(members)}`, `{ord:…}`, `{random: …}` and the rest of the documented variables; per-event channel, enabled toggle, auto-delete, Save/Test, in-memory last-error surfacing. Configs are per-guild YAML under `modules/welcome/` (gitignored), validated against Discord's limits server-side; `modules.WelcomeAdmin` is the dashboard contract. Only the event member can be mentioned (no @everyone/role parsing). Toggleable via `/modules enable|disable welcome`.
 
 - Moderation module (`internal/builtin/moderation/`): `/ban`, `/unban`, `/kick`, `/timeout`, `/warn`, `/warnings`, `/unwarn` with Discord role-hierarchy checks, a per-guild case audit (`modules/moderation/cases/<gid>.json`, 0600 atomic), audit-channel posts, warn notifications with the active warning total/reason (channels **or threads**), warn expiry, and automatic escalation rules (timeout/kick/ban at exact thresholds, recorded as automated cases). Dashboard `/g/<id>/moderation`: settings, rules editor, filtered audit table and one-click unwarn; `modules.ModerationAdmin` is the contract.
+
+- Reaction roles module (`internal/builtin/reactionroles/`): dashboard-posted embed panels with up to 20 reaction→role mappings per panel (Unicode and custom server emojis, custom matched by ID), per-guild YAML panels under `modules/reactionroles/`, reaction add/remove role grant/revoke with Manage Roles + role-hierarchy validation, message/reaction syncing on repost, panel deletion that removes the message, and a panel editor at `/g/<id>/reactionroles`. `modules.ReactionRolesAdmin` is the contract; `cache.FlagEmojis` backs the server emoji picker.
 
 **Not Yet Done:**
 - [ ] Discord channel logging (separate module, not core feature)
@@ -940,3 +974,4 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 35. **`/tos` and `/policy` are public and file-backed** — linked from the login card, they render `legal/terms.md` / `legal/privacy.md` (gitignored folder under the bot dir) via goldmark GFM on every request, so edits need no restart and no rebuild. The route is registered with the public routes (no `requireAuthed`/OAuth); raw HTML in the markdown is omitted by goldmark (no `html.WithUnsafe`), and missing files are seeded with starter text on first render. The bot's `tos_url`/`privacy_url` config keys are unrelated (external links used by `/info`).
 36. **Welcome messages are per-guild and dashboard-only** — `internal/builtin/welcome/` stores `modules/welcome/guilds/<gid>.yaml` (gitignored) and the dashboard talks to it through `modules.WelcomeAdmin`; there are no Discord commands. `{user(proper)}` is disgo's `User.Tag()` (username, or `username#discriminator` for legacy accounts). Variables expand at delivery: saves validate the raw template against Discord's limits, and an embed that expands past 6000 characters is dropped while the content is still sent. Mentions are restricted to the event member (`AllowedMentions.Parse` is empty), so `@everyone`/roles never ping.
 37. **Moderation is per-guild, audit-first, and hierarchy-gated** — `internal/builtin/moderation/` stores settings in `modules/moderation/guilds/<gid>.yml` and cases in `cases/<gid>.json` (gitignored; per-guild IDs, newest 20k kept). Removing a warning marks the case `removed` rather than deleting it. Escalation rules fire on an **exact** active-warning count and re-run the same role-hierarchy and bot-permission checks as manual commands; the whole warn→count→rule flow is mutex-serialized. Channel posts never parse mentions. `/ban` works for users no longer in the guild, `/kick` and `/timeout` require a member; every REST action carries the reason as `X-Audit-Log-Reason`.
+38. **Reaction roles match custom emojis by ID** — emojis are stored as Discord's reaction string (`name:id`, or the Unicode character). A renamed custom emoji still matches and grants. The dashboard's emoji list comes from the cache, so `cache.FlagEmojis` is required (enabled in `cmd/bot/main.go`). Reposting edits the existing message only when the channel is unchanged; moving channels deletes the old message and posts a new one. Reaction handlers ignore bots/self and only act on posted, enabled panels.

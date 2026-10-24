@@ -1,0 +1,159 @@
+{{define "rd_reactionroles"}}{{template "rd_header" .}}
+        <section class="card">
+          <div class="rr-head">
+            <div>
+              <h2 style="margin:0">Reaction roles</h2>
+              <p class="muted" style="margin:4px 0 0">Post an embed with reactions. Members who react receive the mapped role; removing the reaction removes it when enabled.</p>
+            </div>
+          </div>
+
+          {{if not .Content.admin}}
+          <p class="muted" style="margin-top:16px">The <strong>reactionroles</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          {{else}}
+          {{with .Content.configError}}<p class="rr-error">Config problem: {{.}}</p>{{end}}
+          {{with .Content.lastError}}<p class="rr-error">Last error: {{.}}</p>{{end}}
+          {{$panel := .Content.panel}}
+
+          <div class="rr-panel-list">
+            {{range .Content.panels}}
+            <a class="rr-panel-item{{if .Active}} active{{end}}" href="?panel={{.ID}}">
+              <span class="rr-panel-name">{{.Name}}</span>
+              <span class="rr-panel-meta muted">#{{.ID}} · {{.Mappings}} reaction(s) · {{.Channel}}</span>
+              <span class="tag{{if .Enabled}} ok{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span>
+            </a>
+            {{end}}
+            <a class="btn btn-small rr-new-panel" href="?panel=new">+ New panel</a>
+          </div>
+
+          <div class="rr-editor">
+            <div class="rr-editor-head">
+              <h3>{{if .Content.isNew}}New panel{{else}}Panel #{{$panel.ID}}{{end}}</h3>
+              {{if $panel.MessageID}}
+              <span class="tag ok">Posted</span>
+              <span class="muted rr-posted">message {{$panel.MessageID}}</span>
+              {{else}}
+              <span class="tag">Not posted yet</span>
+              {{end}}
+            </div>
+
+            <div class="rr-grid">
+              <div class="field">
+                <label class="field-label" for="rr-name">Panel name</label>
+                <input class="field-input" id="rr-name" maxlength="100" value="{{$panel.Name}}" placeholder="Pick your roles">
+              </div>
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="rr-enabled" {{if $panel.Enabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Enabled (reactions grant roles)</span>
+              </label>
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="rr-remove-on-unreact" {{if $panel.RemoveOnUnreact}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Remove role when the reaction is removed</span>
+              </label>
+            </div>
+
+            <div class="rr-grid">
+              <div class="field">
+                <label class="field-label" for="rr-channel">Channel (channel or thread)</label>
+                <select class="field-input" id="rr-channel">
+                  <option value="">— none —</option>
+                  {{range .Content.channels}}<option value="{{.ID}}" {{if eq $panel.ChannelID .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{with .Content.staleChannel}}<option value="{{.ID}}" selected>Unknown channel ({{.ID}})</option>{{end}}
+                </select>
+              </div>
+            </div>
+
+            <div class="rr-subhead"><h4>Embed</h4></div>
+            <div class="rr-grid">
+              <div class="field">
+                <label class="field-label" for="rr-title">Title</label>
+                <input class="field-input" id="rr-title" maxlength="256" value="{{$panel.Embed.Title}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="rr-color-hex">Color</label>
+                <div class="rr-color-row">
+                  <input type="color" id="rr-color" class="rr-color-input" value="{{if $panel.Embed.Color}}{{$panel.Embed.Color}}{{else}}#5865f2{{end}}" aria-label="Embed color">
+                  <input class="field-input rr-color-hex" id="rr-color-hex" maxlength="7" spellcheck="false" value="{{$panel.Embed.Color}}" placeholder="#5865f2" aria-label="Embed color hex">
+                  <button type="button" class="btn btn-small" id="rr-color-clear">Clear</button>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label class="field-label" for="rr-description">Description</label>
+              <textarea class="field-input" id="rr-description" rows="5" maxlength="4096">{{$panel.Embed.Description}}</textarea>
+            </div>
+            <div class="rr-grid">
+              <div class="field">
+                <label class="field-label" for="rr-footer">Footer</label>
+                <input class="field-input" id="rr-footer" maxlength="2048" value="{{$panel.Embed.Footer}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="rr-image">Image URL</label>
+                <input class="field-input" id="rr-image" value="{{$panel.Embed.ImageURL}}" placeholder="https://…">
+              </div>
+              <div class="field">
+                <label class="field-label" for="rr-thumbnail">Thumbnail URL</label>
+                <input class="field-input" id="rr-thumbnail" value="{{$panel.Embed.ThumbnailURL}}" placeholder="https://…">
+              </div>
+            </div>
+
+            <div class="rr-subhead">
+              <h4>Reactions</h4>
+              <button type="button" class="btn btn-small" id="rr-add-mapping">Add reaction</button>
+            </div>
+            <p class="muted rr-hint">Paste a Unicode emoji (👍) or pick a server emoji below. Custom emojis use <code>name:id</code>.</p>
+            <div class="rr-mappings" id="rr-mappings">
+              {{range $m := $panel.Mappings}}
+              <div class="rr-mapping" data-rr-mapping>
+                <div class="field">
+                  <label class="field-label">Emoji</label>
+                  <input class="field-input" data-rr-emoji list="rr-emoji-list" maxlength="100" value="{{$m.Emoji}}" placeholder="👍 or name:id">
+                </div>
+                <div class="field">
+                  <label class="field-label">Role</label>
+                  <select class="field-input" data-rr-role>
+                    <option value="">— choose a role —</option>
+                    {{range $.Content.roles}}<option value="{{.ID}}" {{if eq .ID $m.RoleID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  </select>
+                </div>
+                <button type="button" class="btn btn-small" data-rr-remove>Remove</button>
+              </div>
+              {{end}}
+            </div>
+            <datalist id="rr-emoji-list">
+              {{range .Content.emojis}}<option value="{{.Key}}">{{.Label}}</option>{{end}}
+            </datalist>
+
+            <div class="rr-actions">
+              <button type="button" class="btn btn-primary" id="rr-save">Save changes</button>
+              <button type="button" class="btn" id="rr-save-post">Save &amp; post</button>
+              {{if not .Content.isNew}}<button type="button" class="btn rr-delete" id="rr-delete">Delete panel</button>{{end}}
+              <span class="rr-status muted" id="rr-status" role="status" aria-live="polite"></span>
+            </div>
+            <p class="muted rr-hint">The bot needs <strong>Manage Roles</strong> and a role above every role you assign. Posting again updates the existing message; changing the channel removes the old one and posts a new one.</p>
+          </div>
+          {{end}}
+        </section>
+
+        {{if .Content.admin}}
+        <template id="rr-mapping-template">
+          <div class="rr-mapping" data-rr-mapping>
+            <div class="field">
+              <label class="field-label">Emoji</label>
+              <input class="field-input" data-rr-emoji list="rr-emoji-list" maxlength="100" placeholder="👍 or name:id">
+            </div>
+            <div class="field">
+              <label class="field-label">Role</label>
+              <select class="field-input" data-rr-role>
+                <option value="">— choose a role —</option>
+                {{range .Content.roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+              </select>
+            </div>
+            <button type="button" class="btn btn-small" data-rr-remove>Remove</button>
+          </div>
+        </template>
+        <input type="hidden" id="rr-guild" value="{{.Content.guild}}">
+        <input type="hidden" id="rr-panel" value="{{.Content.panel.ID}}">
+        {{end}}
+{{template "rd_footer" .}}{{end}}

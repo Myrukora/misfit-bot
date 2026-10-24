@@ -170,6 +170,7 @@ type roleOpt struct {
 	Name     string `json:"name"`
 	Color    int    `json:"color"`
 	Position int    `json:"position"`
+	Managed  bool   `json:"managed"`
 }
 
 // apiGuild serves the detail of one guild to a user who manages it.

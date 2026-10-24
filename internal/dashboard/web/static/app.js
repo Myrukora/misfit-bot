@@ -1754,4 +1754,167 @@
       e.returnValue = "";
     });
   }
+
+  /* ---------- reaction roles (/g/<id>/reactionroles) ---------- */
+  var rrSave = byId("rr-save");
+  if (rrSave) {
+    var rrGuild = (byId("rr-guild") || {}).value || "";
+    var rrPanelID = parseInt((byId("rr-panel") || {}).value, 10) || 0;
+    var rrMappings = byId("rr-mappings");
+    var rrTemplate = byId("rr-mapping-template");
+    var rrBase = "/api/guilds/" + rrGuild + "/reactionroles";
+    var rrDirty = false;
+
+    function rrStatus(msg, isErr) {
+      var el = byId("rr-status");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.classList.toggle("rr-status-err", !!isErr);
+    }
+    function rrDirtyMark() {
+      rrDirty = true;
+      rrStatus("");
+    }
+    function rrBindRow(row) {
+      row.querySelectorAll("input, select").forEach(function (el) {
+        el.addEventListener("input", rrDirtyMark);
+        el.addEventListener("change", rrDirtyMark);
+      });
+    }
+    rrMappings.querySelectorAll("[data-rr-mapping]").forEach(rrBindRow);
+
+    byId("rr-add-mapping").addEventListener("click", function () {
+      var row = rrTemplate.content.firstElementChild.cloneNode(true);
+      rrMappings.appendChild(row);
+      rrBindRow(row);
+      rrDirtyMark();
+    });
+    rrMappings.addEventListener("click", function (e) {
+      var btn = e.target.closest("[data-rr-remove]");
+      if (!btn) return;
+      var row = btn.closest("[data-rr-mapping]");
+      if (row) row.remove();
+      rrDirtyMark();
+    });
+
+    ["rr-name", "rr-enabled", "rr-remove-on-unreact", "rr-channel", "rr-title", "rr-description", "rr-footer", "rr-image", "rr-thumbnail"].forEach(function (id) {
+      var el = byId(id);
+      if (!el) return;
+      var evt = (el.type === "checkbox" || el.tagName === "SELECT") ? "change" : "input";
+      el.addEventListener(evt, rrDirtyMark);
+    });
+
+    var rrColor = byId("rr-color");
+    var rrColorHex = byId("rr-color-hex");
+    rrColor.addEventListener("input", function () {
+      rrColorHex.value = rrColor.value;
+      rrDirtyMark();
+    });
+    rrColorHex.addEventListener("change", function () {
+      var value = this.value.trim();
+      if (value && value.charAt(0) !== "#") value = "#" + value;
+      if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+        value = value.toLowerCase();
+        rrColor.value = value;
+        rrColorHex.value = value;
+      } else if (value === "") {
+        rrColorHex.value = "";
+      }
+      rrDirtyMark();
+    });
+    byId("rr-color-clear").addEventListener("click", function () {
+      rrColorHex.value = "";
+      rrColor.value = "#5865f2";
+      rrDirtyMark();
+    });
+
+    function rrCollect() {
+      var mappings = [];
+      rrMappings.querySelectorAll("[data-rr-mapping]").forEach(function (row) {
+        var emoji = row.querySelector("[data-rr-emoji]").value.trim();
+        var role = row.querySelector("[data-rr-role]").value;
+        if (!emoji && !role) return;
+        mappings.push({ emoji: emoji, role_id: role });
+      });
+      return {
+        id: rrPanelID,
+        name: byId("rr-name").value,
+        enabled: byId("rr-enabled").checked,
+        channel_id: byId("rr-channel").value,
+        remove_on_unreact: byId("rr-remove-on-unreact").checked,
+        embed: {
+          title: byId("rr-title").value,
+          description: byId("rr-description").value,
+          color: rrColorHex.value.trim(),
+          footer: byId("rr-footer").value,
+          image_url: byId("rr-image").value,
+          thumbnail_url: byId("rr-thumbnail").value
+        },
+        mappings: mappings
+      };
+    }
+    function rrSavePanel() {
+      var body = rrCollect();
+      if (rrPanelID === 0) {
+        return api("POST", rrBase + "/panels", body).then(function (res) {
+          rrPanelID = res.panel.id;
+          return res.panel;
+        });
+      }
+      return api("POST", rrBase + "/panels/" + rrPanelID, body).then(function (res) {
+        return res.panel;
+      });
+    }
+    function rrRun(post) {
+      var saveBtn = rrSave;
+      var postBtn = byId("rr-save-post");
+      saveBtn.disabled = true;
+      postBtn.disabled = true;
+      rrStatus(post ? "Saving and posting…" : "Saving…");
+      rrSavePanel().then(function () {
+        if (post) return api("POST", rrBase + "/panels/" + rrPanelID + "/post", {});
+      }).then(function () {
+        rrDirty = false;
+        toast(post ? "Panel posted" : "Panel saved");
+        window.location.href = "/g/" + rrGuild + "/reactionroles?panel=" + rrPanelID;
+      }).catch(function (e) {
+        rrStatus(e.message, true);
+        toast("Save failed: " + e.message, true);
+        saveBtn.disabled = false;
+        postBtn.disabled = false;
+      });
+    }
+    rrSave.addEventListener("click", function () { rrRun(false); });
+    byId("rr-save-post").addEventListener("click", function () {
+      if (!byId("rr-enabled").checked) {
+        rrStatus("Enable the panel before posting it.", true);
+        return;
+      }
+      rrRun(true);
+    });
+
+    var rrDelete = byId("rr-delete");
+    if (rrDelete) {
+      rrDelete.addEventListener("click", function () {
+        if (!confirm("Delete this panel and its posted message? This cannot be undone.")) return;
+        rrDelete.disabled = true;
+        api("DELETE", rrBase + "/panels/" + rrPanelID + "?delete_message=1")
+          .then(function () {
+            rrDirty = false;
+            window.location.href = "/g/" + rrGuild + "/reactionroles";
+          })
+          .catch(function (e) {
+            rrDelete.disabled = false;
+            rrStatus(e.message, true);
+            toast("Delete failed: " + e.message, true);
+          });
+      });
+    }
+
+    window.addEventListener("beforeunload", function (e) {
+      if (!rrDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
+  }
 })();

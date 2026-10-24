@@ -291,6 +291,8 @@ func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.R
 		m.renderGuildWelcome(w, r, us, guildID)
 	case "moderation":
 		m.renderGuildModeration(w, r, us, guildID)
+	case "reactionroles":
+		m.renderGuildReactionRoles(w, r, us, guildID)
 	default:
 		http.NotFound(w, r)
 	}
@@ -408,7 +410,7 @@ func (m *DashboardModule) buildGuildDetail(id string) (*guildDetail, error) {
 	sort.Slice(d.Channels, func(i, j int) bool { return d.Channels[i].Name < d.Channels[j].Name })
 	for role := range m.client.Caches.Roles(gid) {
 		d.Roles = append(d.Roles, roleOpt{
-			ID: role.ID.String(), Name: role.Name, Color: role.Color, Position: role.Position,
+			ID: role.ID.String(), Name: role.Name, Color: role.Color, Position: role.Position, Managed: role.Managed,
 		})
 	}
 	sort.Slice(d.Roles, func(i, j int) bool { return d.Roles[i].Position > d.Roles[j].Position })

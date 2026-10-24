@@ -53,6 +53,9 @@ type renderData struct {
 	// ShowModeration: the moderation builtin is loaded — server sidebars render
 	// the Moderation tab (the page itself still guards staff access).
 	ShowModeration bool
+	// ShowReactionRoles: the reactionroles builtin is loaded — server sidebars
+	// render the Reaction Roles tab (the page itself still guards staff access).
+	ShowReactionRoles bool
 	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
 	// header.html renders the server-scoped sidebar (server name + back-to-servers
 	// + Commands/Tickets/Modules/Server info) instead of the global nav. Empty
@@ -167,6 +170,8 @@ func pageTitle(page string) string {
 		return "Welcome"
 	case "gmoderation":
 		return "Moderation"
+	case "greactionroles":
+		return "Reaction Roles"
 	case "modules":
 		return "Modules"
 	case "settings":

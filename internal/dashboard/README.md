@@ -174,6 +174,26 @@ All routes require staff+ managing that guild and CSRF on mutations. The module
 is resolved through `modules.ModerationAdmin`; when unloaded the page shows the
 "module not loaded" stub and the API returns 404.
 
+## Reaction roles editor (`/g/<id>/reactionroles`)
+
+The reactionroles builtin's page (staff+): a panel list, a full editor (name,
+enabled, channel/thread, remove-on-unreact, embed title/description/color/footer/
+image/thumbnail), and up to 20 emoji→role rows. The emoji input accepts a pasted
+Unicode emoji or a server emoji from the cache datalist (`name:id`). Saving
+preserves the module-owned posted state; **Save & post** edits the existing
+message (or creates one) and syncs the bot's reactions.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/guilds/<gid>/reactionroles` | full config + last error |
+| `POST /api/guilds/<gid>/reactionroles/panels` | create a panel |
+| `POST /api/guilds/<gid>/reactionroles/panels/<id>` | update a panel |
+| `POST /api/guilds/<gid>/reactionroles/panels/<id>/post` | post/update message + reactions |
+| `DELETE /api/guilds/<gid>/reactionroles/panels/<id>` | delete panel (+ message by default) |
+
+All routes require staff+ managing the guild and CSRF on mutations. The module
+is resolved through `modules.ReactionRolesAdmin`.
+
 ## `WebConfigurable` — exposing module settings on the dashboard
 
 Modules are the **single source of truth** for what settings exist and how each
