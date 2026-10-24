@@ -557,54 +557,6 @@ func init() {
 	})
 
 	RegisterCoreSlash(SlashCommand{
-		Name:        "ratelimit",
-		Description: "Check a user's rate limit status or reset it so they can use commands again.",
-		Usage:       "ratelimit [status|reset] [user_id]",
-		OwnerOnly:   true,
-		Category:    "core",
-		Options: []discord.ApplicationCommandOption{
-			subOpt("status", "Check a user's rate limit status", userOpt("user", "The user", true)),
-			subOpt("reset", "Reset a user's rate limit", userOpt("user", "The user", true)),
-		},
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				// Show usage — never auto-delete, like /help.
-				e := embed.Info("⏱️ Rate Limit Management", "**Usage:** `/ratelimit [status|reset] [user_id]`\n\n**Commands:**\n- `status <user_id>` — Check rate limit status for a user\n- `reset <user_id>` — Reset rate limit for a user")
-				return ctx.Respond(e)
-			}
-
-			subcmd := strings.ToLower(ctx.Args[0])
-
-			switch subcmd {
-			case "status":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a user ID."))
-				}
-				userID := ctx.Args[1]
-				// StatusRateLimit is non-mutating: checking a user's status must
-				// not count as that user executing a command.
-				allowed, wait := ctx.Bot.StatusRateLimit(userID)
-				if allowed {
-					return ctx.Respond(embed.Success("⏱️ Rate Limit Status", fmt.Sprintf("User `%s` is **allowed** to use commands.", userID)))
-				} else {
-					return ctx.Respond(embed.Warning("⏱️ Rate Limit Status", fmt.Sprintf("User `%s` is **rate limited**. Wait `%d` seconds.", userID, int(wait.Seconds())+1)))
-				}
-
-			case "reset":
-				if len(ctx.Args) < 2 {
-					return ctx.Respond(embed.Error("❌ Error", "Please specify a user ID."))
-				}
-				userID := ctx.Args[1]
-				ctx.Bot.ResetRateLimit(userID)
-				return ctx.Respond(embed.Success("✅ Rate Limit Reset", fmt.Sprintf("Rate limit for user `%s` has been reset.", userID)))
-
-			default:
-				return ctx.Respond(embed.Error("❌ Error", "Unknown subcommand. Use `status` or `reset`."))
-			}
-		},
-	})
-
-	RegisterCoreSlash(SlashCommand{
 		Name:        "update",
 		Description: "Check for bot updates, apply them now, or show updater status.",
 		Usage:       "update [check|now|status|test|set <key> <value>]",

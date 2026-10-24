@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -611,6 +612,67 @@ func (m *DashboardModule) commandOverrides() *commands.CommandOverrides {
 	return m.bot.CommandOverrides()
 }
 
+// ── /api/ratelimit/* (owner only) ────────────────────────────────────────
+//
+// The former /ratelimit Discord command lives here now: checking or resetting
+// a user's command budget is an owner maintenance action, not a server feature.
+
+// validRateLimitUser validates a user ID (snowflake, non-zero).
+func validRateLimitUser(raw string) (string, string) {
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", "user_id is required"
+	}
+	sf, err := snowflake.Parse(id)
+	if err != nil || sf == 0 {
+		return "", "invalid user id"
+	}
+	return id, ""
+}
+
+// apiRateLimitStatus reports a user's limiter state WITHOUT recording a
+// command execution (the limiter's Status path).
+func (m *DashboardModule) apiRateLimitStatus(w http.ResponseWriter, r *http.Request) {
+	id, msg := validRateLimitUser(r.URL.Query().Get("user_id"))
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	allowed, wait := m.bot.StatusRateLimit(id)
+	waitSec := 0
+	if !allowed {
+		// Round up so the UI never shows "wait 0s" while still limited.
+		waitSec = int((wait + time.Second - 1) / time.Second)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"user_id":      id,
+		"allowed":      allowed,
+		"wait_seconds": waitSec,
+	})
+}
+
+// apiRateLimitReset clears one user's recorded command history.
+func (m *DashboardModule) apiRateLimitReset(w http.ResponseWriter, r *http.Request) {
+	if !m.checkCSRF(r) {
+		writeError(w, http.StatusForbidden, "invalid CSRF token")
+		return
+	}
+	var body struct {
+		UserID string `json:"user_id"`
+	}
+	if err := json.Unmarshal(readAll(r), &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	id, msg := validRateLimitUser(body.UserID)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	m.bot.ResetRateLimit(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "user_id": id})
+}
+
 // ── /api/updater/* (owner only) ──────────────────────────────────────────
 
 // updaterMgr returns the self-update manager (nil when unavailable).
@@ -908,6 +970,21 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			m.toggleCmdCfg(w, r)
 			return
 		}
+	case "ratelimit":
+		// Owner only — moved off Discord (the former /ratelimit command).
+		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
+			writeError(w, http.StatusForbidden, "owner only")
+			return
+		}
+		switch {
+		case meth == "GET" && len(parts) == 2 && parts[1] == "status":
+			m.apiRateLimitStatus(w, r)
+		case meth == "POST" && len(parts) == 2 && parts[1] == "reset":
+			m.apiRateLimitReset(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+		return
 	case "updater":
 		// Owner only — mirrors the /update command's OwnerOnly flag. Actions
 		// rebuild and restart the bot, so elevated users never get them.

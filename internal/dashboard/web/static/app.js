@@ -185,6 +185,37 @@
     });
   });
 
+  /* ---------- admin: rate limit status/reset (owner) ---------- */
+  var rlCheck = byId("rl-check");
+  if (rlCheck) {
+    var rlUser = byId("rl-user");
+    var rlResult = byId("rl-result");
+    var rlUserID = function () {
+      var id = ((rlUser || {}).value || "").trim();
+      if (!id) { toast("Enter a user ID", true); return ""; }
+      return id;
+    };
+    rlCheck.addEventListener("click", function () {
+      var id = rlUserID();
+      if (!id) return;
+      api("GET", "/api/ratelimit/status?user_id=" + encodeURIComponent(id))
+        .then(function (r) {
+          rlResult.textContent = r.allowed
+            ? "User " + id + " is allowed to use commands."
+            : "User " + id + " is rate limited — wait " + r.wait_seconds + "s.";
+        })
+        .catch(function (e) { toast(e.message, true); });
+    });
+    var rlReset = byId("rl-reset");
+    if (rlReset) rlReset.addEventListener("click", function () {
+      var id = rlUserID();
+      if (!id) return;
+      api("POST", "/api/ratelimit/reset", { user_id: id })
+        .then(function () { rlResult.textContent = "Rate limit for " + id + " reset."; })
+        .catch(function (e) { toast(e.message, true); });
+    });
+  }
+
   /* ---------- admin: updater status panel (owner) ---------- */
   var updPanel = byId("updater-status");
   if (updPanel) {

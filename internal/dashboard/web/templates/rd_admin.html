@@ -27,6 +27,21 @@
         </section>
         {{end}}
 
+        <!-- ===== Rate limiting (owner) ===== -->
+        <section class="card">
+          <h2>Rate limiting</h2>
+          <p class="muted">Check or reset a user's command rate limit (10 commands / 5s). Owner only.</p>
+          <div class="add-row">
+            <div class="field" style="flex:3">
+              <label class="field-label" for="rl-user">User ID</label>
+              <input class="field-input" id="rl-user" type="text" inputmode="numeric" placeholder="123456789012345678">
+            </div>
+            <button type="button" class="btn btn-small" id="rl-check">Check status</button>
+            <button type="button" class="btn btn-small btn-danger" id="rl-reset">Reset</button>
+          </div>
+          <p class="muted" id="rl-result"></p>
+        </section>
+
         <!-- ===== Updater status (owner) ===== -->
         <section class="card">
           <h2>Updater</h2>

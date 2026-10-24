@@ -29,7 +29,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 ├── commands/
 │   ├── command.go            # Core types: SlashCommand, Context, Interface
 │   ├── slashargs.go          # Slash→positional arg vector: declared option order, subcommand-group aware
-│   └── core.go               # 13 core slash commands
+│   └── core.go               # 12 core slash commands
 ├── config/
 │   └── config.go             # YAML config loading/saving, Config struct, Set() with validation
 ├── embed/
@@ -232,14 +232,17 @@ type CommandResult struct {
 }
 ```
 
-**`core.go`** — 13 core slash commands (`/help`, `/modules`, …; there is no prefix dispatcher):
+**`core.go`** — 12 core slash commands (`/help`, `/modules`, …; there is no prefix dispatcher):
 - `ping`, `uptime`, `info`, `help` — public
 - `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets only; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
 - `load`, `unload`, `reload` — `OwnerOnly: true`, supports `all`
 - `shutdown`, `restart` — `OwnerOnly: true`
 - `permissions` — `OwnerOnly: true` — `add|remove|list <user>` (elevated users)
-- `ratelimit` — `OwnerOnly: true` — `status|reset [user_id]`
 - `update` — `OwnerOnly: true` — check/now/status/test/set subcommands for the self-updater
+
+Rate-limit status/reset moved to the dashboard `/config` page (owner only,
+`GET /api/ratelimit/status`, `POST /api/ratelimit/reset`); there is no Discord
+command for it any more.
 
 **No prefix commands.** Discord's message-content policy forbids prefix command
 apps from privileged-intent approval, so the bot parses no message content:
@@ -765,7 +768,7 @@ Both are configurable from the `/config` page (Intents section) and via
 - Lua module system (gopher-lua, single `.lua` files, Go-Lua bridge)
 - Python module system (subprocess IPC, per-module venv, Python SDK, runner script)
 - Module type auto-detection (Lua file / Python dir) via `DetectModuleType` + `resolveModulePath`; anything else is unsupported (no Go plugin path)
-- 13 core slash commands (no prefix commands; the bot never parses message content for commands)
+- 12 core slash commands (no prefix commands; the bot never parses message content for commands)
 - Permission-filtered `/help` (hides commands user can't use); module commands grouped under a category named after the owning module (e.g. cleanup's commands appear under "Cleanup"), regardless of the `Category` field each command sets
 - Slash command batch registration with mutex serialization
 - Self-updater (`updater/` package): poll loop (default 300s), PR + commit notification embeds (author row → bold title → markdown description; merge commits skipped; first poll silent), auto pull (refused unless the working tree is on the tracked branch) → rebuild the single binary → binary swap → `syscall.Exec` self-restart, `/update check|now|status|test|set`, `updater_state.json` persistence, live config via `/update set` / the dashboard / MCP
@@ -781,7 +784,7 @@ Both are configurable from the `/config` page (Intents section) and via
 - Auto-delete driven purely by the first embed's color; usage/status/plain-text responses stay on screen indefinitely
 - Voice module (`voice.go`) — VoiceManager built for modules to use (join/leave/play/pause/volume via FFmpeg), not core bot commands
 - Rate limiting (`ratelimit/` package) — 10 commands per 5 seconds per user, owner bypasses (slash commands)
-- `/ratelimit` command — owner-only command to check/reset rate limits for users
+- Rate-limit status/reset on the dashboard `/config` page (owner only); the `/ratelimit` Discord command was removed
 - Backup verification — `config.BackupService` (`Create`/`List`/`Verify`/`Restore` with YAML validation and `confirm=true` required for restore), surfaced owner-only at `GET/POST /api/backups`; the former `backup` command was removed
 - Module dependencies — `Dependencies() []string` method on Module interface, checked at load time, fails if dependency missing
 - Python graceful shutdown — 5-second timeout for graceful shutdown, then force kill

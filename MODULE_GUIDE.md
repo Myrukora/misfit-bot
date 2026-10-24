@@ -299,44 +299,42 @@ appear under a **▸ Tickets** section and a module named `hello` under
 ```text
 📖 Bot Help
 ▸ Core
-?help — List the commands you can use, grouped by category.
-?shutdown — Shut the bot down completely. Owner and elevated users only.
-?restart — Restart the bot so it comes back up with a fresh state.
-?permissions — Grant or revoke elevated (owner-like) permissions for a user.
-?ratelimit — Check a user's rate limit status or reset it so they can use commands again.
-?update — Check for bot updates, apply them now, or show updater status.
+/help — List the commands you can use, grouped by category.
+/shutdown — Shut the bot down completely. Owner and elevated users only.
+/restart — Restart the bot so it comes back up with a fresh state.
+/permissions — Grant or revoke elevated (owner-like) permissions for a user.
+/update — Check for bot updates, apply them now, or show updater status.
 ▸ Cleanup
-?cleanup — Delete messages in bulk — by count, user, text, or duplicates. Pick a subcommand.
+/cleanup — Delete messages in bulk — by count, user, text, or duplicates. Pick a subcommand.
 ▸ General
-?ping — Check how quickly the bot responds, with its gateway and API latency.
-?uptime — See how long the bot has been running.
-?info — Show the bot's name, version, author, and where it runs.
+/ping — Check how quickly the bot responds, with its gateway and API latency.
+/uptime — See how long the bot has been running.
+/info — Show the bot's name, version, author, and where it runs.
 ▸ Modules
-?modules — List modules, or enable/disable a compiled-in feature module (applies after restart).
-?load — Load a module so its commands become available. Use `all` to load every module.
-?unload — Unload a module so its commands stop working. Use `all` to unload every module.
-?reload — Reload a module to pick up changes without restarting the bot. Use `all` for all.
+/modules — List modules, or enable/disable a compiled-in feature module (applies after restart).
+/load — Load a module so its commands become available. Use `all` to load every module.
+/unload — Unload a module so its commands stop working. Use `all` to unload every module.
+/reload — Reload a module to pick up changes without restarting the bot. Use `all` for all.
 ▸ Tickets
-?close — Close this ticket (inside the ticket channel only)
-?claim — Claim this ticket (helpers only)
-?add — Add a member to this ticket
-?remove — Remove a member from this ticket
+/close — Close this ticket (inside the ticket channel only)
+/add — Add a member to this ticket
+/remove — Remove a member from this ticket
 ```
 
 Two rules produce that layout. First, **core** commands are grouped by their own
 `Category` field (`"core"` when empty) — which is why `ping`/`uptime`/`info`
 (`Category: "general"`) sit under **▸ General**, not under Core, while
-`help`/`shutdown`/`restart`/`permissions`/`ratelimit`/`update` declare `core`
+`help`/`shutdown`/`restart`/`permissions`/`update` declare `core`
 and `modules`/`load`/`unload`/`reload` declare `modules`. Second, each module's
 commands are appended under a category named after the module, so cleanup's one
-command and the tickets module's five all land in their own sections. Lines
+command and the tickets module's commands all land in their own sections. Lines
 inside a section keep registration order; the sections themselves are the
 category names sorted alphabetically with `core` then moved to the front —
 **Core, Cleanup, General, Modules, Tickets**, with any other loaded module
 slotted into that alphabetical run by its own name. Only commands the caller
 may use are listed: this is the owner's view. An ordinary user sees a much
 smaller list — `help` itself is not owner-gated, so **▸ Core** survives showing
-just `?help`, while `shutdown`/`restart`/`permissions`/`ratelimit`/`update` and
+just `/help`, while `shutdown`/`restart`/`permissions`/`update` and
 the whole **▸ Modules** section disappear. Finally, the label is `title()`d —
 first character of the whole string upper-cased, not per word (`my_module` →
 **▸ My_module**).

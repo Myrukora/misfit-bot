@@ -115,8 +115,8 @@ type Interface interface {
 	MessageContentEnabled() bool
 	GetClient() interface{}
 	GetStartTime() time.Time
-	StatusRateLimit(userID string) (allowed bool, wait time.Duration)
-	ResetRateLimit(userID string)
+	StatusRateLimit(userID string) (allowed bool, wait time.Duration) // dashboard rate-limit panel (non-mutating)
+	ResetRateLimit(userID string)                                     // dashboard rate-limit panel
 	// ExecuteCommand runs a registered slash command (core or any loaded
 	// module) with a virtual context whose responses are captured instead of
 	// posted to Discord. Permission checks mirror the Discord dispatcher:
