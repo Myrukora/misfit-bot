@@ -54,6 +54,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"alloc_mb": uint64(128), "sys_mb": uint64(512), "goroutines": 14, "go_version": "go1.26.4",
 		}, Modules: []string{"cleanup", "tickets", "imagefilter"}}, false},
 		{"config.html", "config", "rd_admin", map[string]any{
+			"isOwner": true,
 			"sections": []settingsSection{{Title: "Bot", Help: "Identity", Fields: []fieldRender{
 				{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123456789012345678"},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},

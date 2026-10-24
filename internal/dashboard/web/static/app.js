@@ -185,6 +185,22 @@
     });
   });
 
+  /* ---------- admin: bot lifecycle (owner + elevated) ---------- */
+  var botRestart = byId("bot-restart");
+  if (botRestart) botRestart.addEventListener("click", function () {
+    if (!confirm("Restart the bot now?")) return;
+    api("POST", "/api/restart")
+      .then(function () { toast("Restarting…"); })
+      .catch(function (e) { toast(e.message, true); });
+  });
+  var botShutdown = byId("bot-shutdown");
+  if (botShutdown) botShutdown.addEventListener("click", function () {
+    if (!confirm("Shut the bot down? It stays offline until started again.")) return;
+    api("POST", "/api/shutdown")
+      .then(function () { toast("Shutting down…"); })
+      .catch(function (e) { toast(e.message, true); });
+  });
+
   /* ---------- admin: rate limit status/reset (owner) ---------- */
   var rlCheck = byId("rl-check");
   if (rlCheck) {

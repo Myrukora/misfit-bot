@@ -47,21 +47,6 @@ func subOptByName(t *testing.T, opts []discord.ApplicationCommandOption, name st
 // appends the provided options in declaration order, so each subcommand's
 // options must line up exactly with the positional args the handler reads.
 func TestCoreSlashNestedSubcommands(t *testing.T) {
-	// permissions: add <user> | remove <user> | list
-	perm := findSlashOpts(t, "permissions")
-	if got := subNames(perm); !equalStrings(got, []string{"add", "remove", "list"}) {
-		t.Fatalf("permissions subcommands = %v, want [add remove list]", got)
-	}
-	for _, sub := range []string{"add", "remove"} {
-		s := subOptByName(t, perm, sub)
-		if len(s.Options) != 1 || s.Options[0].OptionName() != "user" || !optReq(s.Options[0]) {
-			t.Fatalf("permissions %s should take one required user, got %v", sub, s.Options)
-		}
-	}
-	if s := subOptByName(t, perm, "list"); len(s.Options) != 0 {
-		t.Fatalf("permissions list should take no options, got %v", s.Options)
-	}
-
 	// update: check | now | status | test | set <key> <value>
 	upd := findSlashOpts(t, "update")
 	if got := subNames(upd); !equalStrings(got, []string{"check", "now", "status", "test", "set"}) {

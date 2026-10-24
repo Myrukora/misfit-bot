@@ -230,17 +230,18 @@ func TestSettingsFieldEveryType(t *testing.T) {
 // TestSettingsSectionsPins covers the /config page (rd_admin): five core
 // sections render with their titles; secret fields are enabled for the
 // owner and locked (disabled + data-owneronly) for elevated viewers; the
-// updater status panel renders (the page itself is owner-gated upstream).
+// updater/rate-limit panels are owner-only while the lifecycle controls are
+// available to both (the page itself is owner/elevated-gated upstream).
 func TestSettingsSectionsPins(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
 	}
 	// locked=true renders secrets locked (the elevated view); the owner
-	// render passes false (OwnerOnly && !owner is computed server-side in
-	// coreSettingsFields).
+	// render passes false. isOwner drives the owner-only action cards.
 	build := func(locked bool) map[string]any {
 		return map[string]any{
+			"isOwner": !locked,
 			"sections": []settingsSection{
 				{Title: "Bot", Fields: []fieldRender{{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
@@ -282,6 +283,9 @@ func TestSettingsSectionsPins(t *testing.T) {
 	if !strings.Contains(out, `id="upd-apply"`) {
 		t.Error("owner render must include the updater action buttons")
 	}
+	if !strings.Contains(out, `id="bot-restart"`) {
+		t.Error("owner render must include the lifecycle controls")
+	}
 
 	elevated := mkData(lvlElevated)
 	elevated.Content = build(true)
@@ -291,6 +295,18 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 	if !strings.Contains(eOut, `disabled`) {
 		t.Error("elevated render must disable owner-only inputs")
+	}
+	if strings.Contains(eOut, `id="upd-apply"`) {
+		t.Error("elevated render must not include the updater actions")
+	}
+	if strings.Contains(eOut, `id="rl-check"`) {
+		t.Error("elevated render must not include the rate-limit panel")
+	}
+	if strings.Contains(eOut, `id="clip-variant-save"`) {
+		t.Error("elevated render must not include the CLIP variant switch")
+	}
+	if !strings.Contains(eOut, `id="bot-restart"`) || !strings.Contains(eOut, `id="bot-shutdown"`) {
+		t.Error("elevated render must include the lifecycle controls")
 	}
 }
 
@@ -544,7 +560,7 @@ func TestRedesignImageFilterControls(t *testing.T) {
 
 	d := mkData(lvlOwner)
 	d.Page = "config"
-	d.Content = map[string]any{"sections": []settingsSection(nil), "variants": []string{"b32", "b16", "l14"}, "variant": "b16"}
+	d.Content = map[string]any{"isOwner": true, "sections": []settingsSection(nil), "variants": []string{"b32", "b16", "l14"}, "variant": "b16"}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_admin", d); err != nil {
 		t.Fatalf("render rd_admin: %v", err)

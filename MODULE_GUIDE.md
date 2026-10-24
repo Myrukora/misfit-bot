@@ -300,9 +300,6 @@ appear under a **▸ Tickets** section and a module named `hello` under
 📖 Bot Help
 ▸ Core
 /help — List the commands you can use, grouped by category.
-/shutdown — Shut the bot down completely. Owner and elevated users only.
-/restart — Restart the bot so it comes back up with a fresh state.
-/permissions — Grant or revoke elevated (owner-like) permissions for a user.
 /update — Check for bot updates, apply them now, or show updater status.
 ▸ Cleanup
 /cleanup — Delete messages in bulk — by count, user, text, or duplicates. Pick a subcommand.
@@ -324,7 +321,7 @@ appear under a **▸ Tickets** section and a module named `hello` under
 Two rules produce that layout. First, **core** commands are grouped by their own
 `Category` field (`"core"` when empty) — which is why `ping`/`uptime`/`info`
 (`Category: "general"`) sit under **▸ General**, not under Core, while
-`help`/`shutdown`/`restart`/`permissions`/`update` declare `core`
+`help`/`update` declare `core`
 and `modules`/`load`/`unload`/`reload` declare `modules`. Second, each module's
 commands are appended under a category named after the module, so cleanup's one
 command and the tickets module's commands all land in their own sections. Lines
@@ -334,8 +331,8 @@ category names sorted alphabetically with `core` then moved to the front —
 slotted into that alphabetical run by its own name. Only commands the caller
 may use are listed: this is the owner's view. An ordinary user sees a much
 smaller list — `help` itself is not owner-gated, so **▸ Core** survives showing
-just `/help`, while `shutdown`/`restart`/`permissions`/`update` and
-the whole **▸ Modules** section disappear. Finally, the label is `title()`d —
+just `/help`, while `update` and the whole **▸ Modules** section disappear.
+Finally, the label is `title()`d —
 first character of the whole string upper-cased, not per word (`my_module` →
 **▸ My_module**).
 
@@ -362,7 +359,7 @@ exactly the same dispatch checks as a core command:
 
 | Tier | Who | Access |
 |------|-----|--------|
-| Bot owner + elevated | Bot owner (config) + elevated users (`/permissions add`) | Everything — bypasses all checks |
+| Bot owner + elevated | Bot owner (config) + elevated users (granted on the dashboard's Permissions page) | Everything — bypasses all checks |
 | Guild owner | Owner of the Discord server | Bypasses `RequiredPerm`, NOT `OwnerOnly` |
 | Normal users | Everyone else | Checked via Discord role permissions |
 

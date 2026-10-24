@@ -190,18 +190,23 @@ func (m *DashboardModule) handleConfigPage(w http.ResponseWriter, r *http.Reques
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	if m.resolveLevel(us) != lvlOwner {
+	level := m.resolveLevel(us)
+	// Owner + elevated: elevated users get the same page with secrets and the
+	// owner-only action cards (updater, rate limit, CLIP variant) locked/hidden.
+	if !levelGEQ(level, lvlElevated) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
+	owner := level == lvlOwner
 	d := m.baseData(us)
 	d.Page = "config"
 	variants := m.imageFilterVariants()
 	d.Content = map[string]any{
-		"sections":    m.coreSettingsFields(true, "", us),
+		"sections":    m.coreSettingsFields(owner, "", us),
 		"variants":    variants,
 		"variant":     m.imageFilterVariant(),
 		"moduleViews": m.globalModuleViews(us),
+		"isOwner":     owner,
 	}
 	m.tmpl.render(w, "rd_admin", d)
 }
@@ -213,9 +218,13 @@ func (m *DashboardModule) globalModuleViews(us *userSession) []moduleConfigView 
 	if m.bot == nil {
 		return nil
 	}
+	level := lvlRegular
+	if us != nil {
+		level = m.resolveLevel(us)
+	}
 	var out []moduleConfigView
 	if wc, ok := m.webCfg("dashboard"); ok {
-		if mv := m.buildModuleView(wc, "dashboard", us, lvlOwner, "", true); len(mv.Fields) > 0 {
+		if mv := m.buildModuleView(wc, "dashboard", us, level, "", true); len(mv.Fields) > 0 {
 			out = append(out, mv)
 		}
 	}
@@ -227,7 +236,7 @@ func (m *DashboardModule) globalModuleViews(us *userSession) []moduleConfigView 
 		if !ok {
 			continue
 		}
-		if mv := m.buildModuleView(wc, name, us, lvlOwner, "", true); len(mv.Fields) > 0 {
+		if mv := m.buildModuleView(wc, name, us, level, "", true); len(mv.Fields) > 0 {
 			out = append(out, mv)
 		}
 	}

@@ -7,7 +7,7 @@ A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature mo
 ## Features
 
 - **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `/load` / `/unload` / `/reload`. The dashboard and the cleanup/tickets/imagefilter feature modules are compiled into the single binary instead (core infrastructure, always on).
-- **12 core slash commands**: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `shutdown`, `restart`, `permissions`, `update`.
+- **9 core slash commands**: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `update`.
 - **Three-tier permission system** — bot owner/elevated users bypass everything, guild owners bypass Discord permission requirements, everyone else is checked against Discord role permissions.
 - **Web dashboard** — Discord OAuth2 login (mutual-guild enforced), 4 RBAC tiers (owner / elevated / staff / regular), live metrics, a permission-filtered command catalog, and per-module settings panels rendered from each module's opt-in `WebConfigurable` schema. No dashboard code changes needed to support a new module's settings.
 - **GitHub self-updater** — polls the bot's own repository for new commits and pull requests, posts embed notifications to a Discord channel, and can automatically pull the latest code, rebuild the binary, and self-restart.
@@ -91,11 +91,9 @@ All user-facing commands are **slash commands** (e.g. `/ping`). The bot register
 | `help` | Show available commands (permission-filtered) | Public |
 | `modules` | List loaded/available modules, or `enable`/`disable <name>` a compiled-in feature (cleanup/tickets only — the config key `modules.enabled_modules` also accepts imagefilter; applies after restart) | Owner |
 | `load` / `unload` / `reload` | Manage Lua/Python modules (`all` supported) | Owner |
-| `shutdown` / `restart` | Stop / restart the bot | Owner |
-| `permissions` | Manage elevated (owner-like) users | Owner |
 | `update` | `check` / `now` / `status` / `test` / `set` — self-updater control | Owner |
 
-Rate-limit status and reset live on the dashboard `/config` page (owner only) — there is no `/ratelimit` command.
+Elevated-user management lives on the dashboard **Permissions** page; restarts and shutdowns live under **Config → Bot control** (owner + elevated). Rate-limit status/reset is also on **Config** (owner only).
 
 ## Modules
 
@@ -213,7 +211,7 @@ The bearer token is **auto-generated on first start** and saved to `config.yml` 
 ```
 misfit-bot/
 ├── cmd/bot/               # Entry point — Discord connection, dispatch, lifecycle
-├── commands/              # Command types + 12 core slash commands
+├── commands/              # Command types + 9 core slash commands
 ├── config/                # YAML config load/save/validate
 ├── embed/                 # Discord embed helpers
 ├── logger/                # Async JSON logging (stdout + file)
