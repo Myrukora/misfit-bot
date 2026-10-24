@@ -4,14 +4,18 @@
 
 Misfit Bot is a private, self-hosted Discord bot for a single community (see
 `CONTRIBUTING.md`). It is a **single Linux binary** built with cgo: the web
-dashboard, MCP server, and six feature modules are compiled in, while Lua and
+dashboard, MCP server, and seven feature modules are compiled in, while Lua and
 Python modules remain hot-loadable at runtime.
 
 - **Commands are slash-only.** There is no prefix-command parser; message
   events are used by module features, not command dispatch.
-- **No database.** State is YAML/JSON on disk: `config.yml`, `.env` secrets,
-  per-module files under `modules/`, and small JSON state files. The dashboard
-  uses in-memory sessions.
+- **Storage is files, except leveling.** Bot and most module state is YAML/JSON
+  on disk: `config.yml`, `.env` secrets, per-module files under `modules/`, and
+  small JSON state files. The `leveling` builtin keeps its guild settings, XP,
+  granted reward roles and catch-up checkpoints in an embedded SQLite database
+  (`modules/leveling/leveling.db`, driver `github.com/mattn/go-sqlite3`, which
+  compiles its own amalgamation — no system libsqlite and no server). The
+  dashboard uses in-memory sessions.
 - **The owner is the primary operator.** Changes are server-specific;
   `CONTRIBUTING.md` says PRs from self-deployed forks are not merged.
 
@@ -75,12 +79,13 @@ Python modules remain hot-loadable at runtime.
 cleanup, stateless), `tickets` (per-guild config, panels, ticket JSON, mirrored
 media, HTML transcripts), `imagefilter` (ONNX CLIP detection, reference-image
 galleries, punishments), `welcome` (join/leave messages and embed builder),
-`moderation` (warnings, cases, escalation rules), and `reactionroles` (panels
-and reaction-role sync). They are gated by `modules.enabled_modules` at startup
-(missing key = enabled); changing the map takes effect after a restart. The
-runtime builtin guard used by `/modules enable|disable` currently recognizes
-`cleanup`, `tickets`, and `imagefilter`; edit the config map directly for the
-other builtin names.
+`moderation` (warnings, cases, escalation rules), `reactionroles` (panels and
+reaction-role sync), and `leveling` (message/voice XP, rank cards, stacked role
+rewards, offline catch-up; SQLite storage). They are gated by
+`modules.enabled_modules` at startup (missing key = enabled); changing the map
+takes effect after a restart. The same builtin guard rejects `/load`,
+`/unload`, and `/reload` for every one of them, while
+`/modules enable|disable <name>` accepts all seven names.
 
 ### Module system
 
@@ -98,9 +103,10 @@ other builtin names.
   `<name>.dashboard.lua` / `dashboard.py` integration files. Optional
   dashboard contracts live in `modules/*_contract.go`.
 - Each module gets a `modules.Context` (`Bot`, `Rest`, `Events`,
-  `VoiceManager`, `Logger`, `DataDir`, `CoreConfig`). Builtins should implement
-  `Disablable` for `/modules disable`; a failed runtime reload loses the module
-  until restart, so prefer load/restart over reload when recovery matters.
+  `VoiceManager`, `Logger`, `DataDir`, `CoreConfig`, `VoiceStates`). Builtins
+  should implement `Disablable` for `/modules disable`; a failed runtime reload
+  loses the module until restart, so prefer load/restart over reload when
+  recovery matters.
 
 ## Key Directories
 
@@ -112,7 +118,7 @@ other builtin names.
 | `modules/` | Dynamic-module manager and Lua/Python loaders, event hooks, dashboard/module contracts, voice manager. |
 | `sdk/python/misfit/` | Python module SDK and runner (`Module`, `SlashCommand`, IPC, context, logger). |
 | `internal/dashboard/` | In-process web UI: OAuth, RBAC, pages, JSON API, audit log, templates and static assets. |
-| `internal/builtin/` | Compiled-in cleanup, tickets, imagefilter, welcome, moderation, and reactionroles features. |
+| `internal/builtin/` | Compiled-in cleanup, tickets, imagefilter, welcome, moderation, reactionroles, and leveling features. |
 | `internal/mcpserver/` | MCP server, bearer auth, and tool implementations. |
 | `updater/` | GitHub polling, notifications, version comparison, pull/build/swap/self-exec. |
 | `logger/`, `onboarding/`, `permissions/`, `ratelimit/`, `embed/` | Async JSON logger, first-run wizard, three-tier permissions, per-user limiter, embed helpers. |
@@ -246,6 +252,8 @@ the runtime library or model is missing.
 - Per-guild state uses `guilds/<guildID>.yml` / `cases/<guildID>.json`; tickets
   use `tickets/<guildID>/<ticketID>.json` and `<ticketID>/files/`. Follow the
   existing atomic-write helpers and 0600 permissions for sensitive files.
+  `leveling` is the exception: it writes one SQLite file
+  (`modules/leveling/leveling.db`, WAL, one pooled connection).
 
 ## Important Files
 
@@ -257,11 +265,12 @@ the runtime library or model is missing.
 | `commands/slashargs.go`, `commands/slash_validate.go` | Declared-order argument mapping and Discord option-schema validation. |
 | `commands/web.go`, `commands/overrides.go` | Web execution permission gate and per-command override enforcement. |
 | `modules/module.go` | `Module`, `Context`, `EventHooks`, `ConfigField`, manager, builtin registration. |
-| `modules/*_contract.go` | Optional dashboard surfaces: tickets, imagefilter, welcome, moderation, reactionroles. |
+| `modules/*_contract.go` | Optional dashboard surfaces: tickets, imagefilter, welcome, moderation, reactionroles, leveling. |
 | `internal/dashboard/main.go`, `server.go`, `pages.go` | Dashboard construction/start, middleware chain/routing, page rendering and settings schema. |
 | `internal/dashboard/auth.go`, `acl.go`, `api*.go` | OAuth/session handling, 4-tier RBAC, JSON endpoints and CSRF. |
 | `internal/builtin/tickets/main.go`, `store.go`, `transcript.go` | Ticket lifecycle, file-backed store, HTML transcript generation. |
 | `internal/builtin/imagefilter/main.go`, `manager.go`, `clip.go` | Image-filter lifecycle, warm/cold manager, CLIP ONNX embedding. |
+| `internal/builtin/leveling/` | XP curve (`xpcurve.go`), SQLite store (`db.go`, `store.go`), live/voice/catch-up award paths, role rewards, `/rank` card renderer (`card.go`). |
 | `internal/mcpserver/server.go`, `tools.go` | MCP transport/auth and tool implementations. |
 | `config/config.go`, `config/secrets.go` | YAML model/defaults/validation, `.env` secret read/write. |
 | `updater/updater.go`, `updater/semver.go` | Poll/notify, version-aware update checks, fetch/build/swap/self-exec. |
@@ -275,7 +284,8 @@ the runtime library or model is missing.
   supported by the installer, but Linux is the target.
 - **Go:** `go.mod` pins Go **1.26.4**; CI reads the version from `go.mod`.
 - **Build dependencies:** C toolchain, `pkg-config`, `libopus-dev` /
-  `libopusfile-dev` (cgo Opus). Build with `CGO_ENABLED=1`.
+  `libopusfile-dev` (cgo Opus). Build with `CGO_ENABLED=1`. SQLite is compiled
+  from the driver's bundled amalgamation — no system `libsqlite` package.
 - **Runtime dependencies:** `git` (updater), `python3` + venv/pip (Python
   modules), `ffmpeg` (voice playback). ONNX Runtime + the CLIP model are
   optional and provisioned by `scripts/setup_imagefilter.sh`.

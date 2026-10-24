@@ -149,6 +149,35 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		}{Ticket: &modules.Ticket{ID: "support-0001", Type: "support", OpenerID: "2", Status: "open",
 			Log: []modules.LogEntry{{MsgID: "m1", AuthorID: "2", AuthorName: "opener", Content: "help"}},
 		}, GuildID: "1"}},
+		// Leveling (redesign): module-missing stub and a fully populated page.
+		{"rd_leveling", levelingPageData{Guild: "1", Admin: false}},
+		{"rd_leveling", levelingPageData{
+			Guild: "1",
+			Admin: true,
+			Config: modules.LevelingConfig{
+				Enabled: true, MessageEnabled: true, MessageXPMin: 15, MessageXPMax: 25,
+				MessageCooldownSeconds: 60, VoiceEnabled: true, VoiceXPPerMinute: 10,
+				VoiceRequireOthers: true, MaxLevel: 500, AnnounceEnabled: true,
+				AnnounceChannel: "c1", AnnounceMessage: "{user} reached level {level}",
+				Rewards:         []modules.LevelingReward{{Level: 5, RoleID: "r2"}},
+				IgnoredChannels: []string{"c2"}, IgnoredRoles: []string{"r1"},
+				CatchupEnabled: true, CatchupMaxMessages: 2000, CatchupMaxChannels: 50,
+			},
+			Channels:           []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "staff"}},
+			AnnounceChannels:   []entityOpt{{ID: "c1", Name: "general"}},
+			Roles:              []entityOpt{{ID: "r2", Name: "Level 5"}, {ID: "r3", Name: "Level 10"}},
+			IgnoredChannelsCSV: "c2",
+			IgnoredRolesCSV:    "r1",
+			StaleRoles:         []string{"r1"},
+			LastSeen:           "2026-10-24 09:00 UTC",
+			Rows: []levelingEntryView{{
+				LevelingEntry: modules.LevelingEntry{
+					UserID: "20", XP: 500, Level: 2, Rank: 1, Progress: 245,
+					NextLevelXP: 220, Messages: 10, VoiceSeconds: 1800, UpdatedAt: time.Now(),
+				},
+				Name: "Vixen", Voice: "30m", Updated: "2026-10-24 10:00",
+			}},
+		}},
 	}
 
 	for i, c := range cases {
@@ -160,6 +189,10 @@ func TestTemplatesParseAndRender(t *testing.T) {
 			d.GuildID = "1"
 			d.GuildName = "G"
 			d.ShowImageFilter = true
+		case "rd_leveling":
+			d.GuildID = "1"
+			d.GuildName = "G"
+			d.ShowLeveling = true
 		}
 		var sb strings.Builder
 		if err := b.render(&sb, c.page, d); err != nil {

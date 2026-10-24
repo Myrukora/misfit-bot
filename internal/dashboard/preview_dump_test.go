@@ -26,6 +26,7 @@ func previewData(level string) renderData {
 	d.ShowWelcome = true
 	d.ShowModeration = true
 	d.ShowReactionRoles = true
+	d.ShowLeveling = true
 	return d
 }
 
@@ -161,6 +162,41 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"filterType": "",
 			"filterUser": "",
 			"lastError":  "",
+		}, true},
+		{"leveling.html", "gleveling", "rd_leveling", levelingPageData{
+			Guild: "1",
+			Admin: true,
+			Config: modules.LevelingConfig{
+				Enabled: true, MessageEnabled: true, MessageXPMin: 15, MessageXPMax: 25,
+				MessageCooldownSeconds: 60, VoiceEnabled: true, VoiceXPPerMinute: 10,
+				VoiceRequireOthers: true, MaxLevel: 500, AnnounceEnabled: true,
+				AnnounceChannel: "c1", AnnounceMessage: "{user} reached **level {level}**!",
+				Rewards: []modules.LevelingReward{
+					{Level: 5, RoleID: "r2"}, {Level: 10, RoleID: "r3"},
+				},
+				IgnoredChannels: []string{"c2"}, IgnoredRoles: []string{"r1"},
+				CatchupEnabled: true, CatchupMaxMessages: 2000, CatchupMaxChannels: 50,
+			},
+			Stats:     modules.LevelingStats{Tracked: 42, TotalXP: 128000},
+			StatsText: "",
+			LastSeen:  "2026-10-24 14:30 UTC",
+			Channels: []entityOpt{
+				{ID: "c1", Name: "general"}, {ID: "c2", Name: "staff"},
+			},
+			AnnounceChannels:   []entityOpt{{ID: "c1", Name: "general"}},
+			Roles:              []entityOpt{{ID: "r2", Name: "Level 5"}, {ID: "r3", Name: "Level 10"}},
+			IgnoredChannelsCSV: "c2",
+			IgnoredRolesCSV:    "r1",
+			Rows: []levelingEntryView{
+				{
+					LevelingEntry: modules.LevelingEntry{
+						UserID: "111", XP: 12400, Level: 12, Rank: 1,
+						Progress: 900, NextLevelXP: 1780, Messages: 320, VoiceSeconds: 8000,
+						UpdatedAt: time.Now(),
+					},
+					Name: "Vixen", Voice: "2h 13m", Updated: "2026-10-24 14:20",
+				},
+			},
 		}, true},
 		{"reactionroles.html", "greactionroles", "rd_reactionroles", map[string]any{
 			"guild":    "1",

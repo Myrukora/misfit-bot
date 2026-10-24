@@ -33,6 +33,7 @@
 /modules/welcome/
 /modules/moderation/
 /modules/reactionroles/
+/modules/leveling/
 
 # Dynamic Lua/Python module runtime data. Source is tracked; configs, state,
 # logs, models and venvs inside a module folder are not.

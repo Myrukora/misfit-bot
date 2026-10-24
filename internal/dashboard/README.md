@@ -194,6 +194,33 @@ message (or creates one) and syncs the bot's reactions.
 All routes require staff+ managing the guild and CSRF on mutations. The module
 is resolved through `modules.ReactionRolesAdmin`.
 
+## Leveling editor (`/g/<id>/leveling`)
+
+The leveling builtin's per-server page (staff+): a one-click **enable/disable**
+switch (XP stops immediately, nothing is deleted), message/voice XP settings
+(range, cooldown, per-minute rate, require-others, max level), catch-up caps,
+the level-up announcement channel + template (`{user}`, `{user.name}`,
+`{level}`, `{server}`), stacked role rewards, ignored channels/roles
+multi-selects, and the leaderboard (top 100, or one member via `?user=`).
+Member rows can have their total XP overwritten or be reset (reset also revokes
+every reward role the module granted). **Sync reward roles** backfills already
+eligible members.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/guilds/<gid>/leveling` | config + stats (catch-up/sync progress) + last error |
+| `POST /api/guilds/<gid>/leveling` | validate + save the whole config |
+| `POST /api/guilds/<gid>/leveling/enabled` | per-server on/off switch |
+| `POST /api/guilds/<gid>/leveling/members/<uid>` | set a member's total XP |
+| `DELETE /api/guilds/<gid>/leveling/members/<uid>` | reset XP + revoke reward roles |
+| `POST /api/guilds/<gid>/leveling/sync` | start a reward-role backfill |
+
+All routes require staff+ managing the guild and CSRF on mutations. The module
+is resolved through `modules.LevelingAdmin`; when unloaded the page shows the
+"module not loaded" stub and the API returns 404. While a catch-up replay or
+reward sync is running the page polls the GET route every 2s and stops when both
+are idle.
+
 ## Dashboard audit (`/audit`)
 
 Owner + elevated only. A durable JSONL activity log at

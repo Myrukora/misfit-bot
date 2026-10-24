@@ -22,6 +22,7 @@ import (
 	"github.com/misfit/bot/embed"
 	"github.com/misfit/bot/internal/builtin/cleanup"
 	"github.com/misfit/bot/internal/builtin/imagefilter"
+	"github.com/misfit/bot/internal/builtin/leveling"
 	"github.com/misfit/bot/internal/builtin/moderation"
 	"github.com/misfit/bot/internal/builtin/reactionroles"
 	"github.com/misfit/bot/internal/builtin/tickets"
@@ -412,7 +413,18 @@ func run() bool {
 		Bot:          ba,
 		VoiceManager: vm,
 		CoreConfig:   Cfg,
-	}, cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New); err != nil {
+		VoiceStates: func(guildID string) []discord.VoiceState {
+			gid, err := snowflake.Parse(guildID)
+			if err != nil {
+				return nil
+			}
+			var out []discord.VoiceState
+			for vs := range Client.Caches.VoiceStates(gid) {
+				out = append(out, vs)
+			}
+			return out
+		},
+	}, cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New, leveling.New); err != nil {
 		Log.Error("Failed to register builtin modules: %v", err)
 	}
 	registerSlashCommands()
@@ -475,6 +487,7 @@ func run() bool {
 		if dash != nil {
 			dash.Stop()
 		}
+		unloadModulesOnShutdown()
 		Client.Close(context.Background())
 		return false
 	case <-shutdownCh:
@@ -482,6 +495,7 @@ func run() bool {
 		if dash != nil {
 			dash.Stop()
 		}
+		unloadModulesOnShutdown()
 		Client.Close(context.Background())
 		return false
 	case <-restartCh:
@@ -489,8 +503,21 @@ func run() bool {
 		if dash != nil {
 			dash.Stop()
 		}
+		unloadModulesOnShutdown()
 		Client.Close(context.Background())
 		return true
+	}
+}
+
+// unloadModulesOnShutdown runs every loaded module's OnUnload before the
+// gateway closes, so worker loops stop and buffered state (leveling XP,
+// ticket/imagefilter workers) is flushed instead of lost on restart.
+func unloadModulesOnShutdown() {
+	if ModMgr == nil {
+		return
+	}
+	if err := ModMgr.UnloadAll(); err != nil {
+		Log.Warn("Failed to unload modules cleanly on shutdown: %v", err)
 	}
 }
 
@@ -743,6 +770,18 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 				Log.Error("Slash command reply failed for /%s: %v", cmdName, err)
 			}
 			return err
+		},
+		RespondWithFiles: func(files []*discord.File, embeds ...discord.Embed) error {
+			msg, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{
+				Embeds: embeds,
+				Files:  files,
+			})
+			if err != nil {
+				Log.Error("Slash command file respond failed for /%s: %v", cmdName, err)
+				return err
+			}
+			scheduleInteractionAutoDelete(embeds, msg.ID)
+			return nil
 		},
 	}
 
@@ -1078,7 +1117,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 	// key = enabled). They appear here so consumers see the full catalog —
 	// e.g. the dashboard's "Modules loaded N/M" — not just the dynamic
 	// Lua/Python modules.
-	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles"} {
+	for _, name := range []string{"cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles", "leveling"} {
 		if enabled, ok := Cfg.Modules.EnabledModules[name]; !ok || enabled {
 			names = append(names, name)
 		}
@@ -1088,7 +1127,7 @@ func (b *botAdapter) GetAvailableModuleNames() []string {
 
 // IsBuiltinModule reports whether a module name is a compiled-in feature.
 func (b *botAdapter) IsBuiltinModule(name string) bool {
-	return name == "cleanup" || name == "tickets" || name == "welcome" || name == "moderation" || name == "reactionroles"
+	return isBuiltinModule(name)
 }
 
 // SetEnabledModule persists the enabled_modules config for a builtin (applies
@@ -1142,7 +1181,7 @@ func moduleDataDir(path string) string {
 // MCP) from corrupting a builtin's state.
 func isBuiltinModule(name string) bool {
 	switch name {
-	case "cleanup", "tickets", "imagefilter":
+	case "cleanup", "tickets", "imagefilter", "welcome", "moderation", "reactionroles", "leveling":
 		return true
 	}
 	return false

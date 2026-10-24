@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/misfit/bot/commands"
@@ -118,6 +119,9 @@ type Context struct {
 	// needs no config-package dependency. Builtins that persist into
 	// config.yml (imagefilter) assert it; nil when unavailable.
 	CoreConfig any
+	// VoiceStates returns a snapshot of the guild's cached voice states.
+	// Nil when the gateway/cache is unavailable; callers must handle nil.
+	VoiceStates func(guildID string) []discord.VoiceState
 }
 
 type EventHooks struct {

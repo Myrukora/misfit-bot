@@ -962,8 +962,8 @@ block startup. `--no-modules` skips module loading entirely.
 
 ## Compiled-in Go feature modules
 
-The bot's own feature modules — `cleanup`, `tickets`, `welcome`, `moderation`
-and `reactionroles` (Discord commands/surfaces) plus `imagefilter`
+The bot's own feature modules — `cleanup`, `tickets`, `welcome`, `moderation`,
+`reactionroles` and `leveling` (Discord commands/surfaces) plus `imagefilter`
 (dashboard-only) — are **compiled into the binary**. They are not user-loadable,
 they cannot be added without changing the bot's source and building it, and
 there is no `.so` plugin path at all: the module manager rejects anything that
@@ -982,7 +982,7 @@ feature modules are compiled-in and managed with /modules enable|disable
    `New() modules.Module`.
 2. Register the constructor in `cmd/bot/main.go`'s
    `ModMgr.RegisterBuiltinsWithFilter(...)` call next to
-   `cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New`.
+   `cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New, leveling.New`.
 3. Build and restart. The builtin is gated through the `enabled_modules` config
    map (a missing key means enabled); restart the bot to apply the change.
 
@@ -995,12 +995,11 @@ Two useful references in-tree:
   panel.
 
 A builtin's data directory is `modules/<name>/` (its `OnLoad` gets `DataDir` =
-the configured modules path + the module name). `imagefilter` is registered the
-same way; the current `/modules enable|disable` guard recognizes `cleanup`,
-`tickets`, and `imagefilter`, while the other builtins are gated through
-`enabled_modules` at startup. The dashboard — an always-on subsystem rather
-than a builtin — is pinned to the historical `modules/Go/dashboard/` path so
-its module-local state survives.
+the configured modules path + the module name). All compiled-in builtins are
+recognized by `/modules enable|disable` and rejected by `/load`, `/unload` and
+`/reload`; the `enabled_modules` map gates them at startup. The dashboard — an
+always-on subsystem rather than a builtin — is pinned to the historical
+`modules/Go/dashboard/` path so its module-local state survives.
 
 Background services (an HTTP server, a poll loop, a long-running worker) belong
 in this compiled-in layer, not in a dynamic module: the dashboard and the MCP

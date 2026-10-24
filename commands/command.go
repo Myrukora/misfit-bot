@@ -31,6 +31,10 @@ type Context struct {
 	Web       bool // true: invoked from the web dashboard (virtual context)
 	Respond   func(embeds ...discord.Embed) error
 	ReplyText func(text string) error
+	// RespondWithFiles sends a follow-up with attachments (and optional
+	// embeds). Nil for web-executed commands, which cannot attach files;
+	// callers must fall back to Respond.
+	RespondWithFiles func(files []*discord.File, embeds ...discord.Embed) error
 }
 
 // Auto-delete rule (enforced by the dispatcher in cmd/bot/main.go):

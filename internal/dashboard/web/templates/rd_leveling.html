@@ -1,0 +1,245 @@
+{{define "rd_leveling"}}{{template "rd_header" .}}
+        <section class="card">
+          <div class="mod-head">
+            <div>
+              <h2 style="margin:0">Leveling</h2>
+              <p class="muted" style="margin:4px 0 0">Award XP for messages and voice, grant role rewards, and replay the messages the bot missed while it was offline.</p>
+            </div>
+            {{if .Content.Admin}}
+            <button type="button" class="btn {{if .Content.Config.Enabled}}btn-danger{{else}}btn-primary{{end}}" id="lvl-toggle" data-enabled="{{if .Content.Config.Enabled}}true{{else}}false{{end}}">
+              {{if .Content.Config.Enabled}}Disable leveling{{else}}Enable leveling{{end}}
+            </button>
+            {{end}}
+          </div>
+
+          {{if .Content.Admin}}
+          <p style="margin:14px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <span class="lvl-pill{{if .Content.Config.Enabled}} ok{{end}}">{{if .Content.Config.Enabled}}Enabled{{else}}Disabled{{end}}</span>
+            <span class="muted">Last caught up: {{.Content.LastSeen}}</span>
+            <span class="muted">{{.Content.Stats.Tracked}} tracked members · {{.Content.Stats.TotalXP}} XP awarded</span>
+          </p>
+          {{end}}
+
+          {{if not .Content.Admin}}
+          <p class="muted" style="margin-top:16px">The <strong>leveling</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          {{else}}
+          {{$c := .Content}}
+          {{$cfg := $c.Config}}
+          {{with $c.ConfigError}}<p class="mod-error">Config problem: {{.}}</p>{{end}}
+          {{with $c.LastError}}<p class="mod-error">Last error: {{.}}</p>{{end}}
+
+          <div class="mod-section">
+            <h3>Settings</h3>
+            <div class="mod-grid">
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-enabled" {{if $cfg.Enabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Leveling enabled</span>
+              </label>
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-msg-enabled" {{if $cfg.MessageEnabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Award XP for messages</span>
+              </label>
+              <div class="field">
+                <label class="field-label" for="lvl-cooldown">Message cooldown (seconds)</label>
+                <input class="field-input" type="number" id="lvl-cooldown" min="0" max="86400" step="1" value="{{$cfg.MessageCooldownSeconds}}">
+              </div>
+            </div>
+            <div class="mod-grid">
+              <div class="field">
+                <label class="field-label" for="lvl-msg-min">Message XP minimum</label>
+                <input class="field-input" type="number" id="lvl-msg-min" min="1" max="1000" step="1" value="{{$cfg.MessageXPMin}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="lvl-msg-max">Message XP maximum</label>
+                <input class="field-input" type="number" id="lvl-msg-max" min="1" max="1000" step="1" value="{{$cfg.MessageXPMax}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="lvl-max-level">Maximum level</label>
+                <input class="field-input" type="number" id="lvl-max-level" min="1" max="1000" step="1" value="{{$cfg.MaxLevel}}">
+              </div>
+            </div>
+            <div class="mod-grid">
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-voice-enabled" {{if $cfg.VoiceEnabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Award XP for voice</span>
+              </label>
+              <div class="field">
+                <label class="field-label" for="lvl-voice-xp">Voice XP per minute</label>
+                <input class="field-input" type="number" id="lvl-voice-xp" min="0" max="1000" step="1" value="{{$cfg.VoiceXPPerMinute}}">
+              </div>
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-voice-others" {{if $cfg.VoiceRequireOthers}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Require another member in the channel</span>
+              </label>
+            </div>
+            <div class="mod-grid">
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-catchup-enabled" {{if $cfg.CatchupEnabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Replay missed messages after downtime</span>
+              </label>
+              <div class="field">
+                <label class="field-label" for="lvl-catchup-max">Catch-up cap per channel</label>
+                <input class="field-input" type="number" id="lvl-catchup-max" min="1" max="20000" step="1" value="{{$cfg.CatchupMaxMessages}}">
+              </div>
+              <div class="field">
+                <label class="field-label" for="lvl-catchup-channels">Catch-up channel cap</label>
+                <input class="field-input" type="number" id="lvl-catchup-channels" min="1" max="500" step="1" value="{{$cfg.CatchupMaxChannels}}">
+              </div>
+            </div>
+            <p class="muted" style="margin:8px 0 0;font-size:13px">Catch-up replays the messages sent while the bot was offline with the normal cooldown and is capped per channel. Channels are scanned in position order and active threads are included.</p>
+          </div>
+
+          <div class="mod-section">
+            <h3>Announcements</h3>
+            <div class="mod-grid">
+              <label class="toggle" style="margin-top:0">
+                <input type="checkbox" id="lvl-announce-enabled" {{if $cfg.AnnounceEnabled}}checked{{end}}>
+                <span class="toggle-track"></span>
+                <span class="toggle-label">Announce level-ups</span>
+              </label>
+              <div class="field">
+                <label class="field-label" for="lvl-announce-channel">Announcement channel</label>
+                <select class="field-input" id="lvl-announce-channel">
+                  <option value="" {{if eq $cfg.AnnounceChannel ""}}selected{{end}}>— silent —</option>
+                  {{range $c.AnnounceChannels}}<option value="{{.ID}}" {{if eq $cfg.AnnounceChannel .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{with $c.StaleAnnounce}}<option value="{{.ID}}" selected>Unknown channel ({{.ID}})</option>{{end}}
+                </select>
+              </div>
+            </div>
+            <div class="field" style="margin-top:12px">
+              <label class="field-label" for="lvl-announce-message">Announcement message</label>
+              <textarea class="field-input" id="lvl-announce-message" rows="2" maxlength="1000">{{$cfg.AnnounceMessage}}</textarea>
+              <p class="muted" style="margin:6px 0 0;font-size:13px">Placeholders: <code>{user}</code>, <code>{user.name}</code>, <code>{level}</code>, <code>{server}</code>. An empty channel means no announcement is posted.</p>
+            </div>
+          </div>
+
+          <div class="mod-section">
+            <div class="mod-section-head">
+              <div>
+                <h3>Role rewards</h3>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">Rewards stack: reaching a level grants every configured reward at or below it. Roles are removed only when a member's XP is reset here.</p>
+              </div>
+              <button type="button" class="btn btn-small" id="lvl-add-reward">Add reward</button>
+            </div>
+            <div class="mod-rules" id="lvl-rewards">
+              {{range $cfg.Rewards}}
+              {{$reward := .}}
+              <div class="mod-rule lvl-reward" data-reward>
+                <div class="field">
+                  <label class="field-label">Level</label>
+                  <input class="field-input" type="number" data-reward-level min="1" max="1000" step="1" value="{{$reward.Level}}">
+                </div>
+                <div class="field">
+                  <label class="field-label">Role</label>
+                  <select class="field-input" data-reward-role>
+                    <option value="">— select a role —</option>
+                    {{range $c.Roles}}<option value="{{.ID}}" {{if eq .ID $reward.RoleID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  </select>
+                </div>
+                <button type="button" class="btn btn-small" data-reward-remove>Remove</button>
+              </div>
+              {{end}}
+            </div>
+            {{if not $cfg.Rewards}}<p class="muted mod-rules-empty" id="lvl-rewards-empty" style="margin:8px 0 0;font-size:13px">No reward roles configured.</p>{{end}}
+            <div class="lvl-actions" style="margin-top:12px">
+              <button type="button" class="btn btn-small" id="lvl-sync">Sync reward roles</button>
+              <span class="muted" id="lvl-sync-status" role="status" aria-live="polite"></span>
+            </div>
+          </div>
+
+          <div class="mod-section">
+            <h3>Ignored channels and roles</h3>
+            <p class="muted" style="margin:4px 0 12px;font-size:13px">Messages in these channels, and from members with these roles, never earn XP.</p>
+            <div class="mod-grid">
+              <div class="field">
+                <label class="field-label" for="lvl-ignore-channels">Ignored channels</label>
+                <select class="field-input lvl-multiselect" id="lvl-ignore-channels" multiple size="8">
+                  {{range $c.Channels}}<option value="{{.ID}}" {{if csvContains $c.IgnoredChannelsCSV .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{range $c.StaleChannels}}<option value="{{.}}" selected>Unknown channel ({{.}})</option>{{end}}
+                </select>
+              </div>
+              <div class="field">
+                <label class="field-label" for="lvl-ignore-roles">Ignored roles</label>
+                <select class="field-input lvl-multiselect" id="lvl-ignore-roles" multiple size="8">
+                  {{range $c.Roles}}<option value="{{.ID}}" {{if csvContains $c.IgnoredRolesCSV .ID}}selected{{end}}>{{.Name}}</option>{{end}}
+                  {{range $c.StaleRoles}}<option value="{{.}}" selected>Unknown role ({{.}})</option>{{end}}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="mod-actions">
+            <button type="button" class="btn btn-primary" id="lvl-save">Save changes</button>
+            <span class="mod-status muted" id="lvl-status" role="status" aria-live="polite"></span>
+          </div>
+
+          <div class="mod-section">
+            <div class="mod-filter-head">
+              <div>
+                <h3>Leaderboard</h3>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">{{if $c.FilterUser}}One member{{else}}Top 100 members{{end}} by XP.</p>
+              </div>
+              <form method="get" class="mod-filter">
+                <input name="user" class="field-input" placeholder="Member ID" value="{{$c.FilterUser}}" aria-label="Member ID">
+                <button type="submit" class="btn btn-small">Filter</button>
+                {{if $c.FilterUser}}<a class="btn btn-small" href="/g/{{$c.Guild}}/leveling">Clear</a>{{end}}
+              </form>
+            </div>
+            <p class="muted" id="lvl-catchup-status" style="margin:8px 0 0;font-size:13px">{{$c.StatsText}}</p>
+            {{if $c.Rows}}
+            <div class="mod-table-wrap">
+              <table class="tbl">
+                <thead>
+                  <tr><th>Rank</th><th>Member</th><th>Level</th><th>XP</th><th>Messages</th><th>Voice</th><th>Updated (UTC)</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {{range $c.Rows}}
+                  <tr>
+                    <td>#{{.Rank}}</td>
+                    <td class="lvl-member">
+                      {{if .Avatar}}<img src="{{.Avatar}}" alt="" class="lvl-avatar">{{else}}<span class="lvl-avatar lvl-avatar-fallback">{{initial .Name}}</span>{{end}}
+                      <span>{{.Name}}<br><span class="muted">{{.UserID}}</span></span>
+                    </td>
+                    <td>{{.Level}}</td>
+                    <td>{{.XP}}</td>
+                    <td>{{.Messages}}</td>
+                    <td>{{.Voice}}</td>
+                    <td>{{.Updated}}</td>
+                    <td class="lvl-actions">
+                      <button type="button" class="btn btn-small" data-lvl-edit="{{.UserID}}" data-xp="{{.XP}}">Edit XP</button>
+                      <button type="button" class="btn btn-small" data-lvl-reset="{{.UserID}}">Reset</button>
+                    </td>
+                  </tr>
+                  {{end}}
+                </tbody>
+              </table>
+            </div>
+            {{else}}<p class="muted" style="margin-top:12px">{{if $c.FilterUser}}No XP recorded for that member.{{else}}No XP yet.{{end}}</p>{{end}}
+          </div>
+          {{end}}
+        </section>
+
+        <template id="lvl-reward-template">
+          <div class="mod-rule lvl-reward" data-reward>
+            <div class="field">
+              <label class="field-label">Level</label>
+              <input class="field-input" type="number" data-reward-level min="1" max="1000" step="1" value="5">
+            </div>
+            <div class="field">
+              <label class="field-label">Role</label>
+              <select class="field-input" data-reward-role>
+                <option value="">— select a role —</option>
+                {{range .Content.Roles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+              </select>
+            </div>
+            <button type="button" class="btn btn-small" data-reward-remove>Remove</button>
+          </div>
+        </template>
+
+        <input type="hidden" id="lvl-guild" value="{{.Content.Guild}}">
+{{template "rd_footer" .}}{{end}}

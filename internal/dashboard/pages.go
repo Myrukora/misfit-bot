@@ -293,6 +293,8 @@ func (m *DashboardModule) handleGuildScopedPage(w http.ResponseWriter, r *http.R
 		m.renderGuildModeration(w, r, us, guildID)
 	case "reactionroles":
 		m.renderGuildReactionRoles(w, r, us, guildID)
+	case "leveling":
+		m.renderGuildLeveling(w, r, us, guildID)
 	default:
 		http.NotFound(w, r)
 	}

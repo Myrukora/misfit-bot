@@ -3157,3 +3157,73 @@ video.ticket-thumb {
         display: block;
     }
 }
+
+/* ── leveling page ─────────────────────────────────────────────────────── */
+
+/* Per-server enabled/disabled chip next to the Leveling heading. */
+.lvl-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.lvl-pill.ok {
+    color: #0b0b0b;
+    background: #ffffff;
+    border-color: #ffffff;
+}
+
+/* Ignored channels/roles pickers: multi-selects need room to scroll. */
+.lvl-multiselect {
+    min-height: 170px;
+    padding: 6px;
+}
+
+.lvl-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* Reward rows have three columns (level, role, remove), not moderation's four. */
+.lvl-reward {
+    grid-template-columns: 110px minmax(160px, 1fr) max-content;
+}
+
+/* Leaderboard member cell: avatar + name + ID. */
+.lvl-member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.lvl-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    flex: none;
+    object-fit: cover;
+}
+
+.lvl-avatar-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #232327;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+@media (max-width: 899px) {
+    .lvl-reward {
+        grid-template-columns: 1fr;
+    }
+}

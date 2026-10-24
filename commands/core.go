@@ -307,7 +307,7 @@ func init() {
 					}
 					name := ctx.Args[1]
 					if !ctx.Bot.IsBuiltinModule(name) {
-						return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("`%s` is not a compiled-in feature module (only cleanup and tickets are). Lua/Python modules are managed with `load`/`unload`.", name)))
+						return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("`%s` is not a compiled-in feature module. Lua/Python modules are managed with `load`/`unload`.", name)))
 					}
 					enabled := strings.ToLower(ctx.Args[0]) == "enable"
 					if err := ctx.Bot.SetEnabledModule(name, enabled); err != nil {

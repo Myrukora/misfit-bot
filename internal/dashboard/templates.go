@@ -56,6 +56,9 @@ type renderData struct {
 	// ShowReactionRoles: the reactionroles builtin is loaded — server sidebars
 	// render the Reaction Roles tab (the page itself still guards staff access).
 	ShowReactionRoles bool
+	// ShowLeveling: the leveling builtin is loaded — server sidebars render the
+	// Leveling tab (the page itself still guards staff access).
+	ShowLeveling bool
 	// GuildID/GuildName scope the sidebar to ONE server: when GuildID is set,
 	// header.html renders the server-scoped sidebar (server name + back-to-servers
 	// + Commands/Tickets/Modules/Server info) instead of the global nav. Empty
@@ -172,6 +175,8 @@ func pageTitle(page string) string {
 		return "Moderation"
 	case "greactionroles":
 		return "Reaction Roles"
+	case "gleveling":
+		return "Leveling"
 	case "modules":
 		return "Modules"
 	case "settings":

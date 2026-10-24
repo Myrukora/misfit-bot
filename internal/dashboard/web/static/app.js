@@ -1755,6 +1755,243 @@
     });
   }
 
+  /* ---------- leveling editor (/g/<id>/leveling) ---------- */
+  var lvlSave = byId("lvl-save");
+  if (lvlSave) {
+    var lvlGuild = (byId("lvl-guild") || {}).value || "";
+    var lvlBase = "/api/guilds/" + lvlGuild + "/leveling";
+    var lvlRewards = byId("lvl-rewards");
+    var lvlTemplate = byId("lvl-reward-template");
+    var lvlDirty = false;
+    var lvlPoll = null;
+
+    function lvlStatus(msg, isErr) {
+      var el = byId("lvl-status");
+      if (!el) return;
+      el.textContent = msg || "";
+      el.classList.toggle("mod-status-err", !!isErr);
+    }
+    function lvlDirtyMark() {
+      lvlDirty = true;
+      lvlStatus("");
+    }
+    function lvlSelected(id) {
+      var el = byId(id);
+      if (!el) return [];
+      return Array.prototype.map.call(el.selectedOptions || [], function (o) { return o.value; });
+    }
+    function lvlBindReward(row) {
+      row.querySelectorAll("input, select").forEach(function (el) {
+        el.addEventListener("input", lvlDirtyMark);
+        el.addEventListener("change", lvlDirtyMark);
+      });
+    }
+    if (lvlRewards) {
+      lvlRewards.querySelectorAll("[data-reward]").forEach(lvlBindReward);
+    }
+
+    var lvlAddReward = byId("lvl-add-reward");
+    if (lvlAddReward && lvlRewards && lvlTemplate) {
+      lvlAddReward.addEventListener("click", function () {
+        var row = lvlTemplate.content.firstElementChild.cloneNode(true);
+        lvlRewards.appendChild(row);
+        lvlBindReward(row);
+        var empty = byId("lvl-rewards-empty");
+        if (empty) empty.hidden = true;
+        lvlDirtyMark();
+      });
+      lvlRewards.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-reward-remove]");
+        if (!btn) return;
+        var row = btn.closest("[data-reward]");
+        if (row) row.remove();
+        if (!lvlRewards.querySelector("[data-reward]")) {
+          var empty = byId("lvl-rewards-empty");
+          if (empty) empty.hidden = false;
+        }
+        lvlDirtyMark();
+      });
+    }
+
+    ["lvl-enabled", "lvl-msg-enabled", "lvl-msg-min", "lvl-msg-max", "lvl-cooldown",
+      "lvl-voice-enabled", "lvl-voice-xp", "lvl-voice-others", "lvl-max-level",
+      "lvl-catchup-enabled", "lvl-catchup-max", "lvl-catchup-channels",
+      "lvl-announce-enabled", "lvl-announce-channel", "lvl-announce-message",
+      "lvl-ignore-channels", "lvl-ignore-roles"].forEach(function (id) {
+        var el = byId(id);
+        if (!el) return;
+        var evt = (el.type === "checkbox" || el.tagName === "SELECT") ? "change" : "input";
+        el.addEventListener(evt, lvlDirtyMark);
+      });
+
+    function lvlCollect() {
+      var rewards = [];
+      if (lvlRewards) {
+        lvlRewards.querySelectorAll("[data-reward]").forEach(function (row) {
+          var level = parseInt((row.querySelector("[data-reward-level]") || {}).value, 10) || 0;
+          var role = (row.querySelector("[data-reward-role]") || {}).value || "";
+          if (level < 1 || !role) return;
+          rewards.push({ level: level, role_id: role });
+        });
+      }
+      return {
+        enabled: byId("lvl-enabled").checked,
+        message_enabled: byId("lvl-msg-enabled").checked,
+        message_xp_min: parseInt(byId("lvl-msg-min").value, 10) || 0,
+        message_xp_max: parseInt(byId("lvl-msg-max").value, 10) || 0,
+        message_cooldown_seconds: parseInt(byId("lvl-cooldown").value, 10) || 0,
+        voice_enabled: byId("lvl-voice-enabled").checked,
+        voice_xp_per_minute: parseInt(byId("lvl-voice-xp").value, 10) || 0,
+        voice_require_others: byId("lvl-voice-others").checked,
+        max_level: parseInt(byId("lvl-max-level").value, 10) || 1,
+        announce_enabled: byId("lvl-announce-enabled").checked,
+        announce_channel: byId("lvl-announce-channel").value,
+        announce_message: byId("lvl-announce-message").value,
+        catchup_enabled: byId("lvl-catchup-enabled").checked,
+        catchup_max_messages: parseInt(byId("lvl-catchup-max").value, 10) || 1,
+        catchup_max_channels: parseInt(byId("lvl-catchup-channels").value, 10) || 1,
+        ignored_channels: lvlSelected("lvl-ignore-channels"),
+        ignored_roles: lvlSelected("lvl-ignore-roles"),
+        rewards: rewards
+      };
+    }
+
+    lvlSave.addEventListener("click", function () {
+      lvlSave.disabled = true;
+      lvlStatus("Saving…");
+      api("POST", lvlBase, lvlCollect())
+        .then(function () {
+          lvlDirty = false;
+          lvlStatus("Saved.");
+          toast("Leveling settings saved");
+        })
+        .catch(function (e) {
+          lvlStatus(e.message, true);
+          toast("Save failed: " + e.message, true);
+        })
+        .then(function () { lvlSave.disabled = false; });
+    });
+
+    var lvlToggle = byId("lvl-toggle");
+    if (lvlToggle) {
+      lvlToggle.addEventListener("click", function () {
+        var enabled = lvlToggle.dataset.enabled !== "true";
+        var label = enabled ? "Enable leveling in this server?" : "Disable leveling? XP stops immediately and nothing is deleted.";
+        if (!confirm(label)) return;
+        lvlToggle.disabled = true;
+        api("POST", lvlBase + "/enabled", { enabled: enabled })
+          .then(function () { location.reload(); })
+          .catch(function (e) {
+            lvlToggle.disabled = false;
+            toast("Failed: " + e.message, true);
+          });
+      });
+    }
+
+    function lvlStatsText(s) {
+      var parts = [];
+      if (s.catchup_running) {
+        parts.push("Catch-up running: " + s.catchup_processed + " messages scanned, " + s.catchup_awarded + " awarded");
+      } else if (s.catchup_truncated) {
+        parts.push("Catch-up incomplete (hit a cap); it retries on the next restart.");
+      }
+      if (s.sync_running) {
+        parts.push("Reward sync: " + s.sync_processed + " / " + s.sync_total);
+      }
+      if (s.catchup_error) parts.push("Catch-up error: " + s.catchup_error);
+      if (s.sync_error) parts.push("Sync error: " + s.sync_error);
+      return parts.join(" · ");
+    }
+
+    function lvlApplyStats(s) {
+      var catchupEl = byId("lvl-catchup-status");
+      if (catchupEl) catchupEl.textContent = lvlStatsText(s);
+      var syncEl = byId("lvl-sync-status");
+      if (syncEl) {
+        syncEl.textContent = s.sync_running
+          ? "Syncing " + s.sync_processed + " / " + s.sync_total + (s.sync_failed ? " (" + s.sync_failed + " failed)" : "")
+          : (s.sync_total ? "Last sync: " + s.sync_processed + " checked, " + s.sync_failed + " failed" : "");
+      }
+      return !s.sync_running && !s.catchup_running;
+    }
+
+    function lvlPollStats() {
+      if (lvlPoll) return;
+      var tick = function () {
+        api("GET", lvlBase)
+          .then(function (res) {
+            if (lvlApplyStats(res.stats || {})) {
+              clearInterval(lvlPoll);
+              lvlPoll = null;
+            }
+          })
+          .catch(function () {
+            clearInterval(lvlPoll);
+            lvlPoll = null;
+          });
+      };
+      tick();
+      lvlPoll = setInterval(tick, 2000);
+    }
+
+    var lvlSync = byId("lvl-sync");
+    if (lvlSync) {
+      lvlSync.addEventListener("click", function () {
+        lvlSync.disabled = true;
+        api("POST", lvlBase + "/sync")
+          .then(function (res) {
+            toast(res.queued + " member(s) queued for reward sync");
+            lvlPollStats();
+          })
+          .catch(function (e) { toast("Sync failed: " + e.message, true); })
+          .then(function () { lvlSync.disabled = false; });
+      });
+    }
+
+    document.querySelectorAll("[data-lvl-edit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var userID = btn.getAttribute("data-lvl-edit");
+        var current = btn.getAttribute("data-xp") || "0";
+        var value = prompt("Set total XP for " + userID, current);
+        if (value === null) return;
+        var xp = parseInt(value, 10);
+        if (isNaN(xp) || xp < 0) {
+          toast("Enter a non-negative integer", true);
+          return;
+        }
+        btn.disabled = true;
+        api("POST", lvlBase + "/members/" + userID, { xp: xp })
+          .then(function () { location.reload(); })
+          .catch(function (e) {
+            btn.disabled = false;
+            toast("Update failed: " + e.message, true);
+          });
+      });
+    });
+
+    document.querySelectorAll("[data-lvl-reset]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var userID = btn.getAttribute("data-lvl-reset");
+        if (!confirm("Reset " + userID + "? Their XP is deleted and every leveling reward role is removed.")) return;
+        btn.disabled = true;
+        api("DELETE", lvlBase + "/members/" + userID)
+          .then(function () { location.reload(); })
+          .catch(function (e) {
+            btn.disabled = false;
+            toast("Reset failed: " + e.message, true);
+          });
+      });
+    });
+
+    lvlPollStats();
+
+    window.addEventListener("beforeunload", function (e) {
+      if (!lvlDirty) return;
+      e.preventDefault();
+      e.returnValue = "";
+    });
+  }
+
   /* ---------- reaction roles (/g/<id>/reactionroles) ---------- */
   var rrSave = byId("rr-save");
   if (rrSave) {

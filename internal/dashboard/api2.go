@@ -824,6 +824,10 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			m.routeImageFilterAPI(w, r, meth, parts)
 			return
 		}
+		if len(parts) >= 3 && parts[2] == "leveling" {
+			m.routeLevelingAPI(w, r, meth, parts)
+			return
+		}
 		if meth == "GET" {
 			m.apiGuilds(w, r)
 			return

@@ -47,6 +47,12 @@
           <span class="nav-label">Reaction Roles</span>
         </a>
         {{end}}
+        {{if .ShowLeveling}}
+        <a class="nav-item{{if eq .Page "gleveling"}} active{{end}}" href="/g/{{.GuildID}}/leveling">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="13" width="3" height="7"/><rect x="11" y="9" width="3" height="11"/><rect x="16" y="5" width="3" height="15"/></svg></span>
+          <span class="nav-label">Leveling</span>
+        </a>
+        {{end}}
         <a class="nav-item{{if eq .Page "gmodules"}} active{{end}}" href="/g/{{.GuildID}}/modules">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span class="nav-label">Modules</span>

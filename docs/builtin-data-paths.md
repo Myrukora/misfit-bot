@@ -14,6 +14,7 @@ built into the binary and their data home moved with them: each builtin's
 | `welcome` | `modules/welcome/` | `guilds/<guildID>.yaml` (0600, atomic): per-guild join/leave message, channel, auto-delete and embed builder config. No other state; delivery errors for the dashboard are in-memory only. |
 | `moderation` | `modules/moderation/` | `guilds/<guildID>.yml` (0600, atomic): enabled, audit/warn channels, warn expiry, ban delete seconds and escalation rules. `cases/<guildID>.json` (0600, atomic): the per-guild case audit (`next_id` + newest 20,000 cases, including removed warnings and automated actions). |
 | `reactionroles` | `modules/reactionroles/` | `guilds/<guildID>.yml` (0600, atomic): panel list with name/enabled/channel/embed/mappings and module-owned posted state (message ID, posted channel, synced emoji list). |
+| `leveling` | `modules/leveling/` | `leveling.db` (SQLite, WAL, 0700 dir): `guild_config` (per-guild settings), `guild_reward` and `guild_ignored` (reward roles, ignored channels/roles), `member_xp` and `member_reward_role` (XP, message/voice counters, granted reward roles), `channel_checkpoint` (per-channel catch-up cursors) and `guild_state` (last-seen watermark). No YAML/JSON files. |
 
 ## Notes
 
@@ -22,7 +23,8 @@ built into the binary and their data home moved with them: each builtin's
   "Go", "dashboard")`.
 - **`.gitignore` covers the runtime state, not the source.** The relevant
   rules are `modules/tickets/`, `modules/imagefilter/`, `modules/welcome/`,
-  `modules/moderation/` and `modules/reactionroles/` (whole builtin data dirs),
+  `modules/moderation/`, `modules/reactionroles/` and `modules/leveling/`
+  (whole builtin data dirs),
   `modules/Go/` (the dashboard data home plus any legacy plugin-era state), the
   generic `modules/{Lua,Python}/*/{config*.yml,config.json,data,logs,models}`
   module-data rules, `__pycache__/`/`*.pyc`, `*.so`, and `*.tmp` (the temp file
