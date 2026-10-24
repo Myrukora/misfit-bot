@@ -1,81 +1,55 @@
 # Logs
-logs
+/logs/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-dev-debug.log
 
-# Dependency directories
-node_modules/
-
-# Environment variables
+# Environment / secrets (keep broad: never commit a secrets file from any dir)
 .env
 
-# Bot configuration (contains tokens)
-config.yml
-config_backup_*.yml
-config_pre_restore_*.yml
+# Bot configuration (root; contains tokens)
+/config.yml
+/config_backup_*.yml
+/config_pre_restore_*.yml
 
-# Terms of Service / Privacy Policy: deployment content edited in place and
-# served at /tos + /policy. The dashboard seeds legal/terms.md and
-# legal/privacy.md with starter text on first render, so these are never
-# committed (edit them locally, not in the repo).
-legal/
+# Legal pages: deployment content edited in place and served at /tos + /policy.
+# The dashboard seeds legal/terms.md and legal/privacy.md on first render.
+/legal/
 
 # Runtime/bot-generated state (never commit)
-# Module runtime data lives INSIDE each module's folder (modules/<lang>/<name>/):
-# source is tracked, the module's own configs/saves/logs are ignored.
-bot.new
-bot.old
-updater_state.json
-config_pre_restore_*.yml
-.pi/
-.tmp/
+/bot.new
+/bot.old
+/updater_state.json
+/loaded_modules.json
+/command_overrides.json
 
-# Atomic-write siblings of the state files above (command_overrides.json.tmp,
-# updater_state.json.tmp) plus module-side *.tmp staging: the temp file a writer
-# creates between write and rename.
+# Atomic-write sibling files (command_overrides.json.tmp,
+# updater_state.json.tmp, module staging, ...).
 *.tmp
 
-# Module runtime data (configs, saves, logs) inside module folders.
-# A module with other data filenames can add its own .gitignore in its folder.
-modules/Go/*/config*.yml
-modules/Go/*/data/
-modules/Go/*/logs/
+# Compiled-in builtin runtime data (source lives in internal/builtin/).
+# modules/Go/ is the dashboard data home plus any legacy plugin-era state.
+/modules/Go/
+/modules/tickets/
+/modules/imagefilter/
+/modules/welcome/
+/modules/moderation/
+/modules/reactionroles/
+
+# Dynamic Lua/Python module runtime data. Source is tracked; configs, state,
+# logs, models and venvs inside a module folder are not.
 modules/Python/*/config*.yml
 modules/Python/*/config.json
 modules/Python/*/data/
 modules/Python/*/logs/
 modules/Python/*/models/
+modules/Python/*/.venv/
 modules/Lua/*/config*.yml
 modules/Lua/*/config.json
 modules/Lua/*/data/
 modules/Lua/*/logs/
-# Tickets compiled-in builtin runtime data (source lives in internal/builtin/tickets/)
-modules/tickets/
-# Imagefilter compiled-in builtin runtime data (source lives in internal/builtin/imagefilter/)
-modules/imagefilter/
-# Welcome compiled-in builtin runtime data (per-guild configs)
-modules/welcome/
-# Moderation compiled-in builtin runtime data (per-guild configs + case audit)
-modules/moderation/
-# Reaction roles compiled-in builtin runtime data (per-guild panels)
-modules/reactionroles/
-# Legacy Go plugin data dirs (pre-cutover runtime state)
-modules/Go/*/guilds/
-modules/Go/*/tickets/
-modules/Go/*/spam_images/
-modules/Go/*/config.json
-# Retired Python module runtime data (image_spam_filter source removed in 0.2.0)
-modules/Python/image_spam_filter/
 
-# Python SDK IPC sockets / runtime droppings
-modules/Python/*/*.sock
-modules/Python/*/*.pid
-
-# Legacy pre-restructure module config location (contains secrets)
-module_configs/
+# Python caches
+__pycache__/
+*.pyc
 
 # Go build/test droppings
 *.test
@@ -85,58 +59,26 @@ coverage.html
 # Bot binary (root-anchored: must NOT match cmd/bot/)
 /bot
 
-# Module persistence
-loaded_modules.json
-
-# Per-command command overrides (global + per-guild enable/disable/restrict)
-command_overrides.json
-
-# Python module venvs and caches
-modules/Python/*/.venv/
-modules/Python/*/__pycache__/
-# Python SDK caches
-__pycache__/
-*.pyc
-
-# Editor directories and files
-.idea
-.vscode
-
-# Agent-local tooling state (never repo content). .claude/settings.local.json was
-# previously excluded only by a machine-wide ~/.config/git/ignore, which does not
-# travel with the repo — a fresh clone/CI would have committed it.
-.claude/
-.omp/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# OS specific
-.DS_Store
-
-# Built plugin binaries (artifacts, not source)
-modules/Go/*/*.so
+# Plugin/shared-library artifacts (the Go plugin path is gone; safety net)
 *.so
 
-# Hermes agent workspace (plans, session state)
-.hermes/
+# ONNX Runtime C library + include tree (scripts/setup_imagefilter.sh, local only)
+/lib/
 
-# Local dev experiments (never tracked)
-scratch/
+# Legacy pre-restructure module config location (may contain secrets)
+module_configs/
+
+# Agent/tool-local state (never repo content)
+/.claude/
+/.omp/
+/.hermes/
+/.worktrees/
+/scratch/
 *.local.yml
 *.local.yaml
 
-# Leftover git worktrees from dev sessions
-.worktrees/
-
-# Dashboard redesign drafts (local only)
-/redesign/
-
-# ONNX Runtime C library + include tree (scripts/setup_imagefilter.sh, local only).
-# The whole lib/ tree is local-only: no source-level file lives under it.
-lib/
-
-# imagefilter builtin model files (regenerable via scripts/setup_imagefilter.sh)
-modules/imagefilter/models/
+# Editor/OS files
+.idea/
+.vscode/
+.DS_Store
+*.sw?

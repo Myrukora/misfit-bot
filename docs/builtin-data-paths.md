@@ -23,18 +23,16 @@ built into the binary and their data home moved with them: each builtin's
 - **`.gitignore` covers the runtime state, not the source.** The relevant
   rules are `modules/tickets/`, `modules/imagefilter/`, `modules/welcome/`,
   `modules/moderation/` and `modules/reactionroles/` (whole builtin data dirs),
-  `modules/Go/*/{guilds,tickets,spam_images}/` and
-  `modules/Go/*/config.json` (legacy plugin-era state), the generic
-  `modules/{Go,Lua,Python}/*/{config*.yml,config.json,data,logs}` module-data
-  rules, `*.so` and `modules/Go/*/*.so`, `*.tmp` (the temp file every atomic
-  writer creates between write and rename), and `modules/imagefilter/models/`
-  (regenerable via the setup script). Source for all of this lives in
-  `internal/builtin/` and stays tracked.
+  `modules/Go/` (the dashboard data home plus any legacy plugin-era state), the
+  generic `modules/{Lua,Python}/*/{config*.yml,config.json,data,logs,models}`
+  module-data rules, `__pycache__/`/`*.pyc`, `*.so`, and `*.tmp` (the temp file
+  every atomic writer creates between write and rename). Source for all of this
+  lives in `internal/builtin/` and stays tracked.
 - **Retired Python module.** `image_spam_filter`'s source was deleted in this
   release; a full copy of the backup lives in the gitignored
-  `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`. Its data dir
-  (`modules/Python/image_spam_filter/`, now explicitly gitignored) is orphaned
-  on disk and is read by nothing: its gallery was a flat `spam_images/` file
+  `.hermes/backups/2026-09-09-pre-revamp/image_spam_filter`. Its old data dir
+  (`modules/Python/image_spam_filter/`) is orphaned on disk and is read by
+  nothing; delete it if present. The old gallery was a flat `spam_images/` file
   dump whose guild mapping lived inside `config.json`'s `guilds` map, which does
   not map unambiguously onto the builtin's per-guild
   `spam_images/<guildID>/` layout. Re-add those references for a guild through
