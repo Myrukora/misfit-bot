@@ -962,29 +962,29 @@ block startup. `--no-modules` skips module loading entirely.
 
 ## Compiled-in Go feature modules
 
-The bot's own feature modules — `cleanup` and `tickets` (Discord commands) and
-`imagefilter` (dashboard-only) — are **compiled into the binary**. They are not
-user-loadable, they cannot be added without changing the bot's source and
-building it, and there is no `.so` plugin path at all: the module manager
-rejects anything that isn't Lua or Python with
+The bot's own feature modules — `cleanup`, `tickets`, `welcome`, `moderation`
+and `reactionroles` (Discord commands/surfaces) plus `imagefilter`
+(dashboard-only) — are **compiled into the binary**. They are not user-loadable,
+they cannot be added without changing the bot's source and building it, and
+there is no `.so` plugin path at all: the module manager rejects anything that
+isn't Lua or Python with
 
 ```
 unsupported module type for <path> — only Lua and Python modules are loadable;
-feature modules (cleanup/tickets) are compiled-in and managed with
-/modules enable|disable
+feature modules are compiled-in and managed with /modules enable|disable
 ```
 
 **If you want to add Go code to this bot, this is the path:**
 
 1. Write the module under `internal/builtin/<name>/` implementing the
    `modules.Module` interface (name/version/description/author, `OnLoad`,
-   `OnUnload`, `Commands`, `SlashCommands`, `Dependencies`) plus an exported
+   `OnUnload`, `SlashCommands`, `Dependencies`) plus an exported
    `New() modules.Module`.
 2. Register the constructor in `cmd/bot/main.go`'s
    `ModMgr.RegisterBuiltinsWithFilter(...)` call next to
    `cleanup.New, tickets.New, imagefilter.New, welcome.New, moderation.New, reactionroles.New`.
-3. Build and restart. `/modules enable|disable <name>` then gates it through
-   the `enabled_modules` config map (a missing key means enabled).
+3. Build and restart. The builtin is gated through the `enabled_modules` config
+   map (a missing key means enabled); restart the bot to apply the change.
 
 Two useful references in-tree:
 
@@ -996,17 +996,18 @@ Two useful references in-tree:
 
 A builtin's data directory is `modules/<name>/` (its `OnLoad` gets `DataDir` =
 the configured modules path + the module name). `imagefilter` is registered the
-same way but is not accepted by `/modules enable|disable`, which only knows
-`cleanup` and `tickets`. The dashboard — an always-on subsystem rather than a
-builtin — is pinned to the historical `modules/Go/dashboard/` path so its
-module-local state survives.
+same way; the current `/modules enable|disable` guard recognizes `cleanup`,
+`tickets`, and `imagefilter`, while the other builtins are gated through
+`enabled_modules` at startup. The dashboard — an always-on subsystem rather
+than a builtin — is pinned to the historical `modules/Go/dashboard/` path so
+its module-local state survives.
 
 Background services (an HTTP server, a poll loop, a long-running worker) belong
 in this compiled-in layer, not in a dynamic module: the dashboard and the MCP
 endpoint are in-process subsystems constructed in `cmd/bot/main.go`, and
 because a panic there would take the whole bot down, they wrap their handlers
 in panic-recovery middleware and run their I/O off the gateway goroutines. For
-the bot's internals, read `CLAUDE.md`.
+a map of the bot's internals, read `AGENTS.md`.
 
 ## Gotchas
 
