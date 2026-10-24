@@ -26,7 +26,7 @@ import (
 // (the module's config directory) for persisting values.
 //
 // The file is deliberately NOT loadable as a module itself: every scan site
-// (AutoLoad, [p]load all, GetAvailableModuleNames, DiscoverLuaModules) skips
+// (AutoLoad, /load all, GetAvailableModuleNames, DiscoverLuaModules) skips
 // `*.dashboard.lua`.
 
 // IsLuaDashboardScript reports whether a filename is a dashboard integration

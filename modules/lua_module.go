@@ -19,7 +19,6 @@ type LuaModule struct {
 	L           *lua.LState
 	bridge      *LuaBridge
 	mu          sync.Mutex
-	commands    []commands.Command
 	slashCmds   []commands.SlashCommand
 	// Optional dashboard integration (modules/<name>.dashboard.lua). Nil =
 	// no dashboard integration; HasWebConfig() reports the opt-in state.
@@ -108,9 +107,6 @@ func (m *LuaModule) OnLoad(ctx *Context) error {
 		}
 	}
 
-	// Extract commands
-	m.commands = m.extractCommands(modTable)
-
 	// Extract slash commands
 	m.slashCmds = m.extractSlashCommands(modTable)
 
@@ -164,11 +160,6 @@ func (m *LuaModule) OnUnload() error {
 	return nil
 }
 
-// Commands returns the module's prefix commands.
-func (m *LuaModule) Commands() []commands.Command {
-	return m.commands
-}
-
 // SlashCommands returns the module's slash commands.
 func (m *LuaModule) SlashCommands() []commands.SlashCommand {
 	return m.slashCmds
@@ -177,92 +168,6 @@ func (m *LuaModule) SlashCommands() []commands.SlashCommand {
 // Dependencies returns the module's dependencies (always empty for Lua modules).
 func (m *LuaModule) Dependencies() []string {
 	return nil
-}
-
-// extractCommands reads commands from the Lua module table.
-func (m *LuaModule) extractCommands(modTable *lua.LTable) []commands.Command {
-	commandsFn := m.L.GetField(modTable, "commands")
-	if commandsFn == lua.LNil {
-		return nil
-	}
-
-	fn, ok := commandsFn.(*lua.LFunction)
-	if !ok {
-		return nil
-	}
-
-	// Call the commands function
-	if err := m.L.CallByParam(lua.P{
-		Fn:      fn,
-		NRet:    1,
-		Protect: true,
-	}, modTable); err != nil {
-		return nil
-	}
-
-	// Get the returned table
-	ret := m.L.Get(-1)
-	m.L.Pop(1)
-
-	cmdTable, ok := ret.(*lua.LTable)
-	if !ok {
-		return nil
-	}
-
-	var cmds []commands.Command
-
-	// Iterate over the table
-	cmdTable.ForEach(func(_ lua.LValue, value lua.LValue) {
-		cmdDef, ok := value.(*lua.LTable)
-		if !ok {
-			return
-		}
-
-		cmd := commands.Command{
-			Name:        lua.LVAsString(m.L.GetField(cmdDef, "name")),
-			Description: lua.LVAsString(m.L.GetField(cmdDef, "description")),
-			Usage:       lua.LVAsString(m.L.GetField(cmdDef, "usage")),
-			Category:    lua.LVAsString(m.L.GetField(cmdDef, "category")),
-		}
-
-		// Get the execute function
-		executeFn := m.L.GetField(cmdDef, "execute")
-		if executeFn == lua.LNil {
-			return
-		}
-
-		executeLuaFn, ok := executeFn.(*lua.LFunction)
-		if !ok {
-			return
-		}
-
-		// Capture the function for the closure
-		L := m.L
-		mod := modTable
-
-		cmd.Execute = func(ctx *commands.Context) error {
-			// gopher-lua LState is NOT thread-safe; serialize access.
-			m.mu.Lock()
-			defer m.mu.Unlock()
-
-			// Register command-specific context
-			m.bridge.RegisterCommandContext(L, ctx)
-
-			// Call the Lua execute function
-			if err := L.CallByParam(lua.P{
-				Fn:      executeLuaFn,
-				NRet:    0,
-				Protect: true,
-			}, mod); err != nil {
-				return fmt.Errorf("Lua command %s failed: %w", cmd.Name, err)
-			}
-			return nil
-		}
-
-		cmds = append(cmds, cmd)
-	})
-
-	return cmds
 }
 
 // extractSlashCommands reads slash commands from the Lua module table.

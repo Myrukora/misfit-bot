@@ -4,7 +4,7 @@
         {{if .sections}}
         <section class="card">
           <h2>Core configuration</h2>
-          <p class="muted">Bot-wide settings — the same surface as [p]set. Channel/role/user pickers populate from the selected server.</p>
+          <p class="muted">Bot-wide settings (core config). Channel/role/user pickers populate from the selected server.</p>
           {{range .sections}}
           <div class="config-section">
             <h3>{{.Title}}</h3>
@@ -30,7 +30,7 @@
         <!-- ===== Updater status (owner) ===== -->
         <section class="card">
           <h2>Updater</h2>
-          <p class="muted">Live updater state; actions mirror the owner-only [p]update commands.</p>
+          <p class="muted">Live updater state; actions mirror the owner-only /update commands.</p>
           <div class="updater-status" id="updater-status">Loading…</div>
           <div class="add-row">
             <button type="button" class="btn btn-small" id="upd-check">Check now</button>

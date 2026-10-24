@@ -18,7 +18,6 @@ type Module interface {
 	Author() string
 	OnLoad(ctx *Context) error
 	OnUnload() error
-	Commands() []commands.Command
 	SlashCommands() []commands.SlashCommand
 	Dependencies() []string
 }
@@ -83,7 +82,7 @@ func IsWebConfigurable(m Module) (WebConfigurable, bool) {
 }
 
 // Disablable is the optional interface a builtin implements to run graceful
-// teardown when it is disabled via [p]modules disable (or unloaded). The
+// teardown when it is disabled via /modules disable (or unloaded). The
 // manager calls OnDisable() instead of OnUnload() for modules that implement
 // it — a builtin's OnUnload is reserved for full shutdown, while OnDisable
 // is the "turn this feature off" path (deregister hooks, flush state).
@@ -546,7 +545,7 @@ func (m *Manager) Load(path string, hooks *EventHooks) (Module, error) {
 	case "python":
 		return m.loadPythonModule(path, hooks)
 	default:
-		return nil, fmt.Errorf("unsupported module type for %s — only Lua and Python modules are loadable; feature modules (cleanup/tickets) are compiled-in and managed with [p]modules enable|disable", path)
+		return nil, fmt.Errorf("unsupported module type for %s — only Lua and Python modules are loadable; feature modules (cleanup/tickets) are compiled-in and managed with /modules enable|disable", path)
 	}
 }
 
@@ -721,33 +720,17 @@ func (m *Manager) List() []ModuleInfo {
 	return infos
 }
 
-func (m *Manager) AllCommands() []commands.Command {
+func (m *Manager) AllSlashCommandsByModule() []commands.ModuleSlashCommands {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var all []commands.Command
+	var all []commands.ModuleSlashCommands
 	for _, name := range m.order {
-		all = append(all, m.modules[name].Module.Commands()...)
-	}
-	return all
-}
-
-// AllCommandsByModule returns each loaded module's prefix commands grouped under
-// the module's name, in load order. Modules with no commands are skipped. The
-// bot's [p]help uses this to list each module's commands in a category named
-// after the module itself (e.g. the cleanup module's commands appear under a
-// "Cleanup" category).
-func (m *Manager) AllCommandsByModule() []commands.ModuleCommands {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	var all []commands.ModuleCommands
-	for _, name := range m.order {
-		cmds := m.modules[name].Module.Commands()
+		cmds := m.modules[name].Module.SlashCommands()
 		if len(cmds) == 0 {
 			continue
 		}
-		all = append(all, commands.ModuleCommands{Name: name, Commands: cmds})
+		all = append(all, commands.ModuleSlashCommands{Name: name, Commands: cmds})
 	}
 	return all
 }

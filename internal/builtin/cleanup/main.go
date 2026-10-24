@@ -169,20 +169,10 @@ func (m *CleanupModule) deleteSingle(channelID, msgID snowflake.ID) error {
 	return m.ctx.Rest.DeleteMessage(channelID, msgID)
 }
 
-// done reports the deletion result. The invoking command message is usually
-// inside the deleted range (it is the newest message in the channel), so it
-// is excluded from the reported count for honesty. failed counts individual
-// deletes that errored — reported instead of claiming a full success.
+// done reports the deletion result. failed counts individual deletes that
+// errored — reported instead of claiming a full success.
 func (m *CleanupModule) done(ctx *commands.Context, ids []snowflake.ID, failed int) {
 	count := len(ids)
-	if invoking, err := parseSnowflake(ctx.MessageID); err == nil {
-		for _, id := range ids {
-			if id == invoking {
-				count--
-				break
-			}
-		}
-	}
 	if count <= 0 && failed == 0 {
 		ctx.Respond(embed.Info("🧹 Cleanup", "No messages to delete (might be too old or already deleted)."))
 		return
@@ -192,19 +182,6 @@ func (m *CleanupModule) done(ctx *commands.Context, ids []snowflake.ID, failed i
 		return
 	}
 	ctx.Respond(embed.Success("🧹 Cleanup", fmt.Sprintf("Deleted **%d** messages.", count)))
-}
-
-func (m *CleanupModule) Commands() []commands.Command {
-	return []commands.Command{
-		{
-			Name:         "cleanup",
-			Description:  "Delete messages in bulk — by count, user, text, or duplicates. Pick a subcommand.",
-			Usage:        "cleanup <subcommand>",
-			Category:     "cleanup",
-			RequiredPerm: discord.PermissionManageMessages,
-			Execute:      m.dispatch,
-		},
-	}
 }
 
 // SlashCommands exposes cleanup as /cleanup with nested subcommand options:
@@ -245,7 +222,7 @@ func (m *CleanupModule) SlashCommands() []commands.SlashCommand {
 					},
 				},
 				discord.ApplicationCommandOptionSubCommand{
-					Name: "bot", Description: "Delete the last N messages from any bot or that start with the prefix.",
+					Name: "bot", Description: "Delete the last N messages sent by bots.",
 					Options: []discord.ApplicationCommandOption{intOpt("count", "How many messages", true)},
 				},
 				discord.ApplicationCommandOptionSubCommand{
@@ -280,8 +257,8 @@ func (m *CleanupModule) SlashCommands() []commands.SlashCommand {
 	}
 }
 
-// dispatch runs a cleanup invocation from ctx.Args (prefix and slash share
-// this path: slash options are converted to the same positional args).
+// dispatch runs a cleanup invocation from ctx.Args (the slash dispatcher
+// converts the subcommand name and its options into the same positional args).
 func (m *CleanupModule) dispatch(ctx *commands.Context) error {
 	if len(ctx.Args) == 0 {
 		return ctx.Respond(embed.New().
@@ -454,14 +431,8 @@ func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
-	prefix := m.ctx.Bot.GetPrefix()
-
 	toDelete, err := m.fetchMessages(channelID, number, 0, func(msg discord.Message) bool {
-		if msg.Author.Bot {
-			return true
-		}
-		content := strings.TrimSpace(msg.Content)
-		return strings.HasPrefix(content, prefix)
+		return msg.Author.Bot
 	})
 	if err != nil {
 		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))

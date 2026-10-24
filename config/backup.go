@@ -13,7 +13,7 @@ import (
 )
 
 // BackupService encapsulates config backup operations: create, list, verify,
-// and restore. It is shared by the [p]backup command and the dashboard
+// and restore. It is shared by the dashboard backup endpoints and the
 // Configuration tab so both reuse the exact same logic.
 //
 // Backups are written as config_backup_<timestamp>.yml in configDir and are

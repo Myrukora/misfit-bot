@@ -10,7 +10,7 @@ import (
 // webconfig.go — the tickets module's GLOBAL (bot-wide) settings: retention
 // and the open-time modal master switch. Per-guild management (types, panels,
 // log channel) is done on the dashboard's Tickets page through
-// modules.TicketAdmin — the [p]tickets / /tickets configuration command tree
+// modules.TicketAdmin — the /tickets configuration command tree
 // was removed in favour of that surface. Closing is in-channel only.
 
 func (m *TicketsModule) WebConfigSchema() []modules.ConfigField {

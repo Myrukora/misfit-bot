@@ -5,7 +5,7 @@ Base Module class for Misfit Python modules.
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from misfit.commands import Command, SlashCommand
+from misfit.commands import SlashCommand
 
 
 class Module(ABC):
@@ -21,7 +21,6 @@ class Module(ABC):
     Subclasses must implement:
         on_load(ctx): Called when module is loaded
         on_unload(): Called when module is unloaded
-        commands(): Returns list of Command objects
         slash_commands(): Returns list of SlashCommand objects
         event_handlers(): Returns dict of event name -> handler function
     """
@@ -40,11 +39,6 @@ class Module(ABC):
     def on_unload(self) -> None:
         """Called when the module is unloaded."""
         pass
-
-    @abstractmethod
-    def commands(self) -> List[Command]:
-        """Returns a list of prefix commands."""
-        raise NotImplementedError
 
     @abstractmethod
     def slash_commands(self) -> List[SlashCommand]:

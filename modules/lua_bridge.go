@@ -53,7 +53,6 @@ func (b *LuaBridge) RegisterContext(L *lua.LState) {
 	L.SetField(ctx, "log_error", L.NewFunction(b.luaLogError))
 
 	// Bot info functions
-	L.SetField(ctx, "get_prefix", L.NewFunction(b.luaGetPrefix))
 	L.SetField(ctx, "get_name", L.NewFunction(b.luaGetName))
 	L.SetField(ctx, "get_version", L.NewFunction(b.luaGetVersion))
 	L.SetField(ctx, "get_owner_id", L.NewFunction(b.luaGetOwnerID))
@@ -671,11 +670,6 @@ func (b *LuaBridge) luaLogError(L *lua.LState) int {
 
 // ── Bot info functions ────────────────────────────────────────────
 
-func (b *LuaBridge) luaGetPrefix(L *lua.LState) int {
-	L.Push(lua.LString(b.Bot.GetPrefix()))
-	return 1
-}
-
 func (b *LuaBridge) luaGetName(L *lua.LState) int {
 	L.Push(lua.LString(b.Bot.GetName()))
 	return 1
@@ -721,7 +715,7 @@ func (b *LuaBridge) luaGetSelfUserID(L *lua.LState) int {
 // ── Command context registration ──────────────────────────────────
 
 // RegisterCommandContext registers a command-specific context with respond/reply functions.
-// Command-specific fields (channel_id, guild_id, author_id, is_slash, args, respond, reply_text)
+// Command-specific fields (channel_id, guild_id, author_id, args, respond, reply_text)
 // are updated each call, but any pre-existing fields on the ctx table are preserved,
 // allowing stateful Lua modules to store data between commands.
 func (b *LuaBridge) RegisterCommandContext(L *lua.LState, ctx *commands.Context) {
@@ -738,7 +732,6 @@ func (b *LuaBridge) RegisterCommandContext(L *lua.LState, ctx *commands.Context)
 	L.SetField(ctxTable, "channel_id", lua.LString(ctx.ChannelID))
 	L.SetField(ctxTable, "guild_id", lua.LString(ctx.GuildID))
 	L.SetField(ctxTable, "author_id", lua.LString(ctx.Author.ID.String()))
-	L.SetField(ctxTable, "is_slash", lua.LBool(ctx.IsSlash))
 
 	// Update args (refreshed each command)
 	argsTable := L.NewTable()

@@ -49,11 +49,6 @@ func (m *TicketsModule) Dependencies() []string {
 	return []string{"dashboard"} // soft dep: dashboard renders transcripts if present
 }
 
-func (m *TicketsModule) Commands() []commands.Command {
-	// Configuration lives entirely on the dashboard (TicketAdmin). The only
-	// commands are the end-user actions usable inside an open ticket channel.
-	return m.inChannelCommands()
-}
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand {
 	return []commands.SlashCommand{
 		{Name: "close", Description: "Close the ticket in this channel", Category: "Tickets", Execute: m.closeTicketCommand},
@@ -119,7 +114,7 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	m.registerModal()
 	m.registerChannels()
 
-	// Cache self ID for overwrite computation ([p]add etc. need it too).
+	// Cache self ID for overwrite computation (/add etc. need it too).
 	m.mu.Lock()
 	m.botSelfID = ctx.Bot.GetSelfUserID()
 	m.loaded = true
@@ -159,7 +154,7 @@ func (m *TicketsModule) OnUnload() error {
 }
 
 // OnDisable implements modules.Disablable: disabling tickets via
-// [p]modules disable flushes state (same as unload) so no tickets are lost
+// /modules disable flushes state (same as unload) so no tickets are lost
 // when the feature is turned off and later re-enabled.
 func (m *TicketsModule) OnDisable() error {
 	return m.OnUnload()

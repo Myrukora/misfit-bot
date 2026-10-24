@@ -62,10 +62,10 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsContent := map[string]any{}
 	commandsGroups := []moduleGroup{}
 	cat := catGroup{Name: "general", Commands: []cmdView{
-		{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, UsableIn: []string{"1"}, Aliases: []string{"p"}},
-		{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
-		{Name: "settings", Description: "x", Category: "core", ModuleOwner: "core", Kind: "slash"},
-		{Name: "cleanup", Description: "clean", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usable: true, Options: []argOpt{
+		{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usable: true, UsableIn: []string{"1"}},
+		{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", OwnerOnly: true, SuperOwnerOnly: true, Usable: true},
+		{Name: "settings", Description: "x", Category: "core", ModuleOwner: "core"},
+		{Name: "cleanup", Description: "clean", Category: "cleanup", ModuleOwner: "cleanup", Usable: true, Options: []argOpt{
 			{Name: "subcommand", Type: "string", Required: true, Choices: []string{"messages", "user"}},
 			{Name: "count", Type: "int"},
 			{Name: "target", Type: "user"},
@@ -75,7 +75,6 @@ func TestTemplatesParseAndRender(t *testing.T) {
 	commandsContent["groups"] = commandsGroups
 	commandsContent["guild"] = "1"
 	commandsContent["count"] = 4
-	commandsContent["mode"] = "prefix"
 	commandsContent["canRaw"] = true
 	commandsContent["channels"] = []entityOpt{{ID: "c1", Name: "general"}, {ID: "c2", Name: "staff"}}
 	commandsContent["roles"] = []entityOpt{{ID: "r1", Name: "@everyone"}}
@@ -90,7 +89,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_login", nil}, // standalone variant also exercised via ShowSidebar=false below
 		{"rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111", "redirect_uri": "https://x.com/callback",
-			"listen": "127.0.0.1:8080", "prefix": "?",
+			"listen": "127.0.0.1:8080",
 		}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{{ID: "1", Name: "G", Icon: "https://cdn/i.png"}, {ID: "2", Name: "Second"}}}},
 		{"rd_servers", map[string]any{"guilds": []guildPickerRow{}}},
@@ -100,7 +99,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": nil, "note": "no log file"}},
 		{"rd_admin", map[string]any{
 			"sections": []settingsSection{{Title: "Bot", Help: "h", Fields: []fieldRender{
-				{Key: "prefix", Label: "Prefix", Type: "text", Value: "?"},
+				{Key: "owner_id", Label: "Owner ID", Type: "text", Value: "123"},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info"}},
 				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
 			}}},
@@ -243,7 +242,7 @@ func TestSettingsSectionsPins(t *testing.T) {
 	build := func(locked bool) map[string]any {
 		return map[string]any{
 			"sections": []settingsSection{
-				{Title: "Bot", Fields: []fieldRender{{Key: "prefix", Label: "Command prefix", Type: "text", Value: "?"}}},
+				{Title: "Bot", Fields: []fieldRender{{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
 				{Title: "Dashboard", Fields: []fieldRender{{Key: "dashboard_listen", Label: "Listen address", Type: "text", Value: ""}}},
 				{Title: "Updater", Fields: []fieldRender{{Key: "updater_enabled", Label: "Enabled", Type: "toggle", Value: "true"}}},
@@ -384,9 +383,9 @@ func TestRedesignCommandsRunAffordance(t *testing.T) {
 	groups := []moduleGroup{{
 		Module: "core",
 		Categories: []catGroup{{Name: "general", Commands: []cmdView{
-			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usable: true, CanExec: true},
-			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
-			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Kind: "prefix", Usable: false},
+			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usable: true, CanExec: true},
+			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
+			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Usable: false},
 		}}},
 	}}
 	d := mkData(lvlOwner)

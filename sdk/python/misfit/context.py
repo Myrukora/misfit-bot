@@ -43,13 +43,12 @@ class Context:
     """
 
     def __init__(self, ipc, channel_id: str, guild_id: str, author_id: str,
-                 args: list, is_slash: bool, req_id: str = ""):
+                 args: list, req_id: str = ""):
         self._ipc = ipc
         self.channel_id = channel_id
         self.guild_id = guild_id
         self.author_id = author_id
         self.args = args
-        self.is_slash = is_slash
         self.req_id = req_id  # non-empty when invoked from the web dashboard
 
     def respond(self, title: str, description: str = "") -> None:
@@ -111,11 +110,6 @@ class BotContext:
     def owner_id(self) -> str:
         """Get the bot owner's user ID."""
         return self._bot_info.get("owner_id", "")
-
-    @property
-    def prefix(self) -> str:
-        """Get the bot's command prefix."""
-        return self._bot_info.get("prefix", "")
 
     @property
     def version(self) -> str:

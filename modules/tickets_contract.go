@@ -52,7 +52,7 @@ type Ticket struct {
 	OpenedAt       time.Time  `json:"opened_at"`
 	ClosedAt       time.Time  `json:"closed_at"`                 // zero while open
 	Status         string     `json:"status"`                    // "open" | "closed"
-	Members        []string   `json:"members,omitempty"`         // extra members added via [p]add
+	Members        []string   `json:"members,omitempty"`         // extra members added via /add
 	TranscriptPath string     `json:"transcript_path,omitempty"` // relative to DataDir; set after close
 	CloseReason    string     `json:"close_reason,omitempty"`    // "user" | "channel_deleted"
 	Log            []LogEntry `json:"log"`

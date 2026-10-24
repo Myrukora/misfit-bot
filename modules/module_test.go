@@ -8,8 +8,8 @@ import (
 
 // fakeMod is a minimal Module for Manager tests.
 type fakeMod struct {
-	name string
-	cmds []commands.Command
+	name      string
+	slashCmds []commands.SlashCommand
 }
 
 func (f *fakeMod) Name() string                           { return f.name }
@@ -18,24 +18,23 @@ func (f *fakeMod) Description() string                    { return "" }
 func (f *fakeMod) Author() string                         { return "" }
 func (f *fakeMod) OnLoad(_ *Context) error                { return nil }
 func (f *fakeMod) OnUnload() error                        { return nil }
-func (f *fakeMod) Commands() []commands.Command           { return f.cmds }
-func (f *fakeMod) SlashCommands() []commands.SlashCommand { return nil }
+func (f *fakeMod) SlashCommands() []commands.SlashCommand { return f.slashCmds }
 func (f *fakeMod) Dependencies() []string                 { return nil }
 
-// TestAllCommandsByModule verifies that [p]help's grouping source groups each
-// module's commands under the module's name, in load order, and skips modules
-// that expose no commands.
-func TestAllCommandsByModule(t *testing.T) {
+// TestAllSlashCommandsByModule verifies that /help's grouping source groups
+// each module's slash commands under the module's name, in load order, and
+// skips modules that expose no commands.
+func TestAllSlashCommandsByModule(t *testing.T) {
 	m := &Manager{
 		modules: map[string]*LoadedModule{
-			"cleanup":   {Module: &fakeMod{name: "cleanup", cmds: []commands.Command{{Name: "cleanup"}, {Name: "purge"}}}},
-			"dashboard": {Module: &fakeMod{name: "dashboard", cmds: []commands.Command{{Name: "dashboard"}}}},
+			"cleanup":   {Module: &fakeMod{name: "cleanup", slashCmds: []commands.SlashCommand{{Name: "cleanup"}, {Name: "purge"}}}},
+			"dashboard": {Module: &fakeMod{name: "dashboard", slashCmds: []commands.SlashCommand{{Name: "dashboard"}}}},
 			"silent":    {Module: &fakeMod{name: "silent"}}, // no commands — must be skipped
 		},
 		order: []string{"cleanup", "silent", "dashboard"},
 	}
 
-	got := m.AllCommandsByModule()
+	got := m.AllSlashCommandsByModule()
 	if len(got) != 2 {
 		t.Fatalf("want 2 groups (silent skipped), got %d: %+v", len(got), got)
 	}

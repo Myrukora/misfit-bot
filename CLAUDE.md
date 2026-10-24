@@ -27,9 +27,9 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 /home/sam/bot/
 ├── cmd/bot/main.go           # Entry point — Discord connection, event handling, command dispatch
 ├── commands/
-│   ├── command.go            # Core types: Command, SlashCommand, Context, Interface
-│   ├── slashargs.go          # Slash→prefix arg vector: declared option order, subcommand-group aware
-│   └── core.go               # 13 core commands + auto-generated slash equivalents
+│   ├── command.go            # Core types: SlashCommand, Context, Interface
+│   ├── slashargs.go          # Slash→positional arg vector: declared option order, subcommand-group aware
+│   └── core.go               # 13 core slash commands
 ├── config/
 │   └── config.go             # YAML config loading/saving, Config struct, Set() with validation
 ├── embed/
@@ -101,7 +101,7 @@ A modular Discord bot in Go. The web dashboard and the cleanup/tickets/imagefilt
 │   │   ├── pages.go          # Page handlers + baseData + fieldRender (schema-driven fields)
 │   │   ├── auth.go           # OAuth2 login, signed session cookies, mutual-guild enforcement
 │   │   ├── acl.go            # 4 RBAC tiers (owner/elevated/staff/regular) + route guards
-│   │   ├── commands.go       # Command catalog filtered via canUse (mirrors [p]help)
+│   │   ├── commands.go       # Command catalog filtered via canUse (mirrors /help)
 │   │   ├── metrics.go        # Live metrics snapshot from cache + runtime
 │   │   ├── api.go/api2.go/api3.go # Tiered JSON API (+ imagefilter integration)
 │   │   ├── tickets.go        # Tickets integration (lists, transcripts, files; dashboard-only type/panel/settings management via modules.TicketAdmin)
@@ -137,32 +137,20 @@ Startup sequence:
 9. MCP token generation (if empty) + `mcpserver.New`
 10. `dashboard.New` + `dash.Start()` — the dashboard gets `Deps.MCP` (the MCP handler)
 11. Applies the persisted presence status
-12. Waits on SIGINT/SIGTERM/SIGHUP (shutdown → `dash.Stop()` + `Client.Close()`), `shutdownCh` (`[p]shutdown`), or `restartCh` (`[p]restart` / updater hand-off); on restart the `main()` loop re-enters `run()` and `syscall.Exec`s the new binary if the updater applied one
+12. Waits on SIGINT/SIGTERM/SIGHUP (shutdown → `dash.Stop()` + `Client.Close()`), `shutdownCh` (`/shutdown`), or `restartCh` (`/restart` / updater hand-off); on restart the `main()` loop re-enters `run()` and `syscall.Exec`s the new binary if the updater applied one
 
-**`command.go`** — core types:
+**`command.go`** — core types (slash commands only — the bot registers no prefix commands):
 
 ```go
-type Command struct {
-    Name           string
-    Description    string
-    Usage          string
-    Category       string
-    RequiredPerm   discord.Permissions
-    OwnerOnly      bool
-    SuperOwnerOnly bool               // only bot owner (not elevated), checked before CanUse
-    Aliases        []string
-    WebArgs        []WebArg           // optional typed args for the dashboard runner
-    Execute        func(ctx *Context) error
-}
-
 type SlashCommand struct {
     Name           string
     Description    string
     Category       string
+    Usage          string // human-readable usage for /help
     Options        []discord.ApplicationCommandOption
     RequiredPerm   discord.Permissions
     OwnerOnly      bool
-    SuperOwnerOnly bool
+    SuperOwnerOnly bool               // only bot owner (not elevated), checked before CanUse
     Execute        func(ctx *Context) error
 }
 
@@ -172,9 +160,7 @@ type Context struct {
     GuildID   string
     Author    discord.User
     Args      []string
-    IsSlash   bool
     Web       bool   // true: invoked from the web dashboard (virtual context)
-    MessageID string // invoking message ID (prefix commands only; "" for slash)
     Respond   func(embeds ...discord.Embed) error
     ReplyText func(text string) error
 }
@@ -195,7 +181,6 @@ type Interface interface {
     GetUserPermissions(userID string, guildID string) discord.Permissions
     GetGuildOwnerID(guildID string) string
     GetSelfUserID() string
-    GetPrefix() string
     GetName() string
     GetVersion() string
     GetOwnerID() string
@@ -211,8 +196,7 @@ type Interface interface {
     GetModuleManager() interface{}
     GetUpdater() interface{}
     CommandOverrides() *CommandOverrides       // per-command override store (nil when disabled)
-    GetAllModuleCommands() []Command
-    GetAllModuleCommandsByModule() []ModuleCommands // module name → its prefix commands (load order); used by [p]help to group each module's commands under a category named after the module
+    GetAllModuleSlashCommandsByModule() []ModuleSlashCommands // module name → its slash commands (load order); used by /help
     GetAvailableModuleNames() []string
     IsBuiltinModule(name string) bool          // true for cleanup/tickets — imagefilter is also gated by enabled_modules but is not Discord-toggleable
     SetEnabledModule(name string, enabled bool) error // persists enabled_modules; applies on next restart
@@ -226,6 +210,8 @@ type Interface interface {
     GetCachedRole(guildID, roleID string) *discord.Role
     GetCachedChannel(channelID string) discord.GuildChannel
     GetMemberRoles(guildID, userID string) []discord.Role
+    MemberIntentEnabled() bool                 // live Server Members capability (gated dashboard mode)
+    MessageContentEnabled() bool               // live Message Content capability (content features)
     GetClient() interface{}                    // raw *bot.Client (cache/gateway/rest) for in-process modules
     GetStartTime() time.Time                    // bot process start time (uptime source)
     StatusRateLimit(userID string) (allowed bool, wait time.Duration)
@@ -233,9 +219,9 @@ type Interface interface {
     ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error) // web exec: virtual captured context, nothing posted to Discord
 }
 
-type ModuleCommands struct {
+type ModuleSlashCommands struct {
     Name     string
-    Commands []Command
+    Commands []SlashCommand
 }
 
 type CommandResult struct {
@@ -244,17 +230,9 @@ type CommandResult struct {
     Color       int
     Text        string
 }
-
-type WebArg struct {
-    Name     string
-    Label    string
-    Type     string // text | number | toggle | select
-    Required bool
-    Options  []string // for select
-}
 ```
 
-**`core.go`** — 13 core commands:
+**`core.go`** — 13 core slash commands (`/help`, `/modules`, …; there is no prefix dispatcher):
 - `ping`, `uptime`, `info`, `help` — public
 - `modules` — `OwnerOnly: true` — list modules, or `modules enable|disable <name>` for compiled-in features (cleanup/tickets only; imagefilter is gated by the same `enabled_modules` map but has no Discord toggle, only its dashboard page); applies after restart
 - `load`, `unload`, `reload` — `OwnerOnly: true`, supports `all`
@@ -262,6 +240,13 @@ type WebArg struct {
 - `permissions` — `OwnerOnly: true` — `add|remove|list <user>` (elevated users)
 - `ratelimit` — `OwnerOnly: true` — `status|reset [user_id]`
 - `update` — `OwnerOnly: true` — check/now/status/test/set subcommands for the self-updater
+
+**No prefix commands.** Discord's message-content policy forbids prefix command
+apps from privileged-intent approval, so the bot parses no message content:
+`onMessageCreate` only forwards events to module hooks, and the `MESSAGE_CONTENT`
+intent is used solely for content features (image filter, transcripts). All
+command execution goes through `onSlashCommand`; `ExecuteCommand` (web/MCP) also
+resolves slash commands only.
 
 **Permissions flow at dispatch level:**
 1. If `SuperOwnerOnly` and not bot owner → denied immediately
@@ -282,7 +267,6 @@ type Module interface {
     Author() string
     OnLoad(ctx *Context) error
     OnUnload() error
-    Commands() []commands.Command
     SlashCommands() []commands.SlashCommand
     Dependencies() []string
 }
@@ -365,8 +349,7 @@ Available hooks:
 - `Get(name)` — get loaded module
 - `List()` — list all as `[]ModuleInfo`
 - `GetNames()` — list all names as `[]string`
-- `AllCommands()` — collect all module commands (flat)
-- `AllCommandsByModule()` — `[]commands.ModuleCommands{ Name, Commands }` in load order — groups each module's commands under its name; used by `[p]help`
+- `AllSlashCommandsByModule()` — `[]commands.ModuleSlashCommands{ Name, Commands }` in load order — groups each module's slash commands under its name; used by `/help`
 - `AllSlashCommands()` — collect all module slash commands
 - `SetLuaLoader(loader)` — registers the Lua loader
 - `SetPythonLoader(loader)` — registers the Python loader
@@ -384,23 +367,23 @@ Available hooks:
 
 Single `.lua` files in `modules/Lua/<name>/`. Loaded by `LuaLoader` using gopher-lua.
 
-**Lua module format:** Script defines a global table `M` with fields `name`, `version`, `description`, `author`, and functions `on_load(M, name)`, `on_unload(M)`, `commands(M)`, `slash_commands(M)`. Each command table has `name`, `description`, `usage`, `category`, `execute(M)`.
+**Lua module format:** Script defines a global table `M` with fields `name`, `version`, `description`, `author`, and functions `on_load(M, name)`, `on_unload(M)`, `slash_commands(M)`. Each slash-command table has `name`, `description`, `category`, `execute(M)`; there are no prefix commands.
 
-**Bridge:** `LuaBridge` registers a `ctx` global table with log functions (`log`, `log_debug`, `log_warn`, `log_error`) and bot info functions (`get_prefix`, `get_name`, `get_version`, `get_owner_id`, `is_owner`, `is_elevated`). Command execution adds `channel_id`, `guild_id`, `author_id`, `is_slash`, `args` table, `respond` fn, `reply_text` fn to the ctx table.
+**Bridge:** `LuaBridge` registers a `ctx` global table with log functions (`log`, `log_debug`, `log_warn`, `log_error`) and bot info functions (`get_name`, `get_version`, `get_owner_id`, `is_owner`, `is_elevated`). Command execution adds `channel_id`, `guild_id`, `author_id`, `args` table, `respond` fn, `reply_text` fn to the ctx table.
 
-**Lua execute convention (verified against the loader):** the loader reads the **global** `M` table (`local M = {}` does NOT work) and calls callbacks with explicit args: `on_load(M, name)`, `commands(M)`, and each command's `execute(M)` — the single argument is always the module table. Read the command context from the **global** `ctx` table (`ctx.args`, `ctx.respond`, `ctx.reply_text`, `ctx.log`, …), which `RegisterCommandContext` refreshes per call. Do NOT name a callback parameter `ctx` — it would shadow the global. Use DOT syntax (`function M.on_load(M, name)`), not colon syntax (`M:on_load` shifts every parameter by one). Modules should also define `M.slash_commands()` (may return `{}`).
+**Lua execute convention (verified against the loader):** the loader reads the **global** `M` table (`local M = {}` does NOT work) and calls callbacks with explicit args: `on_load(M, name)`, `slash_commands(M)`, and each command's `execute(M)` — the single argument is always the module table. Read the command context from the **global** `ctx` table (`ctx.args`, `ctx.respond`, `ctx.reply_text`, `ctx.log`, …), which `RegisterCommandContext` refreshes per call. Do NOT name a callback parameter `ctx` — it would shadow the global. Use DOT syntax (`function M.on_load(M, name)`), not colon syntax (`M:on_load` shifts every parameter by one). `M.slash_commands()` may return `{}`.
 
-**Dashboard integration script (optional):** a Lua module's dashboard settings panel is declared in a SEPARATE script, `<module>.dashboard.lua` NEXT TO the module file (e.g. for `modules/Lua/<name>/<name>.lua` the script is `modules/Lua/<name>/<name>.dashboard.lua`). It runs in its own Lua state and defines a global table `D` with `D.schema` (array of field tables: `key`, `label`, `help`, `type` (one of the `FieldType*` strings), `scope`, `guild_scoped`, `placeholder`, `options`, `min`/`max`/`step`), `D.get(guild_id)` (returns `{key=value,…}` or `nil, error`), and `D.set(guild_id, key, value)` (returns `nil` or an error string). The script's `ctx` table also carries `ctx.data_dir` (the module config dir) for persisting values. Absence of the script ⇒ the module has NO dashboard integration (empty schema, no settings panel, no config API writes). `*.dashboard.lua` files are NOT modules: every scan site (`AutoLoad`, `[p]load all`, `GetAvailableModuleNames`, `DiscoverLuaModules`) skips them via `IsLuaDashboardScript`. The wrapper implements `WebConfigurable` in `modules/lua_webconfig.go` — zero dashboard code changes.
+**Dashboard integration script (optional):** a Lua module's dashboard settings panel is declared in a SEPARATE script, `<module>.dashboard.lua` NEXT TO the module file (e.g. for `modules/Lua/<name>/<name>.lua` the script is `modules/Lua/<name>/<name>.dashboard.lua`). It runs in its own Lua state and defines a global table `D` with `D.schema` (array of field tables: `key`, `label`, `help`, `type` (one of the `FieldType*` strings), `scope`, `guild_scoped`, `placeholder`, `options`, `min`/`max`/`step`), `D.get(guild_id)` (returns `{key=value,…}` or `nil, error`), and `D.set(guild_id, key, value)` (returns `nil` or an error string). The script's `ctx` table also carries `ctx.data_dir` (the module config dir) for persisting values. Absence of the script ⇒ the module has NO dashboard integration (empty schema, no settings panel, no config API writes). `*.dashboard.lua` files are NOT modules: every scan site (`AutoLoad`, `/load all`, `GetAvailableModuleNames`, `DiscoverLuaModules`) skips them via `IsLuaDashboardScript`. The wrapper implements `WebConfigurable` in `modules/lua_webconfig.go` — zero dashboard code changes.
 
 ### Python Modules
 
 Directories in `modules/Python/<name>/` containing `main.py` + optional `requirements.txt`. Loaded by `PythonLoader` via subprocess IPC.
 
-**Python module format:** `main.py` imports from `misfit` (Module, Command, SlashCommand), defines a Module subclass, and assigns `module = MyModule()` as a global. The runner script (`sdk/python/misfit/runner.py`) imports the user's `main.py`, extracts the `module` global, sets up IPC, sends a `ready` message with module metadata + commands, and dispatches `init`/`command`/`event`/`shutdown` messages.
+**Python module format:** `main.py` imports from `misfit` (Module, SlashCommand), defines a Module subclass, and assigns `module = MyModule()` as a global. The runner script (`sdk/python/misfit/runner.py`) imports the user's `main.py`, extracts the `module` global, sets up IPC, sends a `ready` message with module metadata + slash commands, and dispatches `init`/`command`/`event`/`shutdown` messages. Prefix commands do not exist in the SDK.
 
 **IPC protocol** (JSON over stdin/stdout):
-- Go → Python (stdin): `{type:init, context:{bot_name, owner_id, prefix, version, data_dir}}`, `{type:command, name, args, channel_id, guild_id, author_id, is_slash}`, `{type:event, name, data}`, `{type:web_get_config, guild_id, req_id}`, `{type:web_set_config, guild_id, key, value, req_id}`, `{type:shutdown}`
-- Python → Go (stdout): `{type:ready, name, version, description, author, commands:[...], slash_commands:[...], event_handlers:[...], has_web_config, web_schema:[...]}`, `{type:respond, channel_id, title, description}`, `{type:reply_text, channel_id, text}`, `{type:web_config_response, req_id, values|ok|error}`, `{type:log, level, message}`, `{type:error, message}`
+- Go → Python (stdin): `{type:init, context:{bot_name, owner_id, version, data_dir}}`, `{type:command, name, args, channel_id, guild_id, author_id}`, `{type:event, name, data}`, `{type:web_get_config, guild_id, req_id}`, `{type:web_set_config, guild_id, key, value, req_id}`, `{type:shutdown}`
+- Python → Go (stdout): `{type:ready, name, version, description, author, slash_commands:[...], event_handlers:[...], has_web_config, web_schema:[...]}`, `{type:respond, channel_id, title, description}`, `{type:reply_text, channel_id, text}`, `{type:web_config_response, req_id, values|ok|error}`, `{type:log, level, message}`, `{type:error, message}`
 
 **Dashboard integration script (optional):** a Python module's dashboard settings panel is declared in a SEPARATE script, `dashboard.py`, inside the module directory next to `main.py`. The runner imports it in the same process, normalizes `web_schema` (list of field dicts: `key`, `label`, `help`, `type`, `scope`, `guild_scoped`, `placeholder`, `options`, `min`/`max`/`step`), ships it in `ready`, and answers `web_get_config`/`web_set_config` via `web_get_config(guild_id)` / `web_set_config(guild_id, key, value)` (exceptions become `error` replies). Absence of `dashboard.py` ⇒ the module has NO dashboard integration (`has_web_config: false`, no settings panel). The wrapper implements `WebConfigurable` in `python_module.go` (`SendWebGetConfig`/`SendWebSetConfig` in `python_ipc.go`, req_id-correlated with a 5s timeout) — zero dashboard code changes.
 
@@ -408,7 +391,7 @@ Directories in `modules/Python/<name>/` containing `main.py` + optional `require
 
 **Bridge:** `PythonBridge` holds `rest.Rest` for async Discord message sending. IPC callbacks: `onRespond` → creates embed + `Rest.CreateMessage`, `onReplyText` → `Rest.CreateMessage` with Content, `onLog` → routes to bot logger, `onError` → routes to bot logger as error.
 
-**Command execution:** Python command `Execute` closures send the command to the Python process via IPC (`SendCommand`) and return nil immediately. The Python process sends `respond`/`reply_text` back asynchronously. The bridge's callbacks deliver the response to Discord. No auto-delete for Python module responses.
+**Command execution:** Python slash-command `Execute` closures send the command to the Python process via IPC (`SendCommand`) and return nil immediately. The Python process sends `respond`/`reply_text` back asynchronously. The bridge's callbacks deliver the response to Discord. No auto-delete for Python module responses.
 
 **Loading:**
 - `botAdapter.LoadModule(name)` resolves path (Lua file / Python dir), creates fresh `EventHooks`, calls `ModMgr.Load(path, hooks)`, then `mod.OnLoad()`. On error, `ModMgr.Unload(name)` cleans up. Persists to `loaded_modules.json`.
@@ -452,16 +435,14 @@ Helpers: `Success(title, desc)`, `Error(title, desc)`, `Info(title, desc)`, `War
 ```yaml
 bot:
   # token: never here — the bot token lives in .env (DISCORD_BOT_TOKEN, 0600)
-  prefix: "?"
   owner_id: "123456789"
   elevated_ids: []
   name: "Bot"
   status: "online"
   tos_url: ""
   privacy_url: ""
-  bot_allowlist: []        # bot user IDs allowed to run prefix commands (QA observer bots); empty = all bots ignored
 intents:                   # OPTIONAL privileged gateway intents (presence is never requested)
-  message_content: true    # guild message text/attachments (prefix commands, image filter); dropped on Discord's 4014
+  message_content: true    # guild message text/attachments (image filter, transcripts); dropped on Discord's 4014
   guild_members: true      # member cache/events + permission lookups; missing = dashboard gated to owner/elevated
 modules:
   auto_load: true
@@ -494,10 +475,10 @@ mcp:                      # built-in MCP server mounted at /mcp on the dashboard
 **Three secrets are not in `config.yml`** — they live in `<bot dir>/.env` (mode 0600, gitignored): `DISCORD_BOT_TOKEN` (bot token), `DISCORD_OAUTH_CLIENT_SECRET` (OAuth2 client secret), `UPDATER_GITHUB_TOKEN` (updater PAT). `config.Load` reads them, `Config.Set("token" | "oauth_client_secret" | "updater_token", …)` and onboarding write them, and their struct fields are `yaml:"-"` so `Save` cannot write them back. The MCP bearer token still lives in `config.yml`.
 
 `Config.Set(key, value)` with validation (the full accepted-key set; anything else is `unknown config key`):
-- `prefix` (rejected if empty), `token` (written to `.env` as `DISCORD_BOT_TOKEN`, never `config.yml`), `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
+- `token` (written to `.env` as `DISCORD_BOT_TOKEN`, never `config.yml`), `owner_id`, `tos_url`, `privacy_url`, `name`, `status` (must be `online`/`idle`/`dnd`/`invisible`, `""` allowed)
 - `intents_message_content`, `intents_guild_members` — strict booleans for the privileged gateway intents (the top-level `intents:` section). Default on; setting either to false never requests it. Restart required (the intents are fixed at client creation).
 - `log_level` — must be `debug`, `info`, `warn`, or `error`; `log_enabled` — accepts `true`/`1`/`yes`; `log_file_path` — rejected if empty
-- `modules_auto_load` (strict bool); `enabled_modules` — comma/space-separated `name` or `name=true|false` entries (bare name = enable). Enable DELETES the map entry (missing key = enabled), disable writes `name=false`. This is the key behind `[p]modules enable|disable`.
+- `modules_auto_load` (strict bool); `enabled_modules` — comma/space-separated `name` or `name=true|false` entries (bare name = enable). Enable DELETES the map entry (missing key = enabled), disable writes `name=false`. This is the key behind `/modules enable|disable`.
 - `dashboard_listen`, `dashboard_public_url` — write the optional top-level `dashboard:` section (non-secret infra fields the dashboard module reads to pin its bind port / public URL from the main config — used when the default `127.0.0.1:8080` is taken and the web UI can't start). `dashboard_listen` is normalized to a bare `host:port` via `NormalizeListen`, `dashboard_public_url` must start with `http://` or `https://` (see `config.go`).
 - `oauth_client_secret` — writes `.env` (`DISCORD_OAUTH_CLIENT_SECRET`, never `config.yml`). The single shared Discord-app client secret the dashboard uses for login (and any future OAuth-using module can reuse). Takes priority over the dashboard's own 0600 config fallback.
 - `updater_enabled`, `updater_repo`, `updater_branch`, `updater_interval`, `updater_auto_pull` — write the top-level `updater:` section; `updater_token` writes `.env` (`UPDATER_GITHUB_TOKEN`, never `config.yml`). Booleans are strict (reject ambiguous values), `updater_repo` must be `owner/name`, `updater_interval` must be a number ≥ 30. The per-server notify channel uses the composite key `updater_notify_channel:<guild_id>` (value = channel ID; empty clears that server; the dashboard gates it on managing that guild). `Load()` applies `DefaultConfig` first, so a missing `updater:` section on an existing install comes up enabled with `branch: main` / 300s interval / auto_pull on.
@@ -516,7 +497,7 @@ The bot is wired to its own GitHub repository (`Myrukora/misfit-bot`, public sin
 2. **Auto-update** (if `auto_pull`) — `Check()` does `git fetch origin <branch>` with a per-invocation `-c http.extraheader="AUTHORIZATION: basic <base64(x-access-token:<token>)>"` (the token never lands in `.git/config`); if behind, `Apply()` first runs `git rev-parse --abbrev-ref HEAD` and REFUSES unless the working tree is on the tracked branch (an empty tracked branch means `main`): detached HEAD → `git HEAD is detached (expected branch <branch>); switch to the tracked branch first: git checkout <branch>`, a different branch → `git checkout is on <current> but the updater tracks <branch>; switch branches first: git checkout <branch>`. Only then does it run `git merge --ff-only FETCH_HEAD` (aborts with a clear error on local changes — bot keeps running untouched) → `go build -ldflags "-X main.Version=$(updater.ReadVersionFile(Dir))" -o bot.new ./cmd/bot/` — the Go twin of `scripts/version.sh`, see `ReadVersionFile` — without the stamp the new binary would report `dev` and could never be recognised as current → swaps `bot`→`bot.old`, `bot.new`→`bot` → sets the apply flag and fires `OnApplied` (wired to `restartCh` with a 2s delay so the success embed is delivered).
 3. **True self-update** — in the restart loop, before calling `run()` again, if `updaterMgr.ApplyRequested()` the bot `syscall.Exec`s the new binary (`Dir/bot`) — an in-process restart would keep running the OLD code. On exec failure it logs loudly and falls back to the in-process restart. The updater never runs the bot's repo commands with user-controlled input.
 
-**`[p]update` command** (owner-only):
+**`/update` command** (owner-only):
 - `update` / `update check` — fetch + report the release first when the repo is tagged (`v0.1.0 → v0.2.0 (3 new commits)`), otherwise "N new commit(s) available" / "Up to date".
 - `update now` — force apply (pull → rebuild → swap → restart).
 - `update status` — repo/branch/last seen SHA/last check/interval/auto_pull/last error, plus **Running Version** (this build) and **Latest Release** (newest tag seen, once a check has found one).
@@ -565,8 +546,7 @@ against that guild's blacklisted reference images.
   is never immune), red log embeds to the guild's log channel only.
 - **Requires the Message Content intent:** without it Discord delivers empty
   attachments, so the detector never sees an image (the module logs a warning
-  at load; the dashboard page still works). Prefix commands are likewise
-  unavailable without that intent; slash commands are unaffected.
+  at load; the dashboard page still works).
 - **Safety (ported):** HTTPS + Discord-CDN host allowlist (`discordapp.com`,
   `discordapp.net`, `discord.com`, `discord.media`, checked against the full
   authority so `:port`/userinfo-shaped hosts are refused), redirects refused,
@@ -678,7 +658,7 @@ streamable-HTTP transport.
 
 ### Onboarding (`onboarding/`)
 
-Runs on first launch (no `config.yml`): token, owner ID, prefix, bot name, ToS URL, Privacy URL. The token is written to `.env` (`DISCORD_BOT_TOKEN`, 0600), not `config.yml`.
+Runs on first launch (no `config.yml`): token, owner ID, bot name, ToS URL, Privacy URL. The token is written to `.env` (`DISCORD_BOT_TOKEN`, 0600), not `config.yml`.
 
 ### Build & Run
 
@@ -755,10 +735,10 @@ gateway with the non-privileged mask and reconnects instead of failing to start.
 The live capabilities are exposed as `commands.Interface.MemberIntentEnabled()`
 and `MessageContentEnabled()` and logged at connect. Consequences:
 
-- **No `MESSAGE_CONTENT`:** guild message text and attachments arrive empty.
-  Prefix commands are skipped (`handleMessage` guards guild messages; slash
-  commands keep working), the image filter cannot see attachments (warns at
-  load), and ticket transcripts lose message text. DMs keep their content.
+- **No `MESSAGE_CONTENT`:** guild message text and attachments arrive empty,
+  so the image filter cannot see attachments (warns at load) and ticket
+  transcripts lose message text. Slash commands are unaffected. DMs keep their
+  content.
 - **No `GUILD_MEMBERS`:** the member cache, member join/leave events and
   `GetUserPermissions` are unavailable. Permission-checked commands deny
   everyone except owner/elevated and the guild owner (whose ID comes from the
@@ -774,7 +754,7 @@ Both are configurable from the `/config` page (Intents section) and via
 
 **Done:**
 - Project scaffolding, auto-directory creation
-- Config YAML load/save/set with validation (prefix non-empty, log_level enum)
+- Config YAML load/save/set with validation (log_level enum, strict booleans)
 - Async logger (stdout + file, slog JSON)
 - Embed helpers (Success/Error/Info/Warning/New)
 - Three-tier permission system + SuperOwnerOnly
@@ -785,25 +765,24 @@ Both are configurable from the `/config` page (Intents section) and via
 - Lua module system (gopher-lua, single `.lua` files, Go-Lua bridge)
 - Python module system (subprocess IPC, per-module venv, Python SDK, runner script)
 - Module type auto-detection (Lua file / Python dir) via `DetectModuleType` + `resolveModulePath`; anything else is unsupported (no Go plugin path)
-- 13 core commands with prefix + slash equivalents
-- Permission-filtered `[p]help` (hides commands user can't use); module commands grouped under a category named after the owning module (e.g. cleanup's commands appear under "Cleanup"), regardless of the `Category` field each command sets
+- 13 core slash commands (no prefix commands; the bot never parses message content for commands)
+- Permission-filtered `/help` (hides commands user can't use); module commands grouped under a category named after the owning module (e.g. cleanup's commands appear under "Cleanup"), regardless of the `Category` field each command sets
 - Slash command batch registration with mutex serialization
-- Auto-delete: ONLY errors (red `embed.Error`) vanish, after 7s; every other response (success/info/warning/usage/status/plain text) stays permanently. No preserved list, no opt-in hook — dispatcher deletes iff first embed is red
-- Self-updater (`updater/` package): poll loop (default 300s), PR + commit notification embeds (author row → bold title → markdown description; merge commits skipped; first poll silent), auto pull (refused unless the working tree is on the tracked branch) → rebuild the single binary → binary swap → `syscall.Exec` self-restart, `[p]update check|now|status|test|set`, `updater_state.json` persistence, live config via `[p]update set` / the dashboard / MCP
+- Self-updater (`updater/` package): poll loop (default 300s), PR + commit notification embeds (author row → bold title → markdown description; merge commits skipped; first poll silent), auto pull (refused unless the working tree is on the tracked branch) → rebuild the single binary → binary swap → `syscall.Exec` self-restart, `/update check|now|status|test|set`, `updater_state.json` persistence, live config via `/update set` / the dashboard / MCP
 - GitHub repo `Myrukora/misfit-bot` (public since 2026-08-06) + branch/PR workflow (owner review & approval for collaborator PRs; GitHub-side branch rules enforced via the `main-protection` ruleset)
 - Cleanup module (9 subcommands, pagination via `fetchMessages`)
-- Tickets module (v3, per-guild): per-server config files (`config.yml` module config + `guilds/<id>.yml`), open-time question modals, continuous local mirroring of ticket media, opened + closed log-channel posts, HTML transcripts, deleted-channel finalize (via `AddGuildChannelDelete`), and a retention sweep that runs every 24h (pruning closed tickets older than the configured window — 30 days by default, 0 = keep forever). **Management is dashboard-only** — types, panels, questions and the per-server log channel are edited on `/g/<id>/tickets` through `modules.TicketAdmin`; the former `[p]tickets` / `/tickets` configuration command tree was removed, leaving only the in-channel `close`/`add`/`remove`/`rename` commands (now registered as both prefix and slash commands, plus the welcome-message Close button). Ticket types also configure a channel-name template (`{user}`, `{type}`, `{type.label}`, `{ticket.id}`, `{dd}/{MM}/{yyyy}`, `{hh}/{mm}/{ss}`; default `{user}-{MM}-{DD}-{YY}`); the dashboard's open-ticket cards resolve cached opener identities and show inline image/video/audio previews (`TicketSummary.Preview`), and transcript images open the in-page lightbox rather than a new tab. **Closing deletes the ticket channel** once the ticket JSON and its HTML transcript are durable (the log-channel post runs first). The dashboard pushes **live updates over SSE** (`/api/tickets/<g>/stream`, `/api/tickets/<g>/<ticket>/stream`): the open/closed lists and the transcript conversation re-render and replace their containers without a page reload. Claiming was removed entirely (no claim button, command, or per-type flag). The uploaded HTML transcript is a **cache** of that stored log, not a frozen close-time snapshot: close re-renders it from a fresh read and the close tail then re-checks the log (bounded, up to 3 passes) so an entry/edit/delete landing mid-render is reconciled before the upload, and `modules.TicketTranscript.RefreshTranscript` regenerates the file on demand — previously a message or edit arriving after the close snapshot stayed in the ticket JSON but was permanently missing from the `.html`, with no way to regenerate it.
+- Tickets module (v3, per-guild): per-server config files (`config.yml` module config + `guilds/<id>.yml`), open-time question modals, continuous local mirroring of ticket media, opened + closed log-channel posts, HTML transcripts, deleted-channel finalize (via `AddGuildChannelDelete`), and a retention sweep that runs every 24h (pruning closed tickets older than the configured window — 30 days by default, 0 = keep forever). **Management is dashboard-only** — types, panels, questions and the per-server log channel are edited on `/g/<id>/tickets` through `modules.TicketAdmin`; the former tickets configuration command tree was removed, leaving only the in-channel `/close`/`/add`/`/remove`/`/rename` slash commands (plus the welcome-message Close button). Ticket types also configure a channel-name template (`{user}`, `{type}`, `{type.label}`, `{ticket.id}`, `{dd}/{MM}/{yyyy}`, `{hh}/{mm}/{ss}`; default `{user}-{MM}-{DD}-{YY}`); the dashboard's open-ticket cards resolve cached opener identities and show inline image/video/audio previews (`TicketSummary.Preview`), and transcript images open the in-page lightbox rather than a new tab. **Closing deletes the ticket channel** once the ticket JSON and its HTML transcript are durable (the log-channel post runs first). The dashboard pushes **live updates over SSE** (`/api/tickets/<g>/stream`, `/api/tickets/<g>/<ticket>/stream`): the open/closed lists and the transcript conversation re-render and replace their containers without a page reload. Claiming was removed entirely (no claim button, command, or per-type flag). The uploaded HTML transcript is a **cache** of that stored log, not a frozen close-time snapshot: close re-renders it from a fresh read and the close tail then re-checks the log (bounded, up to 3 passes) so an entry/edit/delete landing mid-render is reconciled before the upload, and `modules.TicketTranscript.RefreshTranscript` regenerates the file on demand — previously a message or edit arriving after the close snapshot stayed in the ticket JSON but was permanently missing from the `.html`, with no way to regenerate it.
 - Cache methods on Interface (GetCachedMember/Guild/Role/Channel, GetMemberRoles)
 - Event hook system (19 event types, safeDispatch panic recovery)
 - Hooks always cleaned up on unload even on error
-- Module commands now match Aliases in prefix dispatch
+- Module slash commands are registered alongside the core commands
 - Safe snowflake parsing (no MustParse panics)
-- Config validation prevents empty prefix / invalid log_level
+- Config validation (log_level enum, strict booleans, updater repo/interval)
 - Auto-delete driven purely by the first embed's color; usage/status/plain-text responses stay on screen indefinitely
 - Voice module (`voice.go`) — VoiceManager built for modules to use (join/leave/play/pause/volume via FFmpeg), not core bot commands
-- Rate limiting (`ratelimit/` package) — 10 commands per 5 seconds per user, owner bypasses, both prefix and slash
-- `[p]ratelimit` command — owner-only command to check/reset rate limits for users
-- Backup verification — `config.BackupService` (`Create`/`List`/`Verify`/`Restore` with YAML validation and `confirm=true` required for restore), surfaced owner-only at `GET/POST /api/backups`; the former `[p]backup` command was removed
+- Rate limiting (`ratelimit/` package) — 10 commands per 5 seconds per user, owner bypasses (slash commands)
+- `/ratelimit` command — owner-only command to check/reset rate limits for users
+- Backup verification — `config.BackupService` (`Create`/`List`/`Verify`/`Restore` with YAML validation and `confirm=true` required for restore), surfaced owner-only at `GET/POST /api/backups`; the former `backup` command was removed
 - Module dependencies — `Dependencies() []string` method on Module interface, checked at load time, fails if dependency missing
 - Python graceful shutdown — 5-second timeout for graceful shutdown, then force kill
 - Web dashboard (`internal/dashboard/`, compiled-in core — always on, no plugin): black & white monochrome redesign (2026-09). Login → `/` server picker → `/g/<id>/…` per-server pages; `/config` = bot-wide core config (super-owner only).
@@ -830,9 +809,9 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 
 1. **`config.yml` permissions (0644)** — The bot runs on a single-user Ubuntu server. The owner has full SSH access. 0644 is acceptable since no other users exist on the system. If the bot is ever deployed to a multi-user host, change to `0600`.
 2. **Lua bridge unrestricted `ctx.api()` and `ctx.http()`** — The bot is private; only the owner writes Lua modules. Full Discord API and arbitrary HTTP access is intentional for development flexibility. Before public module distribution, add URL allowlisting and endpoint whitelisting.
-3. **No shell command execution** — The former `[p]eval` command (ran `sh -c`, protected by `SuperOwnerOnly`) has been **removed entirely**; the bot no longer offers any way to run shell commands. The `SuperOwnerOnly` dispatch mechanism remains for future owner-only commands.
+3. **No shell command execution** — The former `eval` command (ran `sh -c`, protected by `SuperOwnerOnly`) has been **removed entirely**; the bot no longer offers any way to run shell commands. The `SuperOwnerOnly` dispatch mechanism remains for future owner-only commands.
 4. **Branch + PR workflow, no direct commits to `main`** — The repo (`Myrukora/misfit-bot`, public since 2026-08-06) uses the branch workflow: `git checkout -b <feature>` → commit → `gh pr create` → **owner review + approval → merge**. PRs from collaborators require the owner's manual approval; the owner's own PRs are exempt (GitHub forbids self-approval). The bot only ever pulls `main` (fast-forward) — PR-only merges keep every GitHub merge strategy fast-forward-compatible. Server-side enforcement is provided by the `main-protection` ruleset (free for public repos): only the owner can push to `main`; PRs require an approval from Lemma-Agent (code owner). The workflow is otherwise enforced by convention.
-5. **Updater GitHub token in gitignored `config.yml`** — The bot authenticates to its GitHub repo (public since 2026-08-06) via `updater.token`, injected per git invocation via `http.extraheader` (never persisted to `.git/config`). The token never appears in any commit. `.gitignore` (non-exhaustive) covers: `config.yml` + `config_backup_*.yml` / `config_pre_restore_*.yml`; `logs` + `*.log`; `updater_state.json`, `loaded_modules.json`, `command_overrides.json`, `*.tmp`; the binaries (`/bot`, `bot.new`, `bot.old`); `*.so`; per-language module runtime data (`modules/{Go,Lua,Python}/*/config*.yml`, `modules/{Python,Lua}/*/config.json`, `…/data/`, `…/logs/`, `modules/Python/*/models/`, `.venv/`, `__pycache__/`, `*.sock`/`*.pid`); the builtins' own data dirs (`modules/tickets/`, `modules/imagefilter/` incl. `models/`); legacy plugin-era paths (`modules/Go/*/{guilds,tickets,spam_images,config.json}`, `modules/Python/image_spam_filter/`); plus Go test droppings, `module_configs/`, `node_modules/`, `.env`, `scratch/`, `*.local.yml|yaml`, `lib/`, `/redesign/`, `.claude/`, `.omp/`, `.hermes/`, `.pi/`, `.tmp/`, `.worktrees/` and editor/OS files. If the gh token is ever rotated, update `updater.token` (`[p]update set token <pat>`).
+5. **Updater GitHub token in gitignored `config.yml`** — The bot authenticates to its GitHub repo (public since 2026-08-06) via `updater.token`, injected per git invocation via `http.extraheader` (never persisted to `.git/config`). The token never appears in any commit. `.gitignore` (non-exhaustive) covers: `config.yml` + `config_backup_*.yml` / `config_pre_restore_*.yml`; `logs` + `*.log`; `updater_state.json`, `loaded_modules.json`, `command_overrides.json`, `*.tmp`; the binaries (`/bot`, `bot.new`, `bot.old`); `*.so`; per-language module runtime data (`modules/{Go,Lua,Python}/*/config*.yml`, `modules/{Python,Lua}/*/config.json`, `…/data/`, `…/logs/`, `modules/Python/*/models/`, `.venv/`, `__pycache__/`, `*.sock`/`*.pid`); the builtins' own data dirs (`modules/tickets/`, `modules/imagefilter/` incl. `models/`); legacy plugin-era paths (`modules/Go/*/{guilds,tickets,spam_images,config.json}`, `modules/Python/image_spam_filter/`); plus Go test droppings, `module_configs/`, `node_modules/`, `.env`, `scratch/`, `*.local.yml|yaml`, `lib/`, `/redesign/`, `.claude/`, `.omp/`, `.hermes/`, `.pi/`, `.tmp/`, `.worktrees/` and editor/OS files. If the gh token is ever rotated, update `updater.token` (`/update set token <pat>`).
 
 ## Key Gotchas
 
@@ -840,7 +819,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 2. **`snowflake.ID`** is `uint64`. Use `.String()` to convert — never `string(id)`.
 3. **`discord.Permissions`** (plural) is the type, not `discord.Permission`.
 4. **`WithFields(fields...)` REPLACES** `e.Fields`, does NOT append. Build the slice first, pass once.
-5. **No Go plugin modules** — only Lua files and Python dirs stay dynamic; `DetectModuleType` returns `""` for anything else and `Manager.Load` errors out. The feature modules (cleanup/tickets/imagefilter) are compiled-in, gated by `enabled_modules` and toggled with `[p]modules enable|disable` (applies on restart).
+5. **No Go plugin modules** — only Lua files and Python dirs stay dynamic; `DetectModuleType` returns `""` for anything else and `Manager.Load` errors out. The feature modules (cleanup/tickets/imagefilter) are compiled-in, gated by `enabled_modules` and toggled with `/modules enable|disable` (applies on restart).
 6. **A failed reload loses the module** — `ReloadModule` is Unload + LoadModule with no rollback: once unloaded, the old instance is gone, so a failure logs `Reload of module '<name>' failed after unload — module lost until bot restart`. Prefer `load` for a first attempt and expect a restart to recover.
 7. **Slash command re-registration** is mutex-serialized. Concurrent load/unload operations queue on `SetGlobalCommands`.
 8. **Logger `Close()`** waits for the processLogs goroutine to drain via `done` channel. Never close file before drain completes.
@@ -855,7 +834,7 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 17. **Module persistence** — `loaded_modules.json` stores loaded module names. On startup, only these are loaded. `--no-modules` to skip. AutoLoad runs when no saved modules exist.
 18. **Event hooks** — register in `OnLoad` only. Bot removes all hooks on unload via `RemoveModuleHooks`.
 19. **Subcommand args** — `cmd/bot/main.go` builds `ctx.Args` via `commands.SlashArgs`, which walks the command's declared options and emits `[group, sub, …values in declared order]` (flat subcommand: `[sub, …values]`; absent optional options are skipped so an omitted argument shifts nothing; values are stringified by type — channel/role/user/mentionable become the snowflake string). The subcommand's position depends on whether it lives in a group; the vector is produced in core, not by each handler.
-20. **Config changes** — `[p]update set <key> <value>` and the dashboard/MCP write through `Config.Set`, which persists immediately; `log_level`, `log_enabled` and `enabled_modules` take effect only after a restart. There is no core `set` or `logs` command. Discord-channel logging is not implemented in core at all.
+20. **Config changes** — `/update set <key> <value>` and the dashboard/MCP write through `Config.Set`, which persists immediately; `log_level`, `log_enabled` and `enabled_modules` take effect only after a restart. There is no core `set` or `logs` command. Discord-channel logging is not implemented in core at all.
 21. **DM permission behavior** — In DMs, `GetUserPermissions` returns 0 and `GetGuildOwnerID` returns "". Only owner/elevated can use commands with `RequiredPerm` in DMs.
 22. **Config security** — three secrets live in `.env` (mode 0600, gitignored), never in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET`, `UPDATER_GITHUB_TOKEN`; `Config.Load` reads them from there, `Config.Set(…)` / onboarding write them there, and their struct fields are `yaml:"-"` so `Save` cannot leak them back. `config.yml` still holds the MCP bearer token (plus non-secret config). Ensure both files are in `.gitignore` and never committed. Config backups (`POST /api/backups`) copy `config.yml` only — they do not include those three secrets. (0644 is acceptable for the single-user Ubuntu host per security decision #1; tighten to 0600 if ever deployed to a multi-user host.)
 23. **Python module venvs** — Each Python module gets a `.venv/` directory inside its module folder. These are gitignored (`modules/*/.venv/`). The venv is created on first load and `pip install` runs only when `requirements.txt` hash changes.
@@ -869,4 +848,4 @@ These are deliberate trade-offs for a **private, single-user bot** where the own
 31. **`WebConfigurable` is opt-in & additive** — modules that don't implement it are unaffected (dashboard shows no config UI for them). The dashboard type-asserts each loaded module via `modules.IsWebConfigurable(mod)` and renders settings purely from `WebConfigSchema()`. `secret` fields are redacted to `••••` on read unless the caller is the owner.
 32. **Dashboard config hidden from non-staff** — `regular` users (in a mutual guild but managing none) get 403 on `/config`, `/permissions`, `/logs`, `/modules` and every mutating `POST /api/*` endpoint; the nav hides those links too. Staff see only their manageable guilds' guild-scoped module fields (`/g/<id>/modules`) + their usable commands.
 33. **`client_secret` lives in core `config.yml`** — set via the dashboard Admin page (`/config`, or `SetConfig("oauth_client_secret", …)`); `listen`/`public_url` go to core `config.yml` (`dashboard:` section). All three can also be set by hand in `config.yml`. **A bind failure (e.g. 8080 in use) does NOT fail startup** — the dashboard stays up so the owner can rebind via the `dashboard.listen` key in core `config.yml` and restart. Effective listen = core `dashboard.listen` if set, else `127.0.0.1:8080`; a URL-shaped value (`http://host:port/`) is normalized to `host:port` at write and bind time (`NormalizeListen`).
-34. **Dashboard integration is a separate file per module, and absence = no integration** — compiled-in modules implement `WebConfigurable` in their package (tickets `webconfig.go`, the dashboard itself in `main.go`); Lua modules add `modules/Lua/<name>/<name>.dashboard.lua` (global table `D` with `schema`/`get`/`set`, its own Lua state, `ctx.data_dir` available); Python modules add `dashboard.py` next to `main.py` (`web_schema` + `web_get_config`/`web_set_config`, imported by the runner, IPC `web_get_config`/`web_set_config` messages). No file ⇒ no settings panel and no config API writes. `*.dashboard.lua` files are NOT modules: AutoLoad, `[p]load all`, `GetAvailableModuleNames`, and `DiscoverLuaModules` all skip them (`IsLuaDashboardScript`), and `LuaLoader.Load` rejects them with a clear error. Lua `min`/`max`/`step` are presence-based (0 values survive); Python config values are coerced to strings in Go (bools → "true"/"false").
+34. **Dashboard integration is a separate file per module, and absence = no integration** — compiled-in modules implement `WebConfigurable` in their package (tickets `webconfig.go`, the dashboard itself in `main.go`); Lua modules add `modules/Lua/<name>/<name>.dashboard.lua` (global table `D` with `schema`/`get`/`set`, its own Lua state, `ctx.data_dir` available); Python modules add `dashboard.py` next to `main.py` (`web_schema` + `web_get_config`/`web_set_config`, imported by the runner, IPC `web_get_config`/`web_set_config` messages). No file ⇒ no settings panel and no config API writes. `*.dashboard.lua` files are NOT modules: AutoLoad, `/load all`, `GetAvailableModuleNames`, and `DiscoverLuaModules` all skip them (`IsLuaDashboardScript`), and `LuaLoader.Load` rejects them with a clear error. Lua `min`/`max`/`step` are presence-based (0 values survive); Python config values are coerced to strings in Go (bools → "true"/"false").

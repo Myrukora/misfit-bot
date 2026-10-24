@@ -17,11 +17,11 @@ func (deadlockLogger) Warn(string, ...any)  {}
 func (deadlockLogger) Error(string, ...any) {}
 
 // TestStartServerNoSelfDeadlock is a regression test for a self-deadlock that
-// made [p]load dashboard hang the whole bot (and killed the Discord gateway):
+// made /load dashboard hang the whole bot (and killed the Discord gateway):
 // startServer() used to call effectiveListen() WHILE holding m.mu, and
 // effectiveListen() also locks m.mu — sync.Mutex is non-reentrant, so the same
 // goroutine deadlocked forever. OnLoad never returned, the gateway event
-// goroutine (which runs [p]load synchronously) blocked, heartbeat ACKs went
+// goroutine (which runs /load synchronously) blocked, heartbeat ACKs went
 // unread, and the gateway went zombie → invalid session → reconnect failure.
 //
 // We use a NON-nil client (so startServer passes the nil-client check and

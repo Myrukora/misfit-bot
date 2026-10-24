@@ -38,17 +38,6 @@ func Run(dir string) (*config.Config, error) {
 	}
 	cfg.Bot.OwnerID = strings.TrimSpace(ownerID)
 
-	fmt.Print("Enter command prefix (default: [p]): ")
-	prefix, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read prefix: %w", err)
-	}
-	prefix = strings.TrimSpace(prefix)
-	if prefix == "" {
-		prefix = "[p]"
-	}
-	cfg.Bot.Prefix = prefix
-
 	fmt.Print("Enter bot name (default: Bot): ")
 	name, err := reader.ReadString('\n')
 	if err != nil {

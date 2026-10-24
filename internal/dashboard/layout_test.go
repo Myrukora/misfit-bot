@@ -84,7 +84,7 @@ func TestTemplatesStandaloneLayout(t *testing.T) {
 		t.Error("login page missing the centered login card")
 	}
 
-	setup := render("rd_setup", false, map[string]string{"prefix": "?"})
+	setup := render("rd_setup", false, map[string]string{"listen": "127.0.0.1:8080"})
 	if strings.Contains(setup, `class="sidebar"`) {
 		t.Error("setup page renders the sidebar — remove it (pre-auth it is useless)")
 	}

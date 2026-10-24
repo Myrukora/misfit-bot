@@ -271,7 +271,7 @@ ensure_go() {
 # ── runtime binary sanity (warn-only: features degrade, build still works) ─
 
 check_runtime() {
-  have git    || warn "git not found — self-updater ([p]update) will not work"
+  have git    || warn "git not found — self-updater (/update) will not work"
   have python3 || warn "python3 not found — Python modules will not load"
   have ffmpeg || warn "ffmpeg not found — voice playback will not work"
   if have pkg-config; then
@@ -373,8 +373,8 @@ cat <<EOF
 
  Next steps:
    1. Run the bot:  ./bot          (first run starts the onboarding wizard)
-   2. In Discord:   [p]update status
-   3. Notifications: [p]update set notify_channel <channel-id>
-   4. Preview embeds: [p]update test
+   2. In Discord:   /update status
+   3. Notifications: per-server update channels on the dashboard (Modules page)
+   4. Preview embeds: /update test
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF

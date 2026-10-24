@@ -257,19 +257,18 @@ func (s *Server) getLogs(ctx context.Context, req *mcp.CallToolRequest, in *GetL
 	return res, nil, err
 }
 
-// listCommands returns a grouped text listing: core commands first (noting the
-// slash equivalents exist), then each module's commands under its name — the
-// same grouping [p]help uses.
+// listCommands returns a grouped text listing: core slash commands first, then
+// each module's slash commands under its name — the same grouping /help uses.
 func (s *Server) listCommands(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
 	var b strings.Builder
-	b.WriteString("Core commands (each also has a slash equivalent):\n")
-	for _, c := range commands.CoreCommands {
-		fmt.Fprintf(&b, "  %s — %s (usage: %s)\n", c.Name, c.Description, c.Usage)
+	b.WriteString("Core commands:\n")
+	for _, c := range commands.CoreSlashCommands {
+		fmt.Fprintf(&b, "  /%s — %s\n", c.Name, c.Description)
 	}
-	for _, mc := range s.deps.Bot.GetAllModuleCommandsByModule() {
+	for _, mc := range s.deps.Bot.GetAllModuleSlashCommandsByModule() {
 		b.WriteString("\n" + mc.Name + ":\n")
 		for _, c := range mc.Commands {
-			fmt.Fprintf(&b, "  %s — %s (usage: %s)\n", c.Name, c.Description, c.Usage)
+			fmt.Fprintf(&b, "  /%s — %s\n", c.Name, c.Description)
 		}
 	}
 	return textResult(b.String()), nil, nil
@@ -290,7 +289,6 @@ func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, in str
 		return "••••••••"
 	}
 	out := map[string]string{
-		"prefix":                  cfg.Bot.Prefix,
 		"owner_id":                cfg.Bot.OwnerID,
 		"tos_url":                 cfg.Bot.ToS,
 		"privacy_url":             cfg.Bot.Privacy,

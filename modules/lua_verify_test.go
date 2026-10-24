@@ -29,12 +29,11 @@ end
 function M.on_unload()
 end
 
-function M.commands()
+function M.slash_commands()
     return {
         {
             name = "hello",
             description = "Say hello from the Lua example module.",
-            usage = "hello",
             category = "fun",
             execute = function(M)
                 ctx.respond("Hello from Lua!", "This command was written in Lua!")
@@ -43,7 +42,6 @@ function M.commands()
         {
             name = "luainfo",
             description = "Show info about the Lua example module.",
-            usage = "luainfo",
             category = "fun",
             execute = function(M)
                 local info = "Lua Module: " .. M.name .. "\n"
@@ -53,10 +51,6 @@ function M.commands()
             end
         }
     }
-end
-
-function M.slash_commands()
-    return {}
 end
 `
 
@@ -94,7 +88,7 @@ func TestHelloLuaLoadsAndRuns(t *testing.T) {
 		},
 		ReplyText: func(s string) error { text = s; return nil },
 	}
-	cmds := mod.Commands()
+	cmds := mod.SlashCommands()
 	if len(cmds) != 2 {
 		t.Fatalf("want 2 commands, got %d", len(cmds))
 	}

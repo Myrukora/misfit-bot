@@ -19,7 +19,6 @@ func (f *fakeBuiltin) Description() string                    { return "test bui
 func (f *fakeBuiltin) Author() string                         { return "test" }
 func (f *fakeBuiltin) OnLoad(*Context) error                  { return nil }
 func (f *fakeBuiltin) OnUnload() error                        { return nil }
-func (f *fakeBuiltin) Commands() []commands.Command           { return nil }
 func (f *fakeBuiltin) SlashCommands() []commands.SlashCommand { return nil }
 func (f *fakeBuiltin) Dependencies() []string                 { return nil }
 

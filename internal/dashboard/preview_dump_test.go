@@ -44,7 +44,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{"login.html", "", "rd_login", nil, false},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",
-			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080", "prefix": "?",
+			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080",
 		}, false},
 		{"servers.html", "servers", "rd_servers", map[string]any{"guilds": []guildPickerRow{
 			{ID: "1", Name: "Gaming HQ", Icon: ""},
@@ -55,7 +55,7 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}, Modules: []string{"cleanup", "tickets", "imagefilter"}}, false},
 		{"config.html", "config", "rd_admin", map[string]any{
 			"sections": []settingsSection{{Title: "Bot", Help: "Identity", Fields: []fieldRender{
-				{Key: "prefix", Label: "Command prefix", Type: "text", Value: "!", Placeholder: "?"},
+				{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123456789012345678"},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
 				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
 			}}},
@@ -80,12 +80,12 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{"commands.html", "gcommands", "rd_commands", map[string]any{
 			"groups": []moduleGroup{
 				{Module: "core", Categories: []catGroup{{Name: "general", Commands: []cmdView{
-					{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Kind: "prefix", Usage: "ping", Usable: true, CanExec: true},
-					{Name: "ban", Description: "ban a member", Category: "moderation", ModuleOwner: "core", Kind: "prefix", Usage: "ban <user> [reason]", Usable: true, CanExec: true, RequiredPerm: "Ban Members"},
-					{Name: "owner-only-cmd", Description: "owner only", Category: "moderation", ModuleOwner: "core", Kind: "prefix", OwnerOnly: true, Usable: false},
+					{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usage: "ping", Usable: true, CanExec: true},
+					{Name: "ban", Description: "ban a member", Category: "moderation", ModuleOwner: "core", Usage: "ban <user> [reason]", Usable: true, CanExec: true, RequiredPerm: "Ban Members"},
+					{Name: "owner-only-cmd", Description: "owner only", Category: "moderation", ModuleOwner: "core", OwnerOnly: true, Usable: false},
 				}}}},
 				{Module: "cleanup", Categories: []catGroup{{Name: "cleanup", Commands: []cmdView{
-					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Kind: "prefix", Usage: "cleanup <n>", Usable: true, CanExec: true},
+					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Usage: "cleanup <n>", Usable: true, CanExec: true},
 				}}}},
 			},
 			"guild": "1", "selectedTab": "core", "count": 4,

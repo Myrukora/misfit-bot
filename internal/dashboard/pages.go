@@ -91,7 +91,6 @@ func (m *DashboardModule) renderSetup(w http.ResponseWriter, r *http.Request) {
 		"client_id":    m.cfg.ClientID,
 		"redirect_uri": m.redirectBaseURL(r) + "/callback", // must match what handleLoginStart sends
 		"listen":       m.effectiveListen(),
-		"prefix":       m.bot.GetPrefix(),
 	}
 	m.tmpl.render(w, "rd_setup", d)
 }
@@ -461,7 +460,6 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 	}
 	return []settingsSection{
 		sec("Bot", "Identity, ownership and the links shown by the info command.",
-			fieldRender{Key: "prefix", Label: "Command prefix", Help: "Prefix for text commands. Cannot be empty.", Type: "text", Value: vals["prefix"], Placeholder: "?"},
 			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Discord user ID of the bot owner. The owner bypasses every permission check. Pick from the selected server's members or type the ID. Owner only — elevated users cannot transfer ownership.", Type: "user", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
 			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by the info command.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
 			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by the info command.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
@@ -469,7 +467,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 		),
 		sec("Intents", "Gateway intents the bot asks Discord for. Privileged intents must be enabled in the Developer Portal; when they are unavailable the bot drops them at connect and runs in gated mode. Restart required.",
 			fieldRender{Key: "intents_guild_members", Label: "Server Members", Help: "Member cache, member join/leave events and per-guild permission lookups. Off = the dashboard is restricted to the owner and elevated users.", Type: "toggle", Value: vals["intents_guild_members"]},
-			fieldRender{Key: "intents_message_content", Label: "Message Content", Help: "Guild message text, attachments and embeds. Off = prefix commands, the image filter and transcript text are unavailable; slash commands still work. Presence is never requested.", Type: "toggle", Value: vals["intents_message_content"]},
+			fieldRender{Key: "intents_message_content", Label: "Message Content", Help: "Guild message text, attachments and embeds. Off = the image filter and transcript text are unavailable; slash commands still work. Presence is never requested.", Type: "toggle", Value: vals["intents_message_content"]},
 		),
 		sec("Logging", "File logging (JSON, daily rotation).",
 			fieldRender{Key: "log_level", Label: "Log level", Help: "Verbosity of the log file: filters which levels get written. debug = everything, error = only failures. Restart required.", Type: "select", Value: vals["log_level"], Options: []string{"debug", "info", "warn", "error"}},

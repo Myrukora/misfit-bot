@@ -63,7 +63,7 @@ func TestSecretsEnvRoundTrip(t *testing.T) {
 	}
 
 	// A minimal config.yml + .env: Load must surface all three secrets.
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  prefix: '!'\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n  name: 'Bot'\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(dir)

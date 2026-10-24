@@ -7,27 +7,6 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
-func TestFreeArgsNeeded(t *testing.T) {
-	cases := []struct {
-		usage      string
-		hasOptions bool
-		want       bool
-	}{
-		{"ping", false, false},   // zero-arg command: no box
-		{"uptime", false, false}, // zero-arg command: no box
-		{"backup [create|verify|restore|list] [filename]", false, true}, // untyped args
-		{"secret <command>", false, true},                               // untyped args
-		{"help [command]", false, true},                                 // optional arg
-		{"ping", true, false},                                           // option schema present: forms win
-		{"secret <command>", true, false},                               // option schema present: forms win
-	}
-	for _, c := range cases {
-		if got := freeArgsNeeded(c.usage, c.hasOptions); got != c.want {
-			t.Errorf("freeArgsNeeded(%q, %v) = %v, want %v", c.usage, c.hasOptions, got, c.want)
-		}
-	}
-}
-
 // mockWebConfig is a minimal WebConfigurable for buildModuleView tests: one
 // global field and one guild-scoped field.
 type mockWebConfig struct{}

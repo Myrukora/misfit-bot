@@ -54,7 +54,7 @@ type fakeBot struct {
 	latency    string
 	loaded     []string
 	available  []string
-	moduleCmds []commands.ModuleCommands
+	moduleCmds []commands.ModuleSlashCommands
 	manager    *modules.Manager
 	updater    interface{}
 	channels   map[string]discord.GuildChannel
@@ -70,7 +70,7 @@ func (f *fakeBot) GetLatency() string                { return f.latency }
 func (f *fakeBot) GetClient() interface{}            { return nil }
 func (f *fakeBot) GetLoadedModuleNames() []string    { return f.loaded }
 func (f *fakeBot) GetAvailableModuleNames() []string { return f.available }
-func (f *fakeBot) GetAllModuleCommandsByModule() []commands.ModuleCommands {
+func (f *fakeBot) GetAllModuleSlashCommandsByModule() []commands.ModuleSlashCommands {
 	return f.moduleCmds
 }
 func (f *fakeBot) GetModuleManager() interface{} { return f.manager }
@@ -157,7 +157,7 @@ func (f *fakeRest) DeleteMessage(channelID snowflake.ID, messageID snowflake.ID,
 // writeConfig writes a config.yml with the given mcp section into dir.
 func writeConfig(t *testing.T, dir, mcpBlock string) {
 	t.Helper()
-	yaml := "bot:\n  prefix: \"?\"\n  owner_id: \"123\"\n" + mcpBlock
+	yaml := "bot:\n  name: \"Bot\"\n  owner_id: \"123\"\n" + mcpBlock
 	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte(yaml), 0o600); err != nil {
 		t.Fatal(err)
 	}

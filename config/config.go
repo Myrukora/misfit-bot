@@ -31,8 +31,8 @@ type Config struct {
 // mode described in the README. Presence is never requested: the bot only
 // sets its own status.
 type IntentsConfig struct {
-	// MessageContent gates guild message text, attachments and embeds, so
-	// prefix commands and the image filter depend on it.
+	// MessageContent gates guild message text, attachments and embeds (the
+	// image filter and ticket transcripts depend on it).
 	MessageContent bool `yaml:"message_content"`
 	// GuildMembers gates the member cache, member events and permission
 	// lookups. Without it the dashboard is gated to the owner/elevated users.
@@ -106,7 +106,6 @@ type BotConfig struct {
 	// <dir>/.env as DISCORD_BOT_TOKEN (0600) — see secrets.go. Load fills it
 	// from that file, Set writes it there, and Save never emits it.
 	Token       string   `yaml:"-"`
-	Prefix      string   `yaml:"prefix"`
 	OwnerID     string   `yaml:"owner_id"`
 	ElevatedIDs []string `yaml:"elevated_ids"`
 	ToS         string   `yaml:"tos_url"`
@@ -116,12 +115,6 @@ type BotConfig struct {
 	// applied on every (re)start via SetPresence so the bot comes up with the
 	// owner's chosen status instead of always online.
 	Status string `yaml:"status"`
-	// BotAllowlist is a list of bot user IDs whose prefix commands are
-	// processed despite the standard "ignore all bots" rule. Intended for
-	// QA/testing observer bots (single explicit IDs — never a blanket
-	// bots-in-general exemption, so bot↔bot echo loops stay impossible).
-	// Empty = default behavior (all bots ignored).
-	BotAllowlist []string `yaml:"bot_allowlist,omitempty"`
 }
 
 type ModulesConfig struct {
@@ -226,7 +219,6 @@ type MCPConfig struct {
 
 var DefaultConfig = &Config{
 	Bot: BotConfig{
-		Prefix:  "[p]",
 		Name:    "Bot",
 		ToS:     "",
 		Privacy: "",
@@ -380,11 +372,6 @@ func (c *Config) Set(key, value string) error {
 		return Save(c, filepath.Dir(c.FilePath))
 	}
 	switch key {
-	case "prefix":
-		if value == "" {
-			return fmt.Errorf("prefix cannot be empty")
-		}
-		c.Bot.Prefix = value
 	case "token":
 		// A secret: write it to <dir>/.env (0600), never config.yml.
 		v := strings.TrimSpace(value)
@@ -450,7 +437,7 @@ func (c *Config) Set(key, value string) error {
 	case "enabled_modules":
 		// value is a comma/space-separated list of `name` or `name=bool`
 		// entries, e.g. "tickets=false" (disable tickets) or
-		// "tickets=true" / "tickets" (enable). The [p]modules enable|disable
+		// "tickets=true" / "tickets" (enable). The /modules enable|disable
 		// command uses this key. A bare name means enable.
 		fields := strings.FieldsFunc(value, func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\n'

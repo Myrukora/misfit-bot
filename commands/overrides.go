@@ -29,7 +29,7 @@ type CommandOverrides struct {
 }
 
 type overridesData struct {
-	Version int                            `json:"version"`
+	Version int                          `json:"version"`
 	Guilds  map[string]map[string]CmdCfg `json:"guilds"`
 }
 
@@ -146,7 +146,7 @@ func (o *CommandOverrides) Allowed(cmd, guildID, channelID string, memberRoles [
 }
 
 // IsDisabled reports whether the command is disabled in the given guild. Used
-// to filter disabled commands out of the [p]help listing. A nil or unreadable
+// to filter disabled commands out of the /help listing. A nil or unreadable
 // store returns false (everything shown).
 func (o *CommandOverrides) IsDisabled(cmd, guildID string) bool {
 	o.mu.RLock()

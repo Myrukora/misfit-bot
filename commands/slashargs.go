@@ -6,17 +6,15 @@ import (
 	"github.com/disgoorg/disgo/discord"
 )
 
-// SlashArgs builds the positional argument vector a prefix user typing the
-// same command would produce, by walking the command's declared options in
-// order and reading the interaction's values. It is the single source of
-// truth for slash→prefix arg mapping: the dispatcher calls it once per
-// interaction, and the command's Execute sees exactly the prefix tree's
-// expected vector (group name, sub name, then leaf values in declared order).
+// SlashArgs builds the positional argument vector commands consume, by walking
+// the command's declared options in order and reading the interaction's
+// values. It is the single source of truth for slash→positional mapping: the
+// dispatcher calls it once per interaction, and the command's Execute sees the
+// declared vector (group name, sub name, then leaf values in declared order).
 //
 // Options absent from the interaction are skipped, so an omitted optional
-// argument shifts nothing — the prefix tree's arity checks see exactly what a
-// prefix user typing the same command would produce. The returned slice is in
-// DECLARED option order, never the interaction's map iteration order.
+// argument shifts nothing. The returned slice is in DECLARED option order,
+// never the interaction's map iteration order.
 func SlashArgs(cmd SlashCommand, data discord.SlashCommandInteractionData) []string {
 	var args []string
 	for _, opt := range cmd.Options {
@@ -71,8 +69,9 @@ func appendLeaf(args *[]string, opt discord.ApplicationCommandOption, data disco
 	*args = append(*args, stringifyOption(val))
 }
 
-// stringifyOption renders a slash option value as the string the prefix tree
-// expects, by declared type. It never panics: an unrecognised type yields "".
+// stringifyOption renders a slash option value as the string the dispatcher
+// passes to Execute, by declared type. It never panics: an unrecognised type
+// yields "".
 func stringifyOption(o discord.SlashCommandOption) string {
 	switch o.Type {
 	case discord.ApplicationCommandOptionTypeString:

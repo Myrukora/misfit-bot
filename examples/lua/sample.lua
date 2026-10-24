@@ -10,12 +10,11 @@ end
 function M.on_unload()
 end
 
-function M.commands()
+function M.slash_commands()
   return {
     {
       name = "hello",
       description = "Say hello",
-      usage = "hello <name>",
       category = "sample",
       execute = function(M)
         local name = ctx.args[1] or "world"
@@ -25,7 +24,6 @@ function M.commands()
     {
       name = "sampleinfo",
       description = "Show sample module info",
-      usage = "sampleinfo",
       category = "sample",
       execute = function(M)
         local args = ""
@@ -36,8 +34,4 @@ function M.commands()
       end,
     },
   }
-end
-
-function M.slash_commands()
-  return {}
 end

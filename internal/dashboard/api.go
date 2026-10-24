@@ -338,7 +338,6 @@ func (m *DashboardModule) coreSettingsGet() map[string]string {
 		intentsGM = "true"
 	}
 	return map[string]string{
-		"prefix":                  m.bot.GetPrefix(),
 		"owner_id":                m.bot.GetOwnerID(),
 		"tos_url":                 m.bot.GetToS(),
 		"privacy_url":             m.bot.GetPrivacy(),
@@ -462,8 +461,8 @@ func (m *DashboardModule) apiSettingsCore(w http.ResponseWriter, r *http.Request
 // and live side-effects. owner=true skips the owner-only secret gate.
 func (m *DashboardModule) setCoreSetting(owner bool, key, value string) (string, error) {
 	allowed := map[string]bool{
-		"prefix": true, "owner_id": true,
-		"tos_url": true, "privacy_url": true, "status": true,
+		"owner_id": true,
+		"tos_url":  true, "privacy_url": true, "status": true,
 		"log_level": true, "log_enabled": true, "log_file_path": true, "modules_auto_load": true,
 		"dashboard_listen": true, "dashboard_public_url": true,
 		"updater_enabled": true, "updater_repo": true, "updater_branch": true,

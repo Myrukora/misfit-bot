@@ -44,18 +44,6 @@ def load_user_module(main_path):
     return user_mod.module
 
 
-def command_to_dict(cmd):
-    """Convert a Command object to a dict for the ready message."""
-    return {
-        "name": cmd.name,
-        "description": cmd.description,
-        "usage": cmd.usage,
-        "category": cmd.category,
-        "owner_only": cmd.owner_only,
-        "aliases": list(cmd.aliases) if cmd.aliases else [],
-    }
-
-
 def slash_command_to_dict(cmd):
     """Convert a SlashCommand object to a dict for the ready message."""
     return {
@@ -155,8 +143,7 @@ def main():
     # Set up IPC
     ipc = IPC()
 
-    # Collect commands and event handlers
-    commands_list = module_instance.commands()
+    # Collect slash commands and event handlers
     slash_commands_list = module_instance.slash_commands()
     event_handlers = module_instance.event_handlers()
 
@@ -167,15 +154,13 @@ def main():
         "version": module_instance.version,
         "description": module_instance.description,
         "author": module_instance.author,
-        "commands": [command_to_dict(c) for c in commands_list],
         "slash_commands": [slash_command_to_dict(c) for c in slash_commands_list],
         "event_handlers": list(event_handlers.keys()) if event_handlers else [],
         "has_web_config": has_web_config,
         "web_schema": web_schema,
     })
 
-    # Build command lookup tables
-    cmd_lookup = {c.name: c for c in commands_list}
+    # Build the slash command lookup table
     slash_lookup = {c.name: c for c in slash_commands_list}
 
     # Bot context data (populated on init)
@@ -197,7 +182,6 @@ def main():
         channel_id = message.get("channel_id", "")
         guild_id = message.get("guild_id", "")
         author_id = message.get("author_id", "")
-        is_slash = message.get("is_slash", False)
         # Dashboard-sourced invocations carry source + req_id; the context then
         # echoes req_id in every reply so Go can route it back to the HTTP
         # caller instead of Discord.
@@ -209,12 +193,12 @@ def main():
                 err_msg["req_id"] = req_id
             return err_msg
 
-        cmd = cmd_lookup.get(name) or slash_lookup.get(name)
+        cmd = slash_lookup.get(name)
         if cmd is None:
             ipc.send(err(f"Unknown command: {name}"))
             return
 
-        ctx = Context(ipc, channel_id, guild_id, author_id, args, is_slash, req_id=req_id)
+        ctx = Context(ipc, channel_id, guild_id, author_id, args, req_id=req_id)
         try:
             cmd.execute(ctx)
         except Exception as e:

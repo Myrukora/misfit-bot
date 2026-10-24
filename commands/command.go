@@ -7,23 +7,14 @@ import (
 	"github.com/misfit/bot/permissions"
 )
 
-type Command struct {
-	Name           string
-	Description    string
-	Usage          string
-	Category       string
-	RequiredPerm   discord.Permissions
-	OwnerOnly      bool
-	SuperOwnerOnly bool
-	Aliases        []string
-	WebArgs        []WebArg // optional typed args for the dashboard runner
-	Execute        func(ctx *Context) error
-}
-
+// SlashCommand is one registered slash command. The bot exposes only slash
+// commands: Discord's message-content policy forbids prefix commands, and the
+// Message Content intent is no longer requested for them.
 type SlashCommand struct {
 	Name           string
 	Description    string
 	Category       string
+	Usage          string // human-readable usage for /help, e.g. "help [command]"
 	Options        []discord.ApplicationCommandOption
 	RequiredPerm   discord.Permissions
 	OwnerOnly      bool
@@ -37,9 +28,7 @@ type Context struct {
 	GuildID   string
 	Author    discord.User
 	Args      []string
-	IsSlash   bool
-	Web       bool   // true: invoked from the web dashboard (virtual context)
-	MessageID string // invoking message ID (prefix commands only; "" for slash)
+	Web       bool // true: invoked from the web dashboard (virtual context)
 	Respond   func(embeds ...discord.Embed) error
 	ReplyText func(text string) error
 }
@@ -50,12 +39,12 @@ type Context struct {
 // status reports, plain text — stays on screen permanently. There is no
 // per-command "preserve" opt-in because non-errors never auto-delete anyway.
 
-// ModuleCommands groups a loaded module's prefix commands under the module's
-// name. [p]help uses it to list each module's commands in a category named
-// after the module (e.g. cleanup's commands appear under "Cleanup").
-type ModuleCommands struct {
+// ModuleSlashCommands groups a loaded module's slash commands under the
+// module's name. /help uses it to list each module's commands in a category
+// named after the module (e.g. cleanup's commands appear under "Cleanup").
+type ModuleSlashCommands struct {
 	Name     string
-	Commands []Command
+	Commands []SlashCommand
 }
 
 // CommandResult is the captured outcome of a web-executed command. Respond()
@@ -69,16 +58,6 @@ type CommandResult struct {
 	Text        string
 }
 
-// WebArg is optional structured metadata for a command's web runner form.
-// Commands without WebArgs get a single free-text args input instead.
-type WebArg struct {
-	Name     string
-	Label    string
-	Type     string // text | number | toggle | select
-	Required bool
-	Options  []string // for select
-}
-
 type Interface interface {
 	IsOwner(userID string) bool
 	IsElevated(userID string) bool
@@ -86,7 +65,6 @@ type Interface interface {
 	GetUserPermissions(userID string, guildID string) discord.Permissions
 	GetGuildOwnerID(guildID string) string
 	GetSelfUserID() string
-	GetPrefix() string
 	GetName() string
 	GetVersion() string
 	GetOwnerID() string
@@ -105,8 +83,7 @@ type Interface interface {
 	// feature is disabled). Enabling it is a one-liner in main(); dispatchers
 	// and the dashboard read through this accessor.
 	CommandOverrides() *CommandOverrides
-	GetAllModuleCommands() []Command
-	GetAllModuleCommandsByModule() []ModuleCommands // module name → its prefix commands, in load order
+	GetAllModuleSlashCommandsByModule() []ModuleSlashCommands // module name → its slash commands, in load order
 	GetAvailableModuleNames() []string
 	// IsBuiltinModule reports whether a module is a compiled-in feature
 	// (cleanup/tickets) rather than a dynamic Lua/Python module.
@@ -132,31 +109,25 @@ type Interface interface {
 	// drop when Discord rejects a privileged intent (close code 4014).
 	MemberIntentEnabled() bool
 	// MessageContentEnabled reports whether the Message Content intent is
-	// active. Without it guild message text/attachments are empty: prefix
-	// commands and content-based features are disabled, slash commands work.
+	// active. Without it guild message text/attachments are empty: content
+	// features (the image filter, ticket transcripts) are unavailable; slash
+	// commands are unaffected.
 	MessageContentEnabled() bool
 	GetClient() interface{}
 	GetStartTime() time.Time
 	StatusRateLimit(userID string) (allowed bool, wait time.Duration)
 	ResetRateLimit(userID string)
-	// ExecuteCommand runs any registered command (core prefix, core slash, or
-	// any loaded module's command) with a virtual context whose responses are
-	// captured instead of posted to Discord. Permission checks mirror the
-	// Discord dispatcher: SuperOwnerOnly commands are ALWAYS denied from the
-	// web; OwnerOnly requires the requesting user to be owner or elevated.
+	// ExecuteCommand runs a registered slash command (core or any loaded
+	// module) with a virtual context whose responses are captured instead of
+	// posted to Discord. Permission checks mirror the Discord dispatcher:
+	// SuperOwnerOnly commands are ALWAYS denied from the web; OwnerOnly
+	// requires the requesting user to be owner or elevated.
 	// channelID is optional ("" = no channel context); when set it must be a
-	// cached channel of guildID. Resolution mirrors the prefix dispatcher:
-	// the prefix implementation wins when a name exists in both forms, and
-	// slash-only commands still resolve.
+	// cached channel of guildID.
 	ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error)
 }
 
-var CoreCommands []Command
 var CoreSlashCommands []SlashCommand
-
-func RegisterCoreCommand(cmd Command) {
-	CoreCommands = append(CoreCommands, cmd)
-}
 
 func RegisterCoreSlash(cmd SlashCommand) {
 	CoreSlashCommands = append(CoreSlashCommands, cmd)

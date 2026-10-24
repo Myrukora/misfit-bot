@@ -185,7 +185,7 @@ func (m *DashboardModule) refreshOAuth() {
 //
 // The result is memoized for 2s (see the struct comment) — callers invoke this
 // on every request path. Write paths call invalidateCoreConfig so live changes
-// (dashboard_listen/oauth secrets via [p]set or the web) apply immediately.
+// (dashboard_listen/oauth secrets via the /config page or config.yml) apply immediately.
 func (m *DashboardModule) coreConfig() *config.Config {
 	if m.bot == nil {
 		return nil

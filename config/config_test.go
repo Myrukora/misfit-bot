@@ -101,7 +101,7 @@ func TestDashboardKeysRoundTrip(t *testing.T) {
 // (which would silently disable the self-updater).
 func TestLoadAppliesDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    prefix: '!'\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    name: 'Custom'\n"), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cfg, err := Load(dir)
@@ -111,8 +111,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if !cfg.Updater.Enabled || cfg.Updater.Branch != "main" || cfg.Updater.CheckInterval != 300 || !cfg.Updater.AutoPull {
 		t.Errorf("updater defaults not applied: %+v", cfg.Updater)
 	}
-	if cfg.Bot.Prefix != "!" {
-		t.Errorf("yaml overlay lost: prefix = %q", cfg.Bot.Prefix)
+	if cfg.Bot.Name != "Custom" {
+		t.Errorf("yaml overlay lost: name = %q", cfg.Bot.Name)
 	}
 }
 
@@ -246,7 +246,7 @@ func TestChannelMentionNormalization(t *testing.T) {
 	}
 }
 
-// TestLogEnabledValidation guards the [p]logs command against silent typos:
+// TestLogEnabledValidation guards the log settings against silent typos:
 // anything that isn't a recognizable boolean must be rejected instead of
 // silently disabling logging ("enable" used to coerce to false).
 func TestLogEnabledValidation(t *testing.T) {
@@ -466,7 +466,7 @@ func TestMCPEnabledValidation(t *testing.T) {
 // up enabled with an empty token (the token is generated on first start).
 func TestMCPLoadDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    prefix: '!'\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    name: 'Custom'\n"), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cfg, err := Load(dir)

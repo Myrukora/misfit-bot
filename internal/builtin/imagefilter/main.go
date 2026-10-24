@@ -47,9 +47,7 @@ func (m *ImageFilterModule) Description() string {
 func (m *ImageFilterModule) Author() string         { return "misfit-bot" }
 func (m *ImageFilterModule) Dependencies() []string { return nil }
 
-// Commands is intentionally nil: this module is dashboard-only by design.
-func (m *ImageFilterModule) Commands() []commands.Command { return nil }
-
+// SlashCommands is intentionally nil: this module is dashboard-only by design.
 func (m *ImageFilterModule) SlashCommands() []commands.SlashCommand { return nil }
 
 // OnLoad stores the module context, loads config + reference images, wires the

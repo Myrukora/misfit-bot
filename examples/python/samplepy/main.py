@@ -1,4 +1,4 @@
-from misfit import Module, Command
+from misfit import Module, SlashCommand
 
 
 class SampleModule(Module):
@@ -13,26 +13,21 @@ class SampleModule(Module):
     def on_unload(self) -> None:
         pass
 
-    def commands(self):
+    def slash_commands(self):
         return [
-            Command(
+            SlashCommand(
                 name="pyhello",
                 description="Say hello from Python",
-                usage="pyhello <name>",
                 category="sample",
                 execute=self.hello,
             ),
-            Command(
+            SlashCommand(
                 name="pydemo",
                 description="Demo command from Python",
-                usage="pydemo",
                 category="sample",
                 execute=self.demo,
             ),
         ]
-
-    def slash_commands(self):
-        return []
 
     def event_handlers(self):
         return {}

@@ -6,13 +6,13 @@ A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature mo
 
 ## Features
 
-- **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `[p]load` / `[p]unload` / `[p]reload`. The dashboard and the cleanup/tickets/imagefilter feature modules are compiled into the single binary instead (core infrastructure, always on).
-- **13 core commands** with prefix **and** slash equivalents: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `shutdown`, `restart`, `permissions`, `ratelimit`, `update`.
+- **Hot-loadable module system** — Lua scripts (gopher-lua) and Python modules (subprocess IPC with per-module venvs). Load, unload, and reload them at runtime with `/load` / `/unload` / `/reload`. The dashboard and the cleanup/tickets/imagefilter feature modules are compiled into the single binary instead (core infrastructure, always on).
+- **13 core slash commands**: `ping`, `uptime`, `info`, `help`, `modules`, `load`, `unload`, `reload`, `shutdown`, `restart`, `permissions`, `ratelimit`, `update`.
 - **Three-tier permission system** — bot owner/elevated users bypass everything, guild owners bypass Discord permission requirements, everyone else is checked against Discord role permissions.
 - **Web dashboard** — Discord OAuth2 login (mutual-guild enforced), 4 RBAC tiers (owner / elevated / staff / regular), live metrics, a permission-filtered command catalog, and per-module settings panels rendered from each module's opt-in `WebConfigurable` schema. No dashboard code changes needed to support a new module's settings.
 - **GitHub self-updater** — polls the bot's own repository for new commits and pull requests, posts embed notifications to a Discord channel, and can automatically pull the latest code, rebuild the binary, and self-restart.
 - **Voice API for modules** — `VoiceManager` lets modules join voice channels and play audio via FFmpeg.
-- **First-run onboarding wizard** — interactive setup of token, owner ID, and prefix.
+- **First-run onboarding wizard** — interactive setup of token, owner ID, and bot name.
 - **JSON logging** (async, stdout + file), **per-user rate limiting** (owner bypass), **config backups** (create / verify / restore, surfaced owner-only at `/api/backups`).
 - **Multi-distro install script** + Nix dev shell.
 
@@ -61,7 +61,7 @@ See [Versioning](#versioning).
 
 ### First run
 
-Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, prefix, and bot name — the token is written to `.env` (mode 0600), not `config.yml`. The default prefix is `[p]`.
+Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks for your bot token, owner ID, and bot name — the token is written to `.env` (mode 0600), not `config.yml`. The bot uses slash commands only (no message prefix).
 
 ## Configuration
 
@@ -69,7 +69,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 
 | Section | Keys |
 |---|---|
-| `bot` | `prefix`, `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url`, `bot_allowlist` (the `token` lives in `.env`) |
+| `bot` | `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url` (the `token` lives in `.env`) |
 | `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
@@ -77,11 +77,11 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
-Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `[p]update set <key> <value>` command also remains for updater keys.
+Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `/update set <key> <value>` command also remains for updater keys.
 
 ## Commands
 
-All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping`). In this documentation `[p]` is a placeholder for your configured prefix (default: `[p]`) — with a `!` or `?` prefix, the same command is `!ping` or `?ping`.
+All user-facing commands are **slash commands** (e.g. `/ping`). The bot registers no text/prefix commands, which keeps it compliant with Discord's message-content policy.
 
 | Command | Description | Access |
 |---|---|---|
@@ -98,7 +98,7 @@ All commands work with the prefix (e.g. `[p]ping`) and as slash commands (`/ping
 
 ## Modules
 
-The web dashboard and the cleanup/tickets/imagefilter builtins are **compiled into the single binary** and cannot be loaded or unloaded at runtime. The three builtins are gated by `modules.enabled_modules` (missing key = enabled) and can be toggled with `[p]modules enable|disable <name>` (cleanup and tickets only; imagefilter is configured per-server on the dashboard). Lua and Python modules stay hot-loadable and live in language folders under `modules/`:
+The web dashboard and the cleanup/tickets/imagefilter builtins are **compiled into the single binary** and cannot be loaded or unloaded at runtime. The three builtins are gated by `modules.enabled_modules` (missing key = enabled) and can be toggled with `/modules enable|disable <name>` (cleanup and tickets only; imagefilter is configured per-server on the dashboard). Lua and Python modules stay hot-loadable and live in language folders under `modules/`:
 
 - **Lua** — `modules/Lua/<name>/<name>.lua` (or `main.lua`)
 - **Python** — `modules/Python/<name>/main.py` (+ optional `requirements.txt`; per-module venv, auto-`pip install`)
@@ -128,7 +128,7 @@ says. The script also *validates*: a `VERSION` that is missing, empty or not
 bare SemVer fails CI, fails `install.sh` and fails the release workflow, rather
 than stamping a value nothing downstream can parse. Build without the stamp and
 the bot reports `dev` — an *unknown* version, not `0.0.0`: the updater then
-reports commits instead of versions (see below). `[p]info` shows the
+reports commits instead of versions (see below). `/info` shows the
 version, and `./bot --version` prints it without touching `config.yml`.
 
 ### What the numbers mean
@@ -178,7 +178,7 @@ its tag already there and does nothing.
 The bot polls its own GitHub repository every `check_interval` seconds (default 300):
 
 1. **Notifications** — new open PRs and new commits on the tracked branch get embed notifications (author row → bold title → markdown description) posted to every configured notify channel: each server picks its own channel on the dashboard's per-server **Modules** page (`updater.notify_channels`). Delivery is at-least-once: a failed send is retried on the next poll. Merge commits are skipped and the first poll after enabling seeds silently.
-2. **Auto-update** — when `auto_pull` is on (or via `[p]update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
+2. **Auto-update** — when `auto_pull` is on (or via `/update now`), the bot fetches the remote (the GitHub token is injected per invocation — never stored in `.git/config`), rebuilds the single binary (dashboard and feature modules included), swaps in the new binary, and self-restarts.
 
 The GitHub token lives **only** in the gitignored `.env` (`UPDATER_GITHUB_TOKEN`) and never appears in any commit.
 
@@ -191,9 +191,9 @@ The web dashboard runs in-process (compiled into the single binary). Setup:
 3. Open the dashboard and complete the **Login with Discord** flow; register the redirect URI it shows in the Dev Portal.
 4. The default bind is `http://127.0.0.1:8080` (expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
 
-Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `[p]help`).
+Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `/help`).
 
-The dashboard **Commands** tab lists every command once and runs them in-process (responses are captured into the page, never posted to Discord). Execution goes through the bot's own dispatcher with the same resolution order as the prefix dispatcher, so each command runs its single canonical implementation directly in the backend — there is no prefix-vs-slash setting and no Discord round-trip. Slash-only commands (modules that define no prefix form) still resolve and run.
+The dashboard **Commands** tab lists every slash command once and runs them in-process (responses are captured into the page, never posted to Discord). Execution goes through the bot's own dispatcher and runs the command's single implementation directly in the backend — no Discord round-trip.
 
 Each command card's **Run** button executes the command in-process with **no arguments** (`POST /api/exec` takes an optional `args` array; the commands tab sends an empty one). The JSON catalog (`GET /api/commands`) does expose each command's slash-option schema — subcommand groups, typed options and their choices — for tools that want to build their own argument forms, but the dashboard page itself renders no argument inputs.
 
@@ -212,7 +212,7 @@ The bearer token is **auto-generated on first start** and saved to `config.yml` 
 ```
 misfit-bot/
 ├── cmd/bot/               # Entry point — Discord connection, dispatch, lifecycle
-├── commands/              # Command types + 13 core commands (prefix + slash)
+├── commands/              # Command types + 13 core slash commands
 ├── config/                # YAML config load/save/validate
 ├── embed/                 # Discord embed helpers
 ├── logger/                # Async JSON logging (stdout + file)

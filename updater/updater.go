@@ -616,7 +616,7 @@ func (m *Manager) Apply(ctx context.Context) error {
 	return nil
 }
 
-// Status returns a snapshot of the updater's state for [p]update status.
+// Status returns a snapshot of the updater's state for /update status.
 func (m *Manager) Status() map[string]string {
 	cfg := m.getCfg()
 	m.mu.Lock()
@@ -652,7 +652,7 @@ func (m *Manager) Status() map[string]string {
 		"notify_channel": strings.Join(mentions, " "),
 		// Raw IDs for consumers without a Discord renderer (the dashboard's
 		// status panel). notify_channel carries the mention form for the
-		// [p]update status embed, where <#id> renders as the channel name.
+		// /update status embed, where <#id> renders as the channel name.
 		"notify_channels": strings.Join(targets, ","),
 		"last_sha":        lastSHA,
 		"last_check":      lastCheck.Format("2006-01-02 15:04:05"),
@@ -810,7 +810,7 @@ func (m *Manager) reachableTags(ctx context.Context, refs []tagRef, upstream str
 }
 
 // recordLatestVersion caches the newest release tag seen on the tracked branch
-// so [p]info and the dashboard can report it without shelling out to git.
+// so /info and the dashboard can report it without shelling out to git.
 func (m *Manager) recordLatestVersion(cfg *config.UpdaterConfig, to string) {
 	if to == "" || cfg == nil {
 		return

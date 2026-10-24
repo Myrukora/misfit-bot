@@ -173,24 +173,12 @@ func TestRenameTicket(t *testing.T) {
 	}
 }
 
-// TestTicketCommandSurface pins the user-facing actions in both forms: the
-// prefix commands and their slash twins, with a user option on add/remove and
-// a string option on rename.
+// TestTicketCommandSurface pins the user-facing slash actions: close, add,
+// remove and rename, with a user option on add/remove and a string option on
+// rename.
 func TestTicketCommandSurface(t *testing.T) {
 	m := &TicketsModule{}
 	names := []string{"close", "add", "remove", "rename"}
-	prefix := map[string]bool{}
-	for _, c := range m.Commands() {
-		prefix[c.Name] = c.Execute != nil
-		if c.Name == "rename" && (len(c.Aliases) != 1 || c.Aliases[0] != "renameticket") {
-			t.Errorf("rename aliases = %v, want [renameticket]", c.Aliases)
-		}
-	}
-	for _, name := range names {
-		if !prefix[name] {
-			t.Errorf("prefix command %q missing", name)
-		}
-	}
 	slash := map[string]commands.SlashCommand{}
 	for _, c := range m.SlashCommands() {
 		slash[c.Name] = c

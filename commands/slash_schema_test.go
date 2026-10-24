@@ -45,8 +45,7 @@ func subOptByName(t *testing.T, opts []discord.ApplicationCommandOption, name st
 // TestCoreSlashNestedSubcommands pins the handler-parity contract of the
 // nested slash schemas: the slash dispatcher prepends the subcommand name and
 // appends the provided options in declaration order, so each subcommand's
-// options must line up exactly with the positional args the prefix handler
-// reads.
+// options must line up exactly with the positional args the handler reads.
 func TestCoreSlashNestedSubcommands(t *testing.T) {
 	// ratelimit: status <user> | reset <user>
 	rl := findSlashOpts(t, "ratelimit")

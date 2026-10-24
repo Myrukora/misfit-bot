@@ -17,7 +17,7 @@ import (
 // The dashboard is the ONLY management surface: ticket types, panels and the
 // per-guild log channel are edited here through modules.TicketAdmin. The
 // module's only commands are the in-channel end-user actions
-// (close/rename/add/remove) — the [p]tickets / /tickets configuration tree
+// (close/rename/add/remove) — the /tickets configuration tree
 // was removed.
 //
 // Live updates: GET /api/tickets/<guild>/stream and

@@ -45,13 +45,13 @@ type PythonIPC struct {
 	pending   map[string]chan map[string]interface{}
 }
 
-// PythonReadyInfo contains the module metadata and commands from the ready message.
+// PythonReadyInfo contains the module metadata and slash commands from the
+// ready message.
 type PythonReadyInfo struct {
 	Name          string
 	Version       string
 	Description   string
 	Author        string
-	Commands      []PythonCommand
 	SlashCommands []PythonSlashCommand
 	EventHandlers []string
 	// Dashboard integration (optional dashboard.py): HasWebConfig is true
@@ -73,16 +73,6 @@ type PythonWebField struct {
 	Min         *float64 `json:"min"`
 	Max         *float64 `json:"max"`
 	Step        *float64 `json:"step"`
-}
-
-// PythonCommand represents a command definition from Python.
-type PythonCommand struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Usage       string   `json:"usage"`
-	Category    string   `json:"category"`
-	OwnerOnly   bool     `json:"owner_only"`
-	Aliases     []string `json:"aliases"`
 }
 
 // PythonSlashCommand represents a slash command definition from Python.
@@ -211,21 +201,20 @@ func (p *PythonIPC) Send(message map[string]interface{}) error {
 }
 
 // SendInit sends the init message to the Python process.
-func (p *PythonIPC) SendInit(botName, ownerID, prefix, version, dataDir string) error {
+func (p *PythonIPC) SendInit(botName, ownerID, version, dataDir string) error {
 	return p.Send(map[string]interface{}{
 		"type": "init",
 		"context": map[string]interface{}{
 			"bot_name": botName,
 			"owner_id": ownerID,
-			"prefix":   prefix,
 			"version":  version,
 			"data_dir": dataDir,
 		},
 	})
 }
 
-// SendCommand sends a command invocation to the Python process.
-func (p *PythonIPC) SendCommand(name string, args []string, channelID, guildID, authorID string, isSlash bool) error {
+// SendCommand sends a slash command invocation to the Python process.
+func (p *PythonIPC) SendCommand(name string, args []string, channelID, guildID, authorID string) error {
 	return p.Send(map[string]interface{}{
 		"type":       "command",
 		"name":       name,
@@ -233,14 +222,13 @@ func (p *PythonIPC) SendCommand(name string, args []string, channelID, guildID, 
 		"channel_id": channelID,
 		"guild_id":   guildID,
 		"author_id":  authorID,
-		"is_slash":   isSlash,
 	})
 }
 
 // SendCommandFromWeb sends a dashboard-sourced command invocation and waits
 // for the module's respond/reply_text/error reply (correlated via req_id,
 // 5s timeout). The reply map is returned raw so the caller can render it.
-func (p *PythonIPC) SendCommandFromWeb(name string, args []string, guildID, authorID string, isSlash bool) (map[string]interface{}, error) {
+func (p *PythonIPC) SendCommandFromWeb(name string, args []string, guildID, authorID string) (map[string]interface{}, error) {
 	reqID := fmt.Sprintf("web-%d-%d", time.Now().UnixNano(), p.nextReqSeq())
 	ch := make(chan map[string]interface{}, 4)
 	p.pendingMu.Lock()
@@ -262,7 +250,6 @@ func (p *PythonIPC) SendCommandFromWeb(name string, args []string, guildID, auth
 		"channel_id": "",
 		"guild_id":   guildID,
 		"author_id":  authorID,
-		"is_slash":   isSlash,
 		"source":     "dashboard",
 		"req_id":     reqID,
 	}); err != nil {
@@ -498,29 +485,6 @@ func (p *PythonIPC) handleReady(message map[string]interface{}) {
 		Version:     getString(message, "version"),
 		Description: getString(message, "description"),
 		Author:      getString(message, "author"),
-	}
-
-	// Parse commands
-	if cmds, ok := message["commands"].([]interface{}); ok {
-		for _, cmd := range cmds {
-			if cmdMap, ok := cmd.(map[string]interface{}); ok {
-				c := PythonCommand{
-					Name:        getString(cmdMap, "name"),
-					Description: getString(cmdMap, "description"),
-					Usage:       getString(cmdMap, "usage"),
-					Category:    getString(cmdMap, "category"),
-					OwnerOnly:   getBool(cmdMap, "owner_only"),
-				}
-				if aliases, ok := cmdMap["aliases"].([]interface{}); ok {
-					for _, a := range aliases {
-						if alias, ok := a.(string); ok {
-							c.Aliases = append(c.Aliases, alias)
-						}
-					}
-				}
-				info.Commands = append(info.Commands, c)
-			}
-		}
 	}
 
 	// Parse slash commands

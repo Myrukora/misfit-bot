@@ -64,8 +64,11 @@ func (m *DashboardModule) metrics() metricsSnapshot {
 	s.Modules = append(s.Modules, loaded...)
 	sort.Strings(s.Modules)
 
-	// total command count = core prefix + core slash + all loaded-module commands
-	s.Commands = len(commands.CoreCommands) + len(commands.CoreSlashCommands) + len(m.bot.GetAllModuleCommands())
+	// total command count = core slash + all loaded-module slash commands
+	s.Commands = len(commands.CoreSlashCommands)
+	for _, group := range m.bot.GetAllModuleSlashCommandsByModule() {
+		s.Commands += len(group.Commands)
+	}
 
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
@@ -78,7 +81,7 @@ func (m *DashboardModule) metrics() metricsSnapshot {
 }
 
 // releaseLabel canonicalises a version to "v0.1.0" using the updater's SemVer
-// rules — so the dashboard and [p]info can never disagree — and reports when
+// rules — so the dashboard and /info can never disagree — and reports when
 // the value is not a version at all (an unstamped "dev" build, a corrupt tag).
 func releaseLabel(v string) (string, bool) {
 	if canonical := updater.NormalizeVersion(v); canonical != "" {

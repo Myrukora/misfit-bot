@@ -122,7 +122,6 @@ func (s *stubTickets) Description() string           { return "stub" }
 func (s *stubTickets) Author() string                { return "test" }
 func (s *stubTickets) OnLoad(*modules.Context) error { return nil }
 func (s *stubTickets) OnUnload() error               { return nil }
-func (s *stubTickets) Commands() []commands.Command  { return nil }
 func (s *stubTickets) Dependencies() []string        { return nil }
 func (s *stubTickets) SlashCommands() []commands.SlashCommand {
 	return nil
@@ -291,7 +290,6 @@ func (providerOnlyTickets) Description() string           { return "stub" }
 func (providerOnlyTickets) Author() string                { return "test" }
 func (providerOnlyTickets) OnLoad(*modules.Context) error { return nil }
 func (providerOnlyTickets) OnUnload() error               { return nil }
-func (providerOnlyTickets) Commands() []commands.Command  { return nil }
 func (providerOnlyTickets) Dependencies() []string        { return nil }
 func (providerOnlyTickets) SlashCommands() []commands.SlashCommand {
 	return nil

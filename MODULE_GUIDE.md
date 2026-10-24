@@ -11,27 +11,27 @@ The bot has two kinds of add-ons, and only one of them is yours to write:
 
 | Kind | Language | Where it lives | Managed with | Hot-loadable |
 |------|----------|----------------|--------------|--------------|
-| **Dynamic module** | Python or Lua | `modules/Python/<name>/`, `modules/Lua/<name>/` | `[p]load` / `[p]unload` / `[p]reload` | ✅ yes, no restart |
-| **Compiled-in feature** | Go | the bot's own source, `internal/builtin/…` | `[p]modules enable\|disable` | ❌ restart to apply |
+| **Dynamic module** | Python or Lua | `modules/Python/<name>/`, `modules/Lua/<name>/` | `/load` / `/unload` / `/reload` | ✅ yes, no restart |
+| **Compiled-in feature** | Go | the bot's own source, `internal/builtin/…` | `/modules enable\|disable` | ❌ restart to apply |
 
-A dynamic module adds prefix commands, slash commands, event listeners,
+A dynamic module adds slash commands, event listeners,
 background work of its own, or any combination — and is loaded, unloaded and
 reloaded at runtime without restarting the bot. Python modules run in their own
 subprocess (talking to the bot over JSON IPC, with a per-module virtualenv);
 Lua modules run in an embedded gopher-lua state inside the bot.
 
 Both kinds are first-class citizens of the same machinery: they declare
-commands, register event hooks, and appear in `[p]help` the same way. What
+commands, register event hooks, and appear in `/help` the same way. What
 differs is who runs them and how they are (re)loaded.
 
-> **Crucial: every command shows up in `[p]help`.** Module commands are
+> **Crucial: every command shows up in `/help`.** Module commands are
 > automatically listed (under a category named after the **module** — only its
 > first character upper-cased, not per word) the moment the module loads.
 > For that to look right, **every command must have a non-empty description** —
-> it's the text shown after `—` (`?ping — Check how quickly the bot responds,
-> with its gateway and API latency.`). A blank one renders as `?name —`.
+> it's the text shown after `—` (`ping — Check how quickly the bot responds,
+> with its gateway and API latency.`). A blank one renders as `name —`.
 > This applies to **Python and Lua** modules alike. See
-> [How module commands appear in `[p]help`](#how-module-commands-appear-in-phelp).
+> [How module commands appear in `/help`](#how-module-commands-appear-in-phelp).
 > The dashboard can additionally render a module's settings panel with zero
 > dashboard code if the module ships a dashboard integration script — see
 > [Exposing settings on the dashboard](#exposing-settings-on-the-dashboard-moduleswebconfigurable).
@@ -76,11 +76,11 @@ modules/Lua/
 ```
 
 The module *folder* is the module: the Python directory (or the Lua file's
-directory) is what `[p]load <name>` resolves, and it is also the module's data
+directory) is what `/load <name>` resolves, and it is also the module's data
 directory — configs, saves and logs live next to the module script. See
 [Module Configuration](#module-configuration).
 
-Lua resolution order for `[p]load <name>`: `modules/Lua/<name>/<name>.lua`
+Lua resolution order for `/load <name>`: `modules/Lua/<name>/<name>.lua`
 first, then `modules/Lua/<name>/main.lua`. Python is
 `modules/Python/<name>/` containing `main.py`. A name that matches nothing
 fails with:
@@ -109,7 +109,7 @@ code never changes. See
 [Exposing settings on the dashboard](#exposing-settings-on-the-dashboard-moduleswebconfigurable).
 
 `*.dashboard.lua` files are never treated as modules themselves: AutoLoad,
-`[p]load all`, the available-modules listing and `[p]load <name>` all skip
+`/load all`, the available-modules listing and `/load <name>` all skip
 them, and trying to load one directly is rejected with a clear error.
 
 ## Minimum Viable Module
@@ -118,11 +118,11 @@ them, and trying to load one directly is rejected with a clear error.
 
 ```python
 # modules/Python/hello_py/main.py
-from misfit import Module, Command, SlashCommand
+from misfit import Module, SlashCommand
 
 
 class HelloModule(Module):
-    name = "hello_py"                  # REQUIRED — also the [p]help category name
+    name = "hello_py"                  # REQUIRED — also the /help category name
     version = "1.0.0"
     description = "A simple hello module (Python)"
     author = "YourName"
@@ -133,22 +133,12 @@ class HelloModule(Module):
     def on_unload(self):
         pass
 
-    def commands(self):
-        return [
-            Command(
-                name="hello",
-                description="Says hello from Python",  # REQUIRED — shown after `—` in [p]help
-                usage="hello",
-                category="fun",   # single-command help + web catalog only; [p]help groups by module name
-                execute=self.hello_command,
-            ),
-        ]
-
     def slash_commands(self):
         return [
             SlashCommand(
                 name="hello",
                 description="Says hello from Python",
+                category="fun",   # single-command help + web catalog only; /help groups by module name
                 execute=self.hello_command,
             ),
         ]
@@ -168,7 +158,7 @@ module = HelloModule()     # REQUIRED — the runner looks for this global
 ```lua
 -- modules/Lua/hello/hello.lua
 M = {}                                      -- global, NOT `local M`
-M.name = "hello"                            -- REQUIRED — also the [p]help category name
+M.name = "hello"                            -- REQUIRED — also the /help category name
 M.version = "1.0.0"
 M.description = "A simple hello module (Lua)"
 M.author = "YourName"
@@ -180,12 +170,11 @@ end
 function M.on_unload()
 end
 
-function M.commands(M)
+function M.slash_commands(M)
   return {
     {
       name = "hello",
-      description = "Says hello from Lua",  -- REQUIRED — shown after `—` in [p]help
-      usage = "hello [name]",
+      description = "Says hello from Lua",  -- REQUIRED — shown after `—` in /help
       category = "fun",
       execute = function(M)
         local who = ctx.args[1] or "world"  -- ctx is the global context table
@@ -194,33 +183,28 @@ function M.commands(M)
     },
   }
 end
-
-function M.slash_commands(M)
-  return {}
-end
 ```
 
-**Load:** `[p]load hello` / `[p]load hello_py` — then `?hello` and `/hello`
-work immediately, and the commands appear under a **▸ Hello** section of
-`[p]help`. No restart, no build.
+**Load:** `/load hello` / `/load hello_py` — then `/hello` works immediately,
+and the command appears under a **▸ Hello** section of `/help`. No restart, no
+build.
 
 ## What Your Module Must Provide
 
 ### Python: the `Module` ABC
 
-Subclass `misfit.Module`. Four class attributes describe the module; five
-methods are **abstract** — all five must be implemented or instantiation raises
+Subclass `misfit.Module`. Four class attributes describe the module; four
+methods are **abstract** — all four must be implemented or instantiation raises
 `TypeError`.
 
 | Member | Kind | Meaning |
 |--------|------|---------|
-| `name` | class attr | Module name. Also the `[p]help` category and the load key. Falls back to the directory name if empty. |
+| `name` | class attr | Module name. Also the `/help` category and the load key. Falls back to the directory name if empty. |
 | `version` | class attr | Free-form version string (default `"1.0.0"`). |
 | `description` | class attr | One-line description of the module. |
 | `author` | class attr | Author name. |
 | `on_load(self, ctx)` | abstract | Called once after the process is up. `ctx` is a `BotContext`. Store it if you need it later. |
 | `on_unload(self)` | abstract | Called on unload/shutdown. Clean up here. |
-| `commands(self) -> list[Command]` | abstract | Prefix commands. Return `[]` for none. |
 | `slash_commands(self) -> list[SlashCommand]` | abstract | Slash commands. Return `[]` for none. |
 | `event_handlers(self) -> dict` | abstract | `{event_name: handler}`. Return `{}` for none. |
 
@@ -231,7 +215,7 @@ module = HelloModule()
 ```
 
 The runner imports `main.py`, reads that global, and sends the bot a `ready`
-message with the metadata + command lists before the module is considered
+message with the metadata + slash command list before the module is considered
 loaded (30s cap).
 
 ### Lua: the global `M` table
@@ -242,11 +226,10 @@ optional.
 
 | Member | Called as | Meaning |
 |--------|-----------|---------|
-| `M.name` | read | Module name (required). Also the `[p]help` category and the load key. |
+| `M.name` | read | Module name (required). Also the `/help` category and the load key. |
 | `M.version`, `M.description`, `M.author` | read | Metadata strings. |
 | `M.on_load(M, name)` | called | Runs after the script is evaluated. Register events here. |
 | `M.on_unload()` | called | Runs on unload. |
-| `M.commands(M)` | called, returns table | Array of command tables (see [Commands](#commands)). |
 | `M.slash_commands(M)` | called, returns table | Array of slash command tables. Return `{}` if none. |
 
 Two conventions matter:
@@ -258,24 +241,7 @@ Two conventions matter:
 
 ## Commands
 
-### Python prefix command
-
-```python
-Command(
-    name="greet",                 # invoked as ?greet
-    description="Greets a user",  # REQUIRED
-    usage="greet <user>",
-    category="fun",
-    owner_only=False,             # True = bot owner + elevated only
-    required_perm=0,              # see "Permissions" below
-    aliases=["hi", "sayhi"],      # prefix-only alternative names
-    execute=self.greet,
-)
-```
-
-`execute` is required (a `Command` without it raises `ValueError` at
-construction). It is called with a `Context` (see
-[Responding](#responding)).
+Modules register **slash commands only** — the bot has no prefix commands.
 
 ### Python slash command
 
@@ -294,18 +260,17 @@ SlashCommand(
 command is registered with Discord with no options at all and its args vector
 is always **empty** — `ctx.args` is `[]` for a Python slash command. Put what
 you need in the command's own wording (e.g. accept the argument as free text in
-a follow-up flow), or use a prefix command for parameterised input.
+a follow-up flow).
 
 ### Lua command tables
 
-A Lua command table is read for exactly four keys — `name`, `description`,
-`usage`, `category` — plus the `execute` function:
+A Lua **slash** command table is read for `name`, `description`, `category`
+and `execute`:
 
 ```lua
 {
   name = "greet",
   description = "Greets a user",  -- REQUIRED
-  usage = "greet <user>",
   category = "fun",
   execute = function(M)
     -- read the invocation from the global ctx table
@@ -313,16 +278,15 @@ A Lua command table is read for exactly four keys — `name`, `description`,
 }
 ```
 
-A Lua **slash** command table is read for `name`, `description`, `category`
-and `execute` (no `usage`) — and, like the Python SDK, it declares no options,
-so `ctx.args` is empty for a Lua slash command too.
+Like the Python SDK, Lua slash commands declare no options, so `ctx.args` is
+empty for a Lua slash command too.
 
 Lua command tables have **no** permission fields at all: there is no
 `owner_only`, no `required_perm`, no `aliases` equivalent. A Lua command is
 usable by anyone who can invoke commands. Keep owner-only or moderation-grade
 operations in Python (or in the bot's own Go code).
 
-### How module commands appear in `[p]help`
+### How module commands appear in `/help`
 
 Every module command is automatically grouped under a **category named after
 the owning module**, with only its first character upper-cased, regardless of
@@ -386,14 +350,12 @@ Rules:
 - A module that exposes **no commands** doesn't get an empty section — it's
   skipped.
 - The per-command `category` is **only** used by single-command help
-  (`[p]help <name>` shows it as “Category: <value>”) and by the dashboard's web
+  (`/help <name>` shows it as “Category: <value>”) and by the dashboard's web
   command catalog (which groups by module first, then category). It no longer
-  affects how module commands are bucketed in `[p]help`.
+  affects how module commands are bucketed in `/help`.
 - **Always set a description** — it's the text that appears after `—`. A blank
-  one shows as `?name —`, which is what the user sees for poorly-written
-  modules. Write it as a plain, user-friendly sentence. For commands that exist
-  both as prefix and slash commands, the two descriptions are separate fields —
-  set both.
+  one shows as `name —`, which is what the user sees for poorly-written
+  modules. Write it as a plain, user-friendly sentence.
 
 ### Permissions
 
@@ -402,7 +364,7 @@ exactly the same dispatch checks as a core command:
 
 | Tier | Who | Access |
 |------|-----|--------|
-| Bot owner + elevated | Bot owner (config) + elevated users (`[p]permissions add`) | Everything — bypasses all checks |
+| Bot owner + elevated | Bot owner (config) + elevated users (`/permissions add`) | Everything — bypasses all checks |
 | Guild owner | Owner of the Discord server | Bypasses `RequiredPerm`, NOT `OwnerOnly` |
 | Normal users | Everyone else | Checked via Discord role permissions |
 
@@ -490,20 +452,11 @@ if you don't want a response to vanish, just don't make it red. A module
 
 ### Arguments
 
-`ctx.args` (Python: a list; Lua: a **1-based** table) holds the arguments
-after the command name.
+`ctx.args` (Python: a list; Lua: a **1-based** table) holds the values the
+slash dispatcher extracted.
 
-For a prefix invocation, the content is tokenized with quote support:
-
-```
-[p]cleanup text "free nitro" 50
-    ctx.args[0] = "text"          # Lua: ctx.args[1]
-    ctx.args[1] = "free nitro"    # one arg, because it was quoted
-    ctx.args[2] = "50"            # Lua: ctx.args[3]
-```
-
-For a slash invocation the bot builds the vector from the command's declared
-options, in **declared order**: a flat subcommand contributes its own name
+The bot builds the vector from the command's declared options, in **declared
+order**: a flat subcommand contributes its own name
 followed by its option values; a command in a subcommand group contributes the
 group name, then the subcommand name, then its values. Optional options that
 were not supplied are skipped entirely (so nothing shifts), and
@@ -532,7 +485,6 @@ command.** `BotContext` carries the bot facts:
 |--------|------|---------|
 | `bot_name` | property → str | The bot's configured name. |
 | `owner_id` | property → str | The bot owner's Discord user ID. |
-| `prefix` | property → str | The command prefix. |
 | `version` | property → str | The bot's version string. |
 | `data_dir` | property → str | The module's own folder — see [Module Configuration](#module-configuration). |
 | `logger` | `Logger` | `debug`/`info`/`warn`/`error` — see [Logger](#logger). |
@@ -542,14 +494,13 @@ command.** `BotContext` carries the bot facts:
 
 Keep the `BotContext` you receive in `on_load` (e.g. `self.ctx = ctx`) if a
 command or event handler needs it later; command handlers receive a `Context`
-with only `channel_id`, `guild_id`, `author_id`, `args`, `is_slash`, `req_id`.
+with only `channel_id`, `guild_id`, `author_id`, `args`, `req_id`.
 
 **Lua — the global `ctx` table** carries both bot facts and the per-invocation
 fields:
 
 | Function | Returns | Meaning |
 |----------|---------|---------|
-| `ctx.get_prefix()` | string | Command prefix. |
 | `ctx.get_name()` | string | Bot name. |
 | `ctx.get_version()` | string | Bot version. |
 | `ctx.get_owner_id()` | string | Owner's Discord user ID. |
@@ -567,21 +518,21 @@ Per-invocation fields, refreshed before every command runs: `ctx.channel_id`,
 ### Module Management from Commands
 
 Module commands cannot load or unload other modules — that's an owner
-operation exposed through the bot's own `[p]load` / `[p]unload` / `[p]reload`
+operation exposed through the bot's own `/load` / `/unload` / `/reload`
 commands (`all` is accepted by each):
 
 ```
-[p]load <name> | load all
-[p]unload <name> | unload all
-[p]reload <name> | reload all
+/load <name> | load all
+/unload <name> | unload all
+/reload <name> | reload all
 ```
 
 `reload` is unload-then-load. If the reload's load step fails, the module is
 **lost until the bot restarts** (the bot logs a warning — the previous instance
 cannot be rolled back).
 
-For a compiled-in feature module, `[p]modules` lists what is loaded and
-`[p]modules enable <name>` / `[p]modules disable <name>` writes the
+For a compiled-in feature module, `/modules` lists what is loaded and
+`/modules enable <name>` / `/modules disable <name>` writes the
 `enabled_modules` config entry. **It applies after the next restart.**
 
 ## Discord Access
@@ -870,7 +821,7 @@ members.
 import json
 import os
 
-from misfit import Command, Module, SlashCommand
+from misfit import Module, SlashCommand
 
 
 class WelcomeModule(Module):
@@ -896,17 +847,6 @@ class WelcomeModule(Module):
         with open(self.cfg_path, "w") as f:
             json.dump(self.cfg, f)
 
-    def commands(self):
-        return [
-            Command(
-                name="welcome",
-                description="Configure the welcome message channel",
-                usage="welcome [#channel] [message]",
-                owner_only=True,
-                execute=self.cmd_welcome,
-            ),
-        ]
-
     def slash_commands(self):
         return [
             SlashCommand(
@@ -923,7 +863,7 @@ class WelcomeModule(Module):
     def cmd_welcome(self, ctx):
         args = ctx.args
         if args:
-            # Channel args are raw snowflake strings on slash; mentions on prefix.
+            # Channel args are raw snowflake strings on slash commands.
             cid = args[0].strip("<#>")
             if cid.isdigit():
                 self.cfg["channel_id"] = cid
@@ -995,30 +935,30 @@ There is nothing to build. A Python or Lua module is loaded from source.
 
 ```text
 # Load (resolves Lua/<name>/<name>.lua, Lua/<name>/main.lua, Python/<name>/main.py)
-[p]load <name>
+/load <name>
 
 # Unload
-[p]unload <name>
+/unload <name>
 
 # Reload (unload + load; if the load step fails the module is lost until restart)
-[p]reload <name>
+/reload <name>
 
 # All at once
-[p]load all
-[p]unload all
-[p]reload all
+/load all
+/unload all
+/reload all
 ```
 
 Loading and unloading re-registers slash commands with Discord automatically —
 module slash commands appear in the command picker without a bot restart.
 
-`[p]load all` walks every Lua/Python module it can find;
-`[p]reload all` walks the currently loaded set. Note that `[p]unload all` is
+`/load all` walks every Lua/Python module it can find;
+`/reload all` walks the currently loaded set. Note that `/unload all` is
 literal — it also drops the compiled-in builtins for the rest of the process
 run (they come back on restart).
 
 On startup the bot reads `loaded_modules.json` and loads exactly those modules
-(that's also how `[p]reload all` picks its targets). If that file has no
+(that's also how `/reload all` picks its targets). If that file has no
 entries and `modules.auto_load` is true, the bot scans `modules/Lua/` and
 `modules/Python/` and loads everything it finds, then writes the file. A name
 recorded in `loaded_modules.json` whose file no longer exists is skipped with a
@@ -1036,7 +976,7 @@ rejects anything that isn't Lua or Python with
 ```
 unsupported module type for <path> — only Lua and Python modules are loadable;
 feature modules (cleanup/tickets) are compiled-in and managed with
-[p]modules enable|disable
+/modules enable|disable
 ```
 
 **If you want to add Go code to this bot, this is the path:**
@@ -1048,7 +988,7 @@ feature modules (cleanup/tickets) are compiled-in and managed with
 2. Register the constructor in `cmd/bot/main.go`'s
    `ModMgr.RegisterBuiltinsWithFilter(...)` call next to
    `cleanup.New, tickets.New, imagefilter.New`.
-3. Build and restart. `[p]modules enable|disable <name>` then gates it through
+3. Build and restart. `/modules enable|disable <name>` then gates it through
    the `enabled_modules` config map (a missing key means enabled).
 
 Two useful references in-tree:
@@ -1061,7 +1001,7 @@ Two useful references in-tree:
 
 A builtin's data directory is `modules/<name>/` (its `OnLoad` gets `DataDir` =
 the configured modules path + the module name). `imagefilter` is registered the
-same way but is not accepted by `[p]modules enable|disable`, which only knows
+same way but is not accepted by `/modules enable|disable`, which only knows
 `cleanup` and `tickets`. The dashboard — an always-on subsystem rather than a
 builtin — is pinned to the historical `modules/Go/dashboard/` path so its
 module-local state survives.
@@ -1086,12 +1026,11 @@ the bot's internals, read `CLAUDE.md`.
 4. **Lua: dot syntax, never colon syntax** — `function M.on_load(M, name)`, not
    `M:on_load`. Colon syntax shifts every parameter by one. Never name a
    callback parameter `ctx` — it shadows the global context table.
-5. **Module names** — lowercase, no spaces. The name is the `[p]load` key, the
-   `[p]help` category, and (in Python) the fallback to the directory name.
+5. **Module names** — lowercase, no spaces. The name is the `/load` key, the
+   `/help` category, and (in Python) the fallback to the directory name.
 6. **Descriptions are mandatory in practice** — a blank description renders as
-   `?name —` in `[p]help`. Set both the prefix and the slash description when a
-   command exists as both.
-7. **`ctx.args[0]` is the first argument after the command name**, not the
+   `name —` in `/help`. Set a description on every command.
+7. **`ctx.args[0]` is the first declared value (or subcommand name)**, not the
    command itself. In Lua the args table is 1-based, so it's `ctx.args[1]`.
 8. **Slash args are declared-order positional values** — the subcommand (and
    group) name comes first, absent optional options are skipped, and
@@ -1139,7 +1078,7 @@ the bot's internals, read `CLAUDE.md`.
     it.
 24. **`reload` cannot roll back** — it unloads first, then loads; a failing load
     leaves the module unloaded until the bot restarts.
-25. **Compiled-in features need a restart** — `[p]modules enable|disable`
+25. **Compiled-in features need a restart** — `/modules enable|disable`
     writes config only; the reply says so.
 26. **DMs** — in DMs the bot resolves zero guild permissions and no guild
     owner, so permission-gated commands only work for the owner/elevated there.

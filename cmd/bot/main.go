@@ -25,7 +25,6 @@ import (
 	"github.com/misfit/bot/internal/builtin/tickets"
 	"github.com/misfit/bot/internal/dashboard"
 	"github.com/misfit/bot/internal/mcpserver"
-	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/logger"
 	"github.com/misfit/bot/modules"
 	"github.com/misfit/bot/onboarding"
@@ -154,7 +153,7 @@ func main() {
 		case "--version", "-v":
 			// Handled before anything touches config.yml: CI verifies the version
 			// stamp on a checkout that has no config, and the bot's own update
-			// pipeline can ask the same question the [p]info embed answers.
+			// pipeline can ask the same question the /info embed answers.
 			fmt.Println(Version)
 			os.Exit(0)
 		}
@@ -212,7 +211,7 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	Log.Info("Starting %s v%s", Cfg.Bot.Name, Version)
-	Log.Info("Owner: %s | Prefix: %s", Cfg.Bot.OwnerID, Cfg.Bot.Prefix)
+	Log.Info("Owner: %s", Cfg.Bot.OwnerID)
 
 	// Self-update manager: constructed ONCE (never inside run()) so in-process
 	// restarts don't spawn duplicate poll loops. Run() is a long-lived
@@ -355,7 +354,7 @@ func run() bool {
 			Log.Error("Failed to open gateway: %v", err)
 			return false
 		}
-		Log.Warn("Discord rejected the privileged intents (Message Content / Server Members); reconnecting without them — prefix commands and member lookups will be unavailable")
+		Log.Warn("Discord rejected the privileged intents (Message Content / Server Members); reconnecting without them — message content and member lookups will be unavailable")
 		Client.Gateway = gateway.New(Client.Token, Client.EventManager.HandleGatewayEvent, gateway.WithIntents(reduced))
 		if err := Client.OpenGateway(context.Background()); err != nil {
 			Log.Error("Failed to open gateway without privileged intents: %v", err)
@@ -367,7 +366,7 @@ func run() bool {
 	ba.messageContent = intents.Has(gateway.IntentMessageContent)
 	Log.Info("Gateway connected (Message Content=%t, Server Members=%t; presence never requested)", ba.messageContent, ba.memberIntent)
 	if !ba.messageContent {
-		Log.Warn("Message Content intent is off: prefix commands and message text/attachments are unavailable; slash commands still work")
+		Log.Warn("Message Content intent is off: guild message text/attachments are unavailable (image filter, transcripts)")
 	}
 	if !ba.memberIntent {
 		Log.Warn("Server Members intent is off: member cache/permission lookups are unavailable; the dashboard is gated to the owner and elevated users")
@@ -689,8 +688,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 
 	// Build the positional arg vector from the declared option order (never
-	// the interaction's map iteration order) so the command's Execute sees
-	// exactly what a prefix user typing the same command would produce.
+	// the interaction's map iteration order).
 	var args []string
 	if slashData, ok := event.Data.(discord.SlashCommandInteractionData); ok {
 		args = commands.SlashArgs(*scmd, slashData)
@@ -723,7 +721,6 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		GuildID:   guildID,
 		Author:    user,
 		Args:      args,
-		IsSlash:   true,
 		Respond: func(embeds ...discord.Embed) error {
 			msg, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{Embeds: embeds})
 			if err != nil {
@@ -766,7 +763,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		}
 	}
 
-	// Rate limit slash commands the same way as prefix commands (owner bypasses).
+	// Rate limit slash commands (owner bypasses).
 	if Cfg.Bot.OwnerID != user.ID.String() {
 		allowed, wait := rtLimiter.Allow(user.ID.String())
 		if !allowed {
@@ -785,182 +782,6 @@ func onMessageCreate(event *events.MessageCreate) {
 	safeDispatchFor(event, "onMessageCreate", func(h *modules.EventHooks) []func(*events.MessageCreate) {
 		return h.GetMessageCreateHandlers()
 	})
-
-	guildID := ""
-	if event.GuildID != nil {
-		guildID = event.GuildID.String()
-	}
-	handleMessage(&event.Message.Author, event.Message.ID.String(), event.Message.ChannelID.String(), guildID, event.Message.Content)
-}
-
-// botAllowlisted reports whether a bot user is explicitly allowed to run
-// prefix commands via config.yml's bot.bot_allowlist (QA observer bots).
-func botAllowlisted(userID string) bool {
-	for _, id := range Cfg.Bot.BotAllowlist {
-		if id == userID {
-			return true
-		}
-	}
-	return false
-}
-
-func handleMessage(author *discord.User, msgID string, channelID string, guildID string, content string) {
-	if author.Bot && !botAllowlisted(author.ID.String()) {
-		return
-	}
-	if guildID != "" && !ba.MessageContentEnabled() {
-		// Without the Message Content intent Discord delivers guild messages
-		// with empty content, so prefix commands cannot match (slash commands
-		// still work). DMs keep their content and are handled below.
-		return
-	}
-
-	prefix := Cfg.Bot.Prefix
-	if prefix == "" {
-		return
-	}
-	if !strings.HasPrefix(content, prefix) {
-		return
-	}
-
-	args := util.TokenizeArgs(content[len(prefix):])
-	if len(args) == 0 {
-		return
-	}
-
-	cmdName := strings.ToLower(args[0])
-	cmdArgs := args[1:]
-	channelSnowflake, ok := safeParseID(channelID)
-	if !ok {
-		return
-	}
-
-	// Auto-delete: only error-colored (red) embeds vanish (after 7s so the
-	// user can read them). Every other response — success, info, warning, usage
-	// listings, status reports, plain text — stays on screen permanently.
-	autoDeleteError := func(msgID snowflake.ID) {
-		time.AfterFunc(errorAutoDeleteDelay, func() {
-			_ = Client.Rest.DeleteMessage(channelSnowflake, msgID)
-		})
-	}
-
-	respond := func(embeds ...discord.Embed) error {
-		msg, err := Client.Rest.CreateMessage(channelSnowflake, discord.MessageCreate{
-			Embeds: embeds,
-		})
-		if err == nil && isErrorResponse(embeds) {
-			autoDeleteError(msg.ID)
-		}
-		return err
-	}
-
-	// Plain-text replies aren't error embeds, so they never auto-delete.
-	replyText := func(text string) error {
-		_, err := Client.Rest.CreateMessage(channelSnowflake, discord.MessageCreate{
-			Content: text,
-		})
-		return err
-	}
-
-	for _, cmd := range commands.CoreCommands {
-		if cmd.Name == cmdName || util.ContainsStr(cmd.Aliases, cmdName) {
-			userPerms := ba.GetUserPermissions(author.ID.String(), guildID)
-			guildOwnerID := ba.GetGuildOwnerID(guildID)
-			if cmd.SuperOwnerOnly && !PermMgr.IsOwner(author.ID.String()) {
-				respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
-				return
-			}
-			if !PermMgr.CanUse(author.ID.String(), userPerms, cmd.RequiredPerm, cmd.OwnerOnly, guildOwnerID) {
-				respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
-				return
-			}
-
-			// Per-command override enforcement (global + per-guild
-			// disable/restrict). Owner/elevated already bypassed CanUse above.
-			if !prefixAllowed(ba, cmd.Name, guildID, channelID, author.ID.String()) {
-				respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
-				return
-			}
-
-			// Check rate limit (owner bypasses)
-			if Cfg.Bot.OwnerID != author.ID.String() {
-				allowed, wait := rtLimiter.Allow(author.ID.String())
-				if !allowed {
-					respond(embed.Error("⏱️ Rate Limited", fmt.Sprintf("Too many commands! Wait %d seconds.", int(wait.Seconds())+1)))
-					return
-				}
-			}
-
-			ctx := &commands.Context{
-				Bot:       ba,
-				ChannelID: channelID,
-				GuildID:   guildID,
-				Author:    *author,
-				Args:      cmdArgs,
-				IsSlash:   false,
-				MessageID: msgID,
-				Respond:   respond,
-				ReplyText: replyText,
-			}
-
-			if err := cmd.Execute(ctx); err != nil {
-				Log.Error("Command %s failed: %v", cmdName, err)
-				respond(embed.Error("❌ Error", fmt.Sprintf("Command failed: %v", err)))
-			}
-			return
-		}
-	}
-
-	for _, mod := range ModMgr.AllCommands() {
-		if mod.Name == cmdName || util.ContainsStr(mod.Aliases, cmdName) {
-			userPerms := ba.GetUserPermissions(author.ID.String(), guildID)
-			guildOwnerID := ba.GetGuildOwnerID(guildID)
-			if mod.SuperOwnerOnly && !PermMgr.IsOwner(author.ID.String()) {
-				respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
-				return
-			}
-			if !PermMgr.CanUse(author.ID.String(), userPerms, mod.RequiredPerm, mod.OwnerOnly, guildOwnerID) {
-				respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
-				return
-			}
-
-			// Per-command override enforcement (global + per-guild
-			// disable/restrict). Owner/elevated already bypassed CanUse above.
-			if !prefixAllowed(ba, mod.Name, guildID, channelID, author.ID.String()) {
-				respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
-				return
-			}
-
-			// Check rate limit (owner bypasses)
-			if Cfg.Bot.OwnerID != author.ID.String() {
-				allowed, wait := rtLimiter.Allow(author.ID.String())
-				if !allowed {
-					respond(embed.Error("⏱️ Rate Limited", fmt.Sprintf("Too many commands! Wait %d seconds.", int(wait.Seconds())+1)))
-					return
-				}
-			}
-
-			ctx := &commands.Context{
-				Bot:       ba,
-				ChannelID: channelID,
-				GuildID:   guildID,
-				Author:    *author,
-				Args:      cmdArgs,
-				IsSlash:   false,
-				MessageID: msgID,
-				Respond:   respond,
-				ReplyText: replyText,
-			}
-
-			if err := mod.Execute(ctx); err != nil {
-				Log.Error("Module command %s failed: %v", cmdName, err)
-				respond(embed.Error("❌ Error", fmt.Sprintf("Module command failed: %v", err)))
-			}
-			return
-		}
-	}
-
-	respond(embed.Error("❌ Command Not Found", fmt.Sprintf("Unknown command `%s`. Use `%s%s` to see available commands.", cmdName, prefix, "help")))
 }
 
 var registerSlashMu sync.Mutex
@@ -1017,7 +838,7 @@ type botAdapter struct {
 
 	// Gateway capabilities of the CURRENT connection, set once the gateway is
 	// open (the intents can drop on Discord's 4014, so the config alone does
-	// not decide these). Read by the dashboard gating and prefix dispatch.
+	// not decide these). Read by the dashboard gating.
 	memberIntent   bool
 	messageContent bool
 }
@@ -1082,10 +903,6 @@ func (b *botAdapter) GetSelfUserID() string {
 		return ""
 	}
 	return self.ID.String()
-}
-
-func (b *botAdapter) GetPrefix() string {
-	return Cfg.Bot.Prefix
 }
 
 func (b *botAdapter) GetName() string {
@@ -1223,12 +1040,8 @@ func (b *botAdapter) UnloadAllModules() error {
 	return nil
 }
 
-func (b *botAdapter) GetAllModuleCommands() []commands.Command {
-	return ModMgr.AllCommands()
-}
-
-func (b *botAdapter) GetAllModuleCommandsByModule() []commands.ModuleCommands {
-	return ModMgr.AllCommandsByModule()
+func (b *botAdapter) GetAllModuleSlashCommandsByModule() []commands.ModuleSlashCommands {
+	return ModMgr.AllSlashCommandsByModule()
 }
 
 func (b *botAdapter) GetAvailableModuleNames() []string {
@@ -1514,11 +1327,11 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 	rtLimiter.Reset(userID)
 }
 
-// ExecuteCommand runs any registered command (core prefix, core slash, or any
-// loaded module's command) with a virtual context whose responses are captured
-// instead of posted to Discord. This is how the web dashboard executes
-// commands — core, Go module, Python module and Lua module alike (Lua routes
-// respond/reply_text through the context; Python via SendCommandFromWeb).
+// ExecuteCommand runs a registered slash command (core or any loaded module)
+// with a virtual context whose responses are captured instead of posted to
+// Discord. This is how the web dashboard executes commands — core, Go module,
+// Python module and Lua module alike (Lua routes respond/reply_text through
+// the context; Python via SendCommandFromWeb).
 //
 // Permission mapping (mirrors the Discord dispatcher):
 //   - SuperOwnerOnly → ALWAYS denied from the web
@@ -1552,42 +1365,22 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		}
 	}
 
-	// Resolve in the prefix dispatcher's precedence: core prefix, core slash,
-	// then module prefix, module slash. A command that exists in both forms
-	// resolves to its prefix implementation; slash-only commands stay
-	// reachable.
+	// Resolve the slash command: core first, then loaded modules in load order.
 	type cmdInfo struct {
 		superOwnerOnly, ownerOnly bool
 		requiredPerm              discord.Permissions
-		isSlash                   bool
 		exec                      func(*commands.Context) error
-	}
-	findPrefix := func(cmds []commands.Command) *cmdInfo {
-		for i := range cmds {
-			c := &cmds[i]
-			if c.Name == name || util.ContainsStr(c.Aliases, name) {
-				return &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, false, c.Execute}
-			}
-		}
-		return nil
 	}
 	findSlash := func(cmds []commands.SlashCommand) *cmdInfo {
 		for i := range cmds {
 			c := &cmds[i]
 			if c.Name == name {
-				return &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, true, c.Execute}
+				return &cmdInfo{c.SuperOwnerOnly, c.OwnerOnly, c.RequiredPerm, c.Execute}
 			}
 		}
 		return nil
 	}
-	var ci *cmdInfo
-	ci = findPrefix(commands.CoreCommands)
-	if ci == nil {
-		ci = findSlash(commands.CoreSlashCommands)
-	}
-	if ci == nil {
-		ci = findPrefix(ModMgr.AllCommands())
-	}
+	ci := findSlash(commands.CoreSlashCommands)
 	if ci == nil {
 		ci = findSlash(ModMgr.AllSlashCommands())
 	}
@@ -1618,7 +1411,6 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		GuildID:   guildID,
 		Author:    discord.User{ID: authorID},
 		Args:      args,
-		IsSlash:   ci.isSlash,
 		Web:       true,
 		Respond: func(embeds ...discord.Embed) error {
 			resMu.Lock()
@@ -1648,7 +1440,6 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 }
 
 func loadCoreModules(ba *botAdapter) {
-	Log.Info("Registering %d core commands", len(commands.CoreCommands))
 	Log.Info("Registering %d core slash commands", len(commands.CoreSlashCommands))
 
 	if noModules {
@@ -1778,19 +1569,6 @@ func isMod(b *botAdapter, guildID, userID string) bool {
 	}
 	perms := b.GetUserPermissions(userID, guildID)
 	return perms.Has(discord.PermissionManageMessages) || perms.Has(discord.PermissionAdministrator)
-}
-
-// prefixAllowed enforces the per-command override store for the prefix
-// dispatcher. It returns true when the command may run. Owner/elevated already
-// bypassed CanUse above, matching the slash path. A nil store means "allowed".
-func prefixAllowed(b *botAdapter, name, guildID, channelID, userID string) bool {
-	ov := b.CommandOverrides()
-	if ov == nil {
-		return true
-	}
-	return ov.Allowed(name, guildID, channelID,
-		roleIDs(b, guildID, userID),
-		isMod(b, guildID, userID))
 }
 
 func setupDirs() {

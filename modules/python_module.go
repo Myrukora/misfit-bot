@@ -20,7 +20,6 @@ type PythonModule struct {
 	path          string
 	ipc           *PythonIPC
 	bridge        *PythonBridge
-	commands      []commands.Command
 	slashCmds     []commands.SlashCommand
 	eventHandlers []string
 	hooks         *EventHooks
@@ -75,21 +74,6 @@ func NewPythonModule(
 		m.name = filepath.Base(path)
 	}
 
-	// Convert Python commands to Go commands
-	for _, pc := range info.Commands {
-		pc := pc // capture loop variable
-		cmd := commands.Command{
-			Name:        pc.Name,
-			Description: pc.Description,
-			Usage:       pc.Usage,
-			Category:    pc.Category,
-			OwnerOnly:   pc.OwnerOnly,
-			Aliases:     pc.Aliases,
-			Execute:     m.makeExecute(pc.Name),
-		}
-		m.commands = append(m.commands, cmd)
-	}
-
 	// Convert Python slash commands to Go slash commands
 	for _, psc := range info.SlashCommands {
 		psc := psc // capture loop variable
@@ -106,35 +90,18 @@ func NewPythonModule(
 	return m
 }
 
-// makeExecute creates an Execute closure for a prefix command.
-// The command is forwarded to the Python process via IPC.
-func (m *PythonModule) makeExecute(name string) func(*commands.Context) error {
-	return func(ctx *commands.Context) error {
-		if ctx.Web {
-			// Dashboard invocation: block until the module replies, then render
-			// the response into the virtual context (captured by the web API).
-			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
-			if err != nil {
-				return err
-			}
-			return m.renderWebReply(ctx, resp)
-		}
-		return m.ipc.SendCommand(name, ctx.Args, ctx.ChannelID, ctx.GuildID, ctx.Author.ID.String(), false)
-	}
-}
-
 // makeSlashExecute creates an Execute closure for a slash command.
 // The command is forwarded to the Python process via IPC.
 func (m *PythonModule) makeSlashExecute(name string) func(*commands.Context) error {
 	return func(ctx *commands.Context) error {
 		if ctx.Web {
-			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String(), ctx.IsSlash)
+			resp, err := m.ipc.SendCommandFromWeb(name, ctx.Args, ctx.GuildID, ctx.Author.ID.String())
 			if err != nil {
 				return err
 			}
 			return m.renderWebReply(ctx, resp)
 		}
-		return m.ipc.SendCommand(name, ctx.Args, ctx.ChannelID, ctx.GuildID, ctx.Author.ID.String(), true)
+		return m.ipc.SendCommand(name, ctx.Args, ctx.ChannelID, ctx.GuildID, ctx.Author.ID.String())
 	}
 }
 
@@ -182,14 +149,12 @@ func (m *PythonModule) OnLoad(ctx *Context) error {
 		return fmt.Errorf("module %s already loaded", m.name)
 	}
 
-	prefix := ""
 	version := ""
 	if ctx.Bot != nil {
-		prefix = ctx.Bot.GetPrefix()
 		version = ctx.Bot.GetVersion()
 	}
 
-	if err := m.ipc.SendInit(ctx.BotName, ctx.OwnerID, prefix, version, ctx.DataDir); err != nil {
+	if err := m.ipc.SendInit(ctx.BotName, ctx.OwnerID, version, ctx.DataDir); err != nil {
 		return fmt.Errorf("failed to send init: %w", err)
 	}
 
@@ -531,11 +496,6 @@ func (m *PythonModule) OnUnload() error {
 	m.loaded = false
 	_ = m.ipc.Stop()
 	return nil
-}
-
-// Commands returns the module's prefix commands.
-func (m *PythonModule) Commands() []commands.Command {
-	return m.commands
 }
 
 // SlashCommands returns the module's slash commands.

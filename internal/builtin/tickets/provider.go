@@ -14,7 +14,7 @@ import (
 
 // provider.go — modules.TicketProvider implementation. The dashboard reaches
 // the tickets module exclusively through this interface; CloseTicket is the
-// SAME path the in-chat [p]close command uses.
+// SAME path the in-chat /close command uses.
 
 // validGuildID reports whether s is a well-formed Discord snowflake.
 // snowflake.Parse("null") returns (0, nil) by contract, so the zero check is

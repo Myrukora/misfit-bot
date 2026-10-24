@@ -34,7 +34,7 @@ func interactionPerms(closed bool) (allow, deny discord.Permissions) {
 //	bot:       full management access
 //	opener:    read + send (subject to closed)
 //	helper roles: read + send (subject to closed)
-//	members:   per-member read + send ([p]add)
+//	members:   per-member read + send (/add)
 func overwritesFor(guildID, openerID string, helperRoles, memberIDs []string, closed bool, botSelfID string) []discord.PermissionOverwrite {
 	everyoneID, _ := snowflake.Parse(guildID) // @everyone role shares the guild ID
 	out := []discord.PermissionOverwrite{

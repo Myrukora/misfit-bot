@@ -221,7 +221,7 @@ func (m *DashboardModule) apiPresence(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── /api/backups (owner only) ─────────────────────────────────────────────
-// Mirrors the [p]backup command through the shared config.BackupService, so
+// Mirrors the backup admin surface through the shared config.BackupService, so
 // the dashboard and the (removed) command always behave identically.
 
 // apiBackupsList returns the timestamped backup files in the config dir.
@@ -838,7 +838,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 		return
 	case "backups":
 		// Owner only — restore overwrites config.yml, the same power the
-		// removed [p]backup command reserved for the owner.
+		// removed backup command reserved for the owner.
 		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
 			writeError(w, http.StatusForbidden, "owner only")
 			return
@@ -909,7 +909,7 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			return
 		}
 	case "updater":
-		// Owner only — mirrors the [p]update command's OwnerOnly flag. Actions
+		// Owner only — mirrors the /update command's OwnerOnly flag. Actions
 		// rebuild and restart the bot, so elevated users never get them.
 		if us := sessionOf(r); us == nil || m.resolveLevel(us) != lvlOwner {
 			writeError(w, http.StatusForbidden, "owner only")

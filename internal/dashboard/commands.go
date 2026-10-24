@@ -16,11 +16,9 @@ type cmdView struct {
 	Usage          string   `json:"usage"`
 	Category       string   `json:"category"`
 	ModuleOwner    string   `json:"module_owner"`        // "core" | <module name>
-	Kind           string   `json:"kind"`                // "prefix" | "slash"
 	RequiredPerm   string   `json:"required_perm_label"` // human label
 	OwnerOnly      bool     `json:"owner_only"`
 	SuperOwnerOnly bool     `json:"super_owner_only"`
-	Aliases        []string `json:"aliases"`
 	Usable         bool     `json:"usable"`
 	UsableIn       []string `json:"usable_in"`
 	// Disabled is the per-guild override for the current guild (always false
@@ -38,12 +36,8 @@ type cmdView struct {
 	CanExec bool `json:"can_exec"`
 	// Options is the click-driven argument form schema, derived from the
 	// command's slash options (the same schema Discord's UI uses). Empty =
-	// free-form text arguments.
+	// zero-argument command (Run executes directly).
 	Options []argOpt `json:"options"`
-	// FreeArgs is true when the command takes arguments but has no option
-	// schema: render the free-text fallback box. Zero-arg commands render
-	// neither (Run executes with no arguments).
-	FreeArgs bool `json:"free_args"`
 }
 
 // argOpt is one typed argument of a command's web Run form.
@@ -197,15 +191,9 @@ func (m *DashboardModule) cmdUsable(superOnly bool, reqPerm discord.Permissions,
 	return len(usableIn) > 0, usableIn
 }
 
-// freeArgsNeeded reports whether a command without an option schema still
-// takes untyped positional arguments (usage contains <arg> or [opt]
-// placeholders). Zero-arg commands render neither a form nor a free-text box.
-func freeArgsNeeded(usage string, hasOptions bool) bool {
-	return !hasOptions && strings.ContainsAny(usage, "<[")
-}
-
-// buildCommandCatalog builds the raw catalog (every command). Caller filters to
-// those usable by the user unless `raw` is requested by an elevated/owner user.
+// buildCommandCatalog builds the raw catalog (every slash command). Caller
+// filters to those usable by the user unless `raw` is requested by an
+// elevated/owner user.
 func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 	level := lvlRegular
 	if us != nil {
@@ -213,41 +201,17 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 	}
 
 	var views []cmdView
-
-	addPrefix := func(c commands.Command, owner string, slashOpts []discord.ApplicationCommandOption) {
+	add := func(c commands.SlashCommand, owner string) {
 		usable, usableIn := m.cmdUsable(c.SuperOwnerOnly, c.RequiredPerm, c.OwnerOnly, us, level)
-		aliases := append([]string{}, c.Aliases...)
 		views = append(views, cmdView{
 			Name: c.Name, Description: c.Description, Usage: c.Usage, Category: c.Category,
-			ModuleOwner: owner, Kind: "prefix", RequiredPerm: permLabel(c.RequiredPerm),
-			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly, Aliases: aliases,
-			Usable: usable, UsableIn: usableIn, Options: optionSchemas(slashOpts),
-			FreeArgs: freeArgsNeeded(c.Usage, len(slashOpts) > 0),
-		})
-	}
-	addSlash := func(c commands.SlashCommand, owner string) {
-		usable, usableIn := m.cmdUsable(c.SuperOwnerOnly, c.RequiredPerm, c.OwnerOnly, us, level)
-		views = append(views, cmdView{
-			Name: c.Name, Description: c.Description, Category: c.Category,
-			ModuleOwner: owner, Kind: "slash", RequiredPerm: permLabel(c.RequiredPerm),
+			ModuleOwner: owner, RequiredPerm: permLabel(c.RequiredPerm),
 			OwnerOnly: c.OwnerOnly, SuperOwnerOnly: c.SuperOwnerOnly,
 			Usable: usable, UsableIn: usableIn, Options: optionSchemas(c.Options),
-			// Slash commands can't carry untyped args — no free-text box.
-			FreeArgs: false,
 		})
 	}
-
-	// Slash twins supply the arg schema for prefix rows too (same options the
-	// Discord UI would show for the command).
-	coreSlashOpts := map[string][]discord.ApplicationCommandOption{}
-	for i := range commands.CoreSlashCommands {
-		coreSlashOpts[commands.CoreSlashCommands[i].Name] = commands.CoreSlashCommands[i].Options
-	}
-	for _, c := range commands.CoreCommands {
-		addPrefix(c, "core", coreSlashOpts[c.Name])
-	}
 	for _, c := range commands.CoreSlashCommands {
-		addSlash(c, "core")
+		add(c, "core")
 	}
 	if mgr, ok := m.bot.GetModuleManager().(*modules.Manager); ok {
 		for _, name := range m.bot.GetLoadedModuleNames() {
@@ -255,28 +219,16 @@ func (m *DashboardModule) buildCommandCatalog(us *userSession) []cmdView {
 			if !ok {
 				continue
 			}
-			// Fetch each command list ONCE per module — the interface
-			// methods can rebuild slices per call.
-			modCmds := mod.Commands()
-			modSlash := mod.SlashCommands()
-			modSlashOpts := make(map[string][]discord.ApplicationCommandOption, len(modSlash))
-			for i := range modSlash {
-				modSlashOpts[modSlash[i].Name] = modSlash[i].Options
-			}
-			for _, c := range modCmds {
-				addPrefix(c, mod.Name(), modSlashOpts[c.Name])
-			}
-			for _, c := range modSlash {
-				addSlash(c, mod.Name())
+			for _, c := range mod.SlashCommands() {
+				add(c, mod.Name())
 			}
 		}
 	}
 
 	// NOT sorted here on purpose: the registration order mirrors
-	// ExecuteCommand's resolution precedence (core prefix, core slash, then
-	// modules in load order), and dedupeCatalog relies on it to pick the same
-	// command the Run button would actually execute. Presentation sorting
-	// happens in filterCatalog AFTER dedupe.
+	// ExecuteCommand's resolution precedence (core, then modules in load
+	// order); dedupeCatalog relies on it. Presentation sorting happens in
+	// filterCatalog AFTER dedupe.
 	return views
 }
 
@@ -296,9 +248,8 @@ func sortViews(views []cmdView) {
 
 // filterCatalog hides unusable commands unless the caller is elevated+ and
 // requests `raw` (e.g. an elevated user inspecting super-owner commands), and
-// collapses the catalog to ONE entry per command name — the prefix entry wins
-// (matching ExecuteCommand's dispatch precedence), with a fallback to the
-// slash entry for commands that only exist in slash form.
+// collapses the catalog to ONE entry per command name (first registration wins,
+// matching ExecuteCommand's resolution order).
 func (m *DashboardModule) filterCatalog(us *userSession, raw, guildScoped bool, guildID string) []cmdView {
 	level := lvlRegular
 	if us != nil {
@@ -344,43 +295,17 @@ func (m *DashboardModule) fillOverrideState(c *cmdView, guildID string) {
 	c.CanExec = m.execAllowed(c.Name)
 }
 
-// dedupeCatalog collapses a catalog to one entry per command name, preferring
-// the prefix entry (what ExecuteCommand resolves first). Commands that only
-// exist in slash form keep their entry, so nothing disappears from the
-// catalog. Order follows the first occurrence of each name in views.
+// dedupeCatalog collapses the catalog to one entry per command name, keeping
+// the first occurrence (core before modules, matching ExecuteCommand).
 func dedupeCatalog(views []cmdView) []cmdView {
-	type pick struct {
-		pref, fallback cmdView
-		hasPref        bool
-		hasFallback    bool
-	}
-	var order []string
-	byName := map[string]*pick{}
+	seen := make(map[string]bool, len(views))
+	out := make([]cmdView, 0, len(views))
 	for _, v := range views {
-		p, ok := byName[v.Name]
-		if !ok {
-			p = &pick{}
-			byName[v.Name] = p
-			order = append(order, v.Name)
+		if seen[v.Name] {
+			continue
 		}
-		if v.Kind == "prefix" {
-			if !p.hasPref {
-				p.pref = v
-				p.hasPref = true
-			}
-		} else if !p.hasFallback {
-			p.fallback = v
-			p.hasFallback = true
-		}
-	}
-	out := make([]cmdView, 0, len(order))
-	for _, name := range order {
-		p := byName[name]
-		if p.hasPref {
-			out = append(out, p.pref)
-		} else {
-			out = append(out, p.fallback)
-		}
+		seen[v.Name] = true
+		out = append(out, v)
 	}
 	return out
 }

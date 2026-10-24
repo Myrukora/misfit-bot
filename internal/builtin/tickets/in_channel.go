@@ -92,7 +92,7 @@ func (m *TicketsModule) applyMemberOverwrite(tk *modules.Ticket, g TypeConfig, m
 	return err
 }
 
-// inchannel.go — [p]close / [p]rename / [p]add / [p]remove: usable ONLY inside
+// in_channel.go — /close / /rename / /add / /remove: usable ONLY inside
 // a ticket channel (ticket resolved from the channel topic, zero arguments).
 // Gates: close needs helper-role/mods/owner-elevated or the opener while the
 // type allows closing; rename/add/remove are helper-only.
@@ -158,32 +158,7 @@ func isHelperByType(m *TicketsModule, tk *modules.Ticket, userID string) bool {
 	return m.memberHasAnyRole(tk.GuildID, userID, g.HelperRoles)
 }
 
-func (m *TicketsModule) inChannelCommands() []commands.Command {
-	return []commands.Command{
-		{
-			Name: "close", Description: "Close this ticket (inside the ticket channel only)",
-			Usage: "close", Category: "Tickets", Execute: m.closeTicketCommand,
-		},
-		{
-			Name: "add", Description: "Add a member to this ticket",
-			Usage: "add <@member>", Category: "Tickets",
-			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, true) },
-		},
-		{
-			Name: "remove", Description: "Remove a member from this ticket",
-			Usage: "remove <@member>", Category: "Tickets",
-			Execute: func(ctx *commands.Context) error { return m.addRemoveMember(ctx, false) },
-		},
-		{
-			Name: "rename", Aliases: []string{"renameticket"},
-			Description: "Rename this ticket channel (helpers only)",
-			Usage:       "rename <new name>", Category: "Tickets",
-			Execute: m.renameTicketCommand,
-		},
-	}
-}
-
-// renameTicketCommand is shared by [p]rename and /rename: it renames the
+// renameTicketCommand is shared by the /rename slash command: it renames the
 // ticket's channel (helpers only), applying the same slug rules as the
 // auto-generated names.
 func (m *TicketsModule) renameTicketCommand(ctx *commands.Context) error {
@@ -227,8 +202,8 @@ func (m *TicketsModule) renameTicketCommand(ctx *commands.Context) error {
 	return ctx.Respond(embed.Success("✏️ Renamed", "Ticket channel is now **#"+name+"**."))
 }
 
-// closeTicketCommand is shared by [p]close and /close: the ticket is resolved
-// from the channel topic, so both forms take no arguments.
+// closeTicketCommand is shared by the /close slash command: the ticket is
+// resolved from the channel topic, so it takes no arguments.
 func (m *TicketsModule) closeTicketCommand(ctx *commands.Context) error {
 	tk := m.ticketFromChannel(ctx)
 	if tk == nil || tk.Status != "open" {

@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -14,8 +13,6 @@ import (
 	"github.com/misfit/bot/internal/util"
 	"github.com/misfit/bot/updater"
 )
-
-var mentionRegex = regexp.MustCompile(`^<@!?(\d+)>$`)
 
 var startTime = time.Now()
 
@@ -79,7 +76,7 @@ func title(s string) string {
 }
 
 func init() {
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "ping",
 		Description: "Check how quickly the bot responds, with its gateway and API latency.",
 		Usage:       "ping",
@@ -93,7 +90,7 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "uptime",
 		Description: "See how long the bot has been running.",
 		Usage:       "uptime",
@@ -104,7 +101,7 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "info",
 		Description: "Show the bot's name, version, author, and where it runs.",
 		Usage:       "info",
@@ -154,18 +151,20 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "help",
 		Description: "List the commands you can use, grouped by category.",
 		Usage:       "help [command]",
 		Category:    "core",
+		Options: []discord.ApplicationCommandOption{
+			strOpt("command", "Command name to show details for", false),
+		},
 		Execute: func(ctx *Context) error {
-			p := ctx.Bot.GetPrefix()
 			userID := ctx.Author.ID.String()
 			userPerms := ctx.Bot.GetUserPermissions(userID, ctx.GuildID)
 			guildOwnerID := ctx.Bot.GetGuildOwnerID(ctx.GuildID)
 
-			canUse := func(cmd Command) bool {
+			canUse := func(cmd SlashCommand) bool {
 				if cmd.SuperOwnerOnly && !ctx.Bot.IsOwner(userID) {
 					return false
 				}
@@ -174,49 +173,55 @@ func init() {
 				}
 				return ctx.Bot.CanUse(userID, userPerms, cmd.RequiredPerm, cmd.OwnerOnly, guildOwnerID)
 			}
+			moduleGroups := ctx.Bot.GetAllModuleSlashCommandsByModule()
 
 			// Single command help
 			if len(ctx.Args) > 0 {
 				cmdName := strings.ToLower(ctx.Args[0])
-				allCmds := make([]Command, len(CoreCommands), len(CoreCommands)+len(ctx.Bot.GetAllModuleCommands()))
-				copy(allCmds, CoreCommands)
-				allCmds = append(allCmds, ctx.Bot.GetAllModuleCommands()...)
-				for _, cmd := range allCmds {
-					if cmd.Name == cmdName || util.ContainsStr(cmd.Aliases, cmdName) {
-						if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
-							continue
-						}
-						if !canUse(cmd) {
-							return ctx.Respond(embed.Error("🚫 Permission Denied", fmt.Sprintf("You don't have permission to use `%s`.", ctx.Args[0])))
-						}
-						var fields []discord.EmbedField
-						fields = append(fields, discord.EmbedField{
-							Name:   "Usage",
-							Value:  fmt.Sprintf("`%s%s`", p, cmd.Usage),
-							Inline: util.PtrBool(false),
-						})
-						if cmd.Category != "" {
-							fields = append(fields, discord.EmbedField{
-								Name:   "Category",
-								Value:  cmd.Category,
-								Inline: util.PtrBool(true),
-							})
-						}
-						e := embed.New().
-							WithTitle(fmt.Sprintf("📖 %s", cmd.Name)).
-							WithDescription(cmd.Description).
-							WithFields(fields...).
-							WithColor(embed.ColorInfo).
-							WithTimestamp(time.Now())
-						return ctx.Respond(e)
-					}
+				allCmds := append([]SlashCommand{}, CoreSlashCommands...)
+				for _, mc := range moduleGroups {
+					allCmds = append(allCmds, mc.Commands...)
 				}
-				return ctx.Respond(embed.Error("❌ Not Found", fmt.Sprintf("Command `%s` not found.", ctx.Args[0])))
+				for _, cmd := range allCmds {
+					if cmd.Name != cmdName {
+						continue
+					}
+					if ov := ctx.Bot.CommandOverrides(); ov != nil && ov.IsDisabled(cmd.Name, ctx.GuildID) {
+						continue
+					}
+					if !canUse(cmd) {
+						return ctx.Respond(embed.Error("🚫 Permission Denied", fmt.Sprintf("You don't have permission to use `/%s`.", ctx.Args[0])))
+					}
+					usage := cmd.Usage
+					if usage == "" {
+						usage = cmd.Name
+					}
+					fields := []discord.EmbedField{{
+						Name:   "Usage",
+						Value:  "`/" + usage + "`",
+						Inline: util.PtrBool(false),
+					}}
+					if cmd.Category != "" {
+						fields = append(fields, discord.EmbedField{
+							Name:   "Category",
+							Value:  cmd.Category,
+							Inline: util.PtrBool(true),
+						})
+					}
+					e := embed.New().
+						WithTitle(fmt.Sprintf("📖 %s", cmd.Name)).
+						WithDescription(cmd.Description).
+						WithFields(fields...).
+						WithColor(embed.ColorInfo).
+						WithTimestamp(time.Now())
+					return ctx.Respond(e)
+				}
+				return ctx.Respond(embed.Error("❌ Not Found", fmt.Sprintf("Command `/%s` not found.", ctx.Args[0])))
 			}
 
 			// Group all commands by category
-			categories := make(map[string][]Command)
-			for _, cmd := range CoreCommands {
+			categories := make(map[string][]SlashCommand)
+			for _, cmd := range CoreSlashCommands {
 				if !canUse(cmd) {
 					continue
 				}
@@ -227,10 +232,9 @@ func init() {
 				categories[cat] = append(categories[cat], cmd)
 			}
 			// Module commands are grouped under a category named after the owning
-			// module (e.g. cleanup's commands appear under "Cleanup"). This keeps each
-			// module's commands together regardless of the Category field the module
-			// author set on individual commands.
-			for _, mc := range ctx.Bot.GetAllModuleCommandsByModule() {
+			// module (e.g. cleanup's commands appear under "Cleanup"), regardless
+			// of the Category field the module author set.
+			for _, mc := range moduleGroups {
 				cat := mc.Name
 				if cat == "" {
 					cat = "modules"
@@ -268,7 +272,7 @@ func init() {
 				cmds := categories[cat]
 				var lines []string
 				for _, cmd := range cmds {
-					lines = append(lines, fmt.Sprintf("`%s%s` — %s", p, cmd.Name, cmd.Description))
+					lines = append(lines, fmt.Sprintf("`/%s` — %s", cmd.Name, cmd.Description))
 				}
 				fields = append(fields, discord.EmbedField{
 					Name:   fmt.Sprintf("▸ %s", title(cat)),
@@ -282,12 +286,17 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "modules",
 		Description: "List modules, or enable/disable a compiled-in feature module (applies after restart).",
 		Usage:       "modules | modules enable <name> | modules disable <name>",
 		Category:    "modules",
 		OwnerOnly:   true,
+		Options: []discord.ApplicationCommandOption{
+			subOpt("list", "List loaded and available modules"),
+			subOpt("enable", "Enable a compiled-in feature module", strOpt("module", "Module name", true)),
+			subOpt("disable", "Disable a compiled-in feature module", strOpt("module", "Module name", true)),
+		},
 		Execute: func(ctx *Context) error {
 			// enable/disable subcommands for compiled-in feature modules.
 			if len(ctx.Args) > 0 {
@@ -378,12 +387,15 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "load",
 		Description: "Load a module so its commands become available. Use `all` to load every module.",
 		Usage:       "load <module> | load all",
 		OwnerOnly:   true,
 		Category:    "modules",
+		Options: []discord.ApplicationCommandOption{
+			strOpt("module", "Module name or 'all'", true),
+		},
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
 				return ctx.Respond(embed.Warning("⚠️ Usage", "load <module> | load all"))
@@ -410,12 +422,15 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "unload",
 		Description: "Unload a module so its commands stop working. Use `all` to unload every module.",
 		Usage:       "unload <module> | unload all",
 		OwnerOnly:   true,
 		Category:    "modules",
+		Options: []discord.ApplicationCommandOption{
+			strOpt("module", "Module name or 'all'", true),
+		},
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
 				return ctx.Respond(embed.Warning("⚠️ Usage", "unload <module> | unload all"))
@@ -434,12 +449,15 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "reload",
 		Description: "Reload a module to pick up changes without restarting the bot. Use `all` for all.",
 		Usage:       "reload <module> | reload all",
 		OwnerOnly:   true,
 		Category:    "modules",
+		Options: []discord.ApplicationCommandOption{
+			strOpt("module", "Module name or 'all'", true),
+		},
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
 				return ctx.Respond(embed.Warning("⚠️ Usage", "reload <module> | reload all"))
@@ -465,7 +483,7 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "shutdown",
 		Description: "Shut the bot down completely. Owner and elevated users only.",
 		Usage:       "shutdown",
@@ -478,7 +496,7 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "restart",
 		Description: "Restart the bot so it comes back up with a fresh state.",
 		Usage:       "restart",
@@ -491,12 +509,17 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "permissions",
 		Description: "Grant or revoke elevated (owner-like) permissions for a user.",
 		Usage:       "permissions add/remove/list <user_id>",
 		OwnerOnly:   true,
 		Category:    "core",
+		Options: []discord.ApplicationCommandOption{
+			subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
+			subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
+			subOpt("list", "List elevated users"),
+		},
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
 				return ctx.Respond(embed.Warning("⚠️ Usage", "permissions add <user_id>\npermissions remove <user_id>\npermissions list"))
@@ -533,16 +556,20 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "ratelimit",
 		Description: "Check a user's rate limit status or reset it so they can use commands again.",
 		Usage:       "ratelimit [status|reset] [user_id]",
 		OwnerOnly:   true,
 		Category:    "core",
+		Options: []discord.ApplicationCommandOption{
+			subOpt("status", "Check a user's rate limit status", userOpt("user", "The user", true)),
+			subOpt("reset", "Reset a user's rate limit", userOpt("user", "The user", true)),
+		},
 		Execute: func(ctx *Context) error {
 			if len(ctx.Args) == 0 {
-				// Show usage — never auto-delete, like [p]help.
-				e := embed.Info("⏱️ Rate Limit Management", "**Usage:** `"+ctx.Bot.GetPrefix()+"ratelimit [status|reset] [user_id]`\n\n**Commands:**\n- `status <user_id>` — Check rate limit status for a user\n- `reset <user_id>` — Reset rate limit for a user")
+				// Show usage — never auto-delete, like /help.
+				e := embed.Info("⏱️ Rate Limit Management", "**Usage:** `/ratelimit [status|reset] [user_id]`\n\n**Commands:**\n- `status <user_id>` — Check rate limit status for a user\n- `reset <user_id>` — Reset rate limit for a user")
 				return ctx.Respond(e)
 			}
 
@@ -577,12 +604,19 @@ func init() {
 		},
 	})
 
-	RegisterCoreCommand(Command{
+	RegisterCoreSlash(SlashCommand{
 		Name:        "update",
 		Description: "Check for bot updates, apply them now, or show updater status.",
 		Usage:       "update [check|now|status|test|set <key> <value>]",
 		OwnerOnly:   true,
 		Category:    "core",
+		Options: []discord.ApplicationCommandOption{
+			subOpt("check", "Check for new commits"),
+			subOpt("now", "Pull, rebuild and restart the bot"),
+			subOpt("status", "Show updater status"),
+			subOpt("test", "Send sample PR + commit embeds"),
+			subOpt("set", "Set an updater config value", strOpt("key", "Config key: enabled, repo, branch, token, interval, auto_pull, notify_channel", true), strOpt("value", "Config value", true)),
+		},
 		Execute: func(ctx *Context) error {
 			upd, _ := ctx.Bot.GetUpdater().(*updater.Manager)
 			if upd == nil {
@@ -606,12 +640,12 @@ func init() {
 				switch {
 				case res.VersionBehind && res.UpToDate:
 					return ctx.Respond(embed.Info("📥 Rebuild Pending",
-						fmt.Sprintf("The code is at **v%s** but this process runs **v%s** — it was pulled without rebuilding. Run `%supdate now` to rebuild and restart.",
-							res.ToVersion, res.FromVersion, ctx.Bot.GetPrefix())))
+						fmt.Sprintf("The code is at **v%s** but this process runs **v%s** — it was pulled without rebuilding. Run `/update now` to rebuild and restart.",
+							res.ToVersion, res.FromVersion)))
 				case res.VersionBehind:
 					return ctx.Respond(embed.Info("📥 Update Available",
-						fmt.Sprintf("%s (**%d** new commit%s). Run `%supdate now` to pull, rebuild and restart.",
-							res.VersionSummary(), res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
+						fmt.Sprintf("%s (**%d** new commit%s). Run `/update now` to pull, rebuild and restart.",
+							res.VersionSummary(), res.Behind, plural(res.Behind))))
 				case res.UpToDate:
 					title := fmt.Sprintf("`%s` is on the latest commit (`%s`).", ctx.Bot.GetName(), short7(res.LocalSHA))
 					if summary := res.VersionSummary(); summary != "" {
@@ -620,7 +654,7 @@ func init() {
 					return ctx.Respond(embed.Success("✅ Up to Date", title))
 				default:
 					return ctx.Respond(embed.Info("📥 Update Available",
-						fmt.Sprintf("**%d** new commit%s available. Run `%supdate now` to pull, rebuild and restart.", res.Behind, plural(res.Behind), ctx.Bot.GetPrefix())))
+						fmt.Sprintf("**%d** new commit%s available. Run `/update now` to pull, rebuild and restart.", res.Behind, plural(res.Behind))))
 				}
 			case "now":
 				if err := ctx.Respond(embed.Info("🔄 Updating", "Pulling latest code, rebuilding...")); err != nil {
@@ -677,7 +711,6 @@ func init() {
 		},
 	})
 
-	registerCoreSlashCommands()
 }
 
 func strOpt(name, desc string, required bool) discord.ApplicationCommandOptionString {
@@ -718,58 +751,11 @@ func boolOpt(name, desc string, required bool) discord.ApplicationCommandOptionB
 
 // subOpt builds a nested subcommand option. The slash dispatcher prepends the
 // subcommand name to the dispatched args, then appends the provided options in
-// declaration order — exactly the positional args the prefix handlers expect.
+// declaration order — exactly the positional args the handler reads.
 func subOpt(name, desc string, opts ...discord.ApplicationCommandOption) discord.ApplicationCommandOptionSubCommand {
 	return discord.ApplicationCommandOptionSubCommand{
 		Name:        name,
 		Description: desc,
 		Options:     opts,
-	}
-}
-
-func registerCoreSlashCommands() {
-	for _, cmd := range CoreCommands {
-		var opts []discord.ApplicationCommandOption
-
-		switch cmd.Name {
-		case "help":
-			opts = []discord.ApplicationCommandOption{
-				strOpt("command", "Command name to show details for", false),
-			}
-		case "load", "unload", "reload":
-			opts = []discord.ApplicationCommandOption{
-				strOpt("module", "Module name or 'all'", true),
-			}
-		case "permissions":
-			opts = []discord.ApplicationCommandOption{
-				subOpt("add", "Grant elevated permissions to a user", userOpt("user", "The user", true)),
-				subOpt("remove", "Revoke elevated permissions from a user", userOpt("user", "The user", true)),
-				subOpt("list", "List elevated users"),
-			}
-		case "ratelimit":
-			opts = []discord.ApplicationCommandOption{
-				subOpt("status", "Check a user's rate limit status", userOpt("user", "The user", true)),
-				subOpt("reset", "Reset a user's rate limit", userOpt("user", "The user", true)),
-			}
-		case "update":
-			opts = []discord.ApplicationCommandOption{
-				subOpt("check", "Check for new commits"),
-				subOpt("now", "Pull, rebuild and restart the bot"),
-				subOpt("status", "Show updater status"),
-				subOpt("test", "Send sample PR + commit embeds"),
-				subOpt("set", "Set an updater config value", strOpt("key", "Config key: enabled, repo, branch, token, interval, auto_pull, notify_channel", true), strOpt("value", "Config value", true)),
-			}
-		}
-
-		RegisterCoreSlash(SlashCommand{
-			Name:           cmd.Name,
-			Description:    cmd.Description,
-			Category:       cmd.Category,
-			Options:        opts,
-			RequiredPerm:   cmd.RequiredPerm,
-			OwnerOnly:      cmd.OwnerOnly,
-			SuperOwnerOnly: cmd.SuperOwnerOnly,
-			Execute:        cmd.Execute,
-		})
 	}
 }

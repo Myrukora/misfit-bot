@@ -47,7 +47,6 @@ func (s *stubImageFilter) Description() string           { return "stub" }
 func (s *stubImageFilter) Author() string                { return "test" }
 func (s *stubImageFilter) OnLoad(*modules.Context) error { return nil }
 func (s *stubImageFilter) OnUnload() error               { return nil }
-func (s *stubImageFilter) Commands() []commands.Command  { return nil }
 func (s *stubImageFilter) Dependencies() []string        { return nil }
 
 func (s *stubImageFilter) SlashCommands() []commands.SlashCommand { return nil }
