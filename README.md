@@ -242,6 +242,17 @@ Server → Reaction Roles (`/g/<id>/reactionroles`, staff + guild managers). Pan
 
 Panels live in `modules/reactionroles/` (gitignored).
 
+### Dashboard audit
+
+The dashboard keeps a 30-day activity log at `logs/dashboard-audit.jsonl` (mode 0600) covering:
+
+- **Page visits** — every HTML page, including the public `/tos` and `/policy`; anonymous visitors are recorded with their IP.
+- **Logins** — success/failure, user ID/name, level, IP and the failure reason.
+- **Logouts** — user, level and IP.
+- **Mutations** — every authenticated write (settings, module config, panels, backups, restart/shutdown, etc.) with user, level, IP, the method/path, a short description and the HTTP result.
+
+The **Audit** page (`/audit`, owner + elevated) shows the newest 1,000 entries with event and user filters. Forwarded IP headers (`X-Forwarded-For` / `X-Real-IP`) are trusted only when the request arrives from a loopback/private peer (a local reverse proxy or tunnel); otherwise the direct peer address is stored. Static assets and JSON API reads are not page-logged.
+
 ### Connecting an MCP client
 
 The bot ships a built-in **MCP (Model Context Protocol)** server, mounted at `/mcp` on the dashboard listener (it follows `dashboard.listen` — default `http://127.0.0.1:8080`). Register it with:

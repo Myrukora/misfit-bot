@@ -233,6 +233,7 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request) {
 	oa := m.oauthClient()
 	if oa == nil {
+		m.recordLogin(r, false, nil, "", "OAuth not configured", 0)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
@@ -240,26 +241,31 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 	code := q.Get("code")
 	state := q.Get("state")
 	if code == "" || state == "" {
+		m.recordLogin(r, false, nil, "", "missing code or state", http.StatusBadRequest)
 		writeError(w, http.StatusBadRequest, "missing code or state parameter")
 		return
 	}
 	sess, _, err := oa.StartSession(code, state)
 	if err != nil {
+		m.recordLogin(r, false, nil, "", "Discord rejected the login", http.StatusBadGateway)
 		writeError(w, http.StatusBadGateway, "Discord login failed: "+err.Error())
 		return
 	}
 	user, err := oa.GetUser(sess)
 	if err != nil {
+		m.recordLogin(r, false, nil, "", "could not fetch Discord user", http.StatusBadGateway)
 		writeError(w, http.StatusBadGateway, "could not fetch Discord user: "+err.Error())
 		return
 	}
 	guilds, err := oa.GetGuilds(sess)
 	if err != nil {
+		m.recordLogin(r, false, &user.User, "", "could not fetch your servers", http.StatusBadGateway)
 		writeError(w, http.StatusBadGateway, "could not fetch your guilds: "+err.Error())
 		return
 	}
 	if !m.sharesMutualGuild(guilds) {
 		// Friendly denial — this person shares no server with the bot.
+		m.recordLogin(r, false, &user.User, "", "no shared server", http.StatusForbidden)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte(denialPage(m.botIdentity().Name)))
@@ -267,11 +273,13 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 	}
 	key, err := randHex(32)
 	if err != nil {
+		m.recordLogin(r, false, &user.User, "", "session creation failed", http.StatusInternalServerError)
 		writeError(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
 	csrf, err := randHex(16)
 	if err != nil {
+		m.recordLogin(r, false, &user.User, "", "session creation failed", http.StatusInternalServerError)
 		writeError(w, http.StatusInternalServerError, "could not create session")
 		return
 	}
@@ -287,12 +295,14 @@ func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request)
 	}
 	m.sessions.put(key, us)
 	m.setSessionCookie(w, r, m.signCookie(key))
+	m.recordLogin(r, true, &user.User, m.resolveLevel(us), "signed in", http.StatusSeeOther)
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleLogout destroys the session and redirects to /login.
 func (m *DashboardModule) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if _, key, ok := m.sessionFromCookie(r); ok {
+	if us, key, ok := m.sessionFromCookie(r); ok {
+		m.recordLogout(r, us)
 		m.sessions.del(key)
 	}
 	m.clearSessionCookie(w, r)

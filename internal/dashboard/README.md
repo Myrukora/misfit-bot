@@ -194,6 +194,27 @@ message (or creates one) and syncs the bot's reactions.
 All routes require staff+ managing the guild and CSRF on mutations. The module
 is resolved through `modules.ReactionRolesAdmin`.
 
+## Dashboard audit (`/audit`)
+
+Owner + elevated only. A durable JSONL activity log at
+`<bot dir>/logs/dashboard-audit.jsonl` (0600) records:
+
+- **Page visits** — every HTML page, including the public `/tos` and `/policy`
+  (anonymous visitors are identified by IP only).
+- **Login** success/failure, **logout**, and every **authenticated mutation**
+  (settings, module config, panels, backups, bot control, …).
+
+Each entry carries time (UTC), user ID/name, role level, IP, action
+(method + path / "Discord OAuth"), a short detail and the HTTP result. Entries
+are retained for **30 days**; the page shows the newest 1,000 with event and
+user-ID filters. Every event is appended immediately; pruning rewrites the file
+atomically. The log degrades to memory-only if it cannot be opened; auditing
+never fails a request.
+
+IP handling: `RemoteAddr` is used directly; `X-Forwarded-For` / `X-Real-IP` are
+trusted only when the immediate peer is loopback/private (local reverse proxy or
+tunnel). Static assets and JSON API reads are not page-logged.
+
 ## `WebConfigurable` — exposing module settings on the dashboard
 
 Modules are the **single source of truth** for what settings exist and how each

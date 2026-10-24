@@ -1,0 +1,61 @@
+{{define "rd_audit"}}{{template "rd_header" .}}
+        <section class="card">
+          <h2>Dashboard audit</h2>
+          <p class="muted">Page visits, login attempts and authenticated changes for the last {{.Content.retentionDays}} days. Visible to the owner and elevated users.</p>
+
+          <form method="get" class="audit-filter">
+            <div class="field">
+              <label class="field-label" for="audit-event">Event</label>
+              <select class="field-input" id="audit-event" name="event">
+                <option value="">All events</option>
+                <option value="page" {{if eq .Content.filterEvent "page"}}selected{{end}}>Page visits</option>
+                <option value="login" {{if eq .Content.filterEvent "login"}}selected{{end}}>Logins</option>
+                <option value="logout" {{if eq .Content.filterEvent "logout"}}selected{{end}}>Logouts</option>
+                <option value="mutation" {{if eq .Content.filterEvent "mutation"}}selected{{end}}>Mutations</option>
+              </select>
+            </div>
+            <div class="field">
+              <label class="field-label" for="audit-user">User ID</label>
+              <input class="field-input" id="audit-user" name="user" value="{{.Content.filterUser}}" placeholder="any user">
+            </div>
+            <div class="field">
+              <label class="field-label" for="audit-limit">Show</label>
+              <select class="field-input" id="audit-limit" name="limit">
+                <option value="100" {{if eq .Content.limit 100}}selected{{end}}>100</option>
+                <option value="250" {{if eq .Content.limit 250}}selected{{end}}>250</option>
+                <option value="500" {{if eq .Content.limit 500}}selected{{end}}>500</option>
+                <option value="1000" {{if eq .Content.limit 1000}}selected{{end}}>1000</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-small">Filter</button>
+            {{if or .Content.filterEvent .Content.filterUser}}<a class="btn btn-small" href="/audit">Clear</a>{{end}}
+          </form>
+
+          <p class="muted audit-meta">{{.Content.total}} event(s) in the retention window{{if .Content.path}} · <code>{{.Content.path}}</code>{{else}} · in-memory only{{end}}</p>
+
+          {{if .Content.entries}}
+          <div class="audit-table-wrap">
+            <table class="tbl audit-table">
+              <thead>
+                <tr><th>Time (UTC)</th><th>Event</th><th>User</th><th>Level</th><th>IP</th><th>Action / detail</th><th>Result</th></tr>
+              </thead>
+              <tbody>
+                {{range .Content.entries}}
+                <tr>
+                  <td class="audit-time">{{.Time.Format "2006-01-02 15:04:05"}}</td>
+                  <td><span class="tag">{{.Event}}</span></td>
+                  <td>{{if .UserID}}{{.Username}}<br><span class="muted">{{.UserID}}</span>{{else}}<span class="muted">anonymous</span>{{end}}</td>
+                  <td>{{if .Level}}{{.Level}}{{else}}<span class="muted">—</span>{{end}}</td>
+                  <td class="audit-ip">{{.IP}}</td>
+                  <td>{{.Action}}{{if .Detail}}<br><span class="muted">{{.Detail}}</span>{{end}}</td>
+                  <td><span class="tag{{if .Success}} ok{{end}}">{{if .Success}}ok{{else}}failed{{end}}</span>{{if .Status}} <span class="muted">{{.Status}}</span>{{end}}</td>
+                </tr>
+                {{end}}
+              </tbody>
+            </table>
+          </div>
+          {{else}}
+          <p class="muted" style="margin-top:14px">No events match the filter.</p>
+          {{end}}
+        </section>
+{{template "rd_footer" .}}{{end}}

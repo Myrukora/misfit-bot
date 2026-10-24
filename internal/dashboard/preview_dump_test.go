@@ -122,6 +122,15 @@ func TestPreviewDumpRedesign(t *testing.T) {
 	rrPreviewRoles := []roleOpt{{ID: "r2", Name: "Verified"}, {ID: "r3", Name: "Artist"}}
 	rrPreviewEmojis := []emojiOpt{{Key: "wave:123", Label: ":wave:"}, {Key: "🔥", Label: "🔥"}}
 	rrPreviewPanels := []rrPanelView{{ID: 1, Name: "Pick roles", Enabled: true, Posted: true, Mappings: 2, Channel: "roles", Active: true}}
+	auditPreviewNow := time.Now().UTC()
+	auditPreviewEntries := []auditEntry{
+		{Time: auditPreviewNow, Event: "page", Success: true, UserID: "9", Username: "Sam", Level: "owner", IP: "203.0.113.10", Action: "GET /audit", Detail: "Dashboard audit", Status: 200},
+		{Time: auditPreviewNow.Add(-2 * time.Minute), Event: "mutation", Success: true, UserID: "9", Username: "Sam", Level: "owner", IP: "203.0.113.10", Action: "POST /api/settings/core", Detail: "Core settings update", Status: 200},
+		{Time: auditPreviewNow.Add(-5 * time.Minute), Event: "page", Success: true, UserID: "9", Username: "Sam", Level: "owner", IP: "203.0.113.10", Action: "GET /tos", Detail: "Terms of Service", Status: 200},
+		{Time: auditPreviewNow.Add(-9 * time.Minute), Event: "login", Success: true, UserID: "9", Username: "Sam", Level: "owner", IP: "203.0.113.10", Action: "Discord OAuth", Detail: "signed in", Status: 303},
+		{Time: auditPreviewNow.Add(-12 * time.Minute), Event: "page", Success: true, IP: "198.51.100.7", Action: "GET /policy", Detail: "Privacy Policy", Status: 200},
+		{Time: auditPreviewNow.Add(-20 * time.Minute), Event: "login", Success: false, UserID: "77", Username: "intruder", IP: "198.51.100.8", Action: "Discord OAuth", Detail: "no shared server", Status: 403},
+	}
 	pages := []struct {
 		name    string
 		page    string // renderData.Page (what the real handler sets)
@@ -163,6 +172,15 @@ func TestPreviewDumpRedesign(t *testing.T) {
 			"roles":    rrPreviewRoles,
 			"emojis":   rrPreviewEmojis,
 		}, true},
+		{"audit.html", "audit", "rd_audit", map[string]any{
+			"entries":       auditPreviewEntries,
+			"total":         len(auditPreviewEntries),
+			"path":          "logs/dashboard-audit.jsonl",
+			"retentionDays": 30,
+			"filterEvent":   "",
+			"filterUser":    "",
+			"limit":         100,
+		}, false},
 		{"setup.html", "", "rd_setup", map[string]string{
 			"public_url": "https://x.com", "lan_url": "http://192.168.1.5:8080", "client_id": "111",
 			"redirect_uri": "https://x.com/callback", "listen": "127.0.0.1:8080",

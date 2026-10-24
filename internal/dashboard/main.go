@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ type DashboardModule struct {
 	sessions *sessionStore
 	tmpl     *templateBundle
 	mcp      http.Handler // optional MCP server handler mounted at /mcp (bearer-token auth)
+	audit    *auditLog    // login/page/mutation audit (30-day retention)
 
 	srv       *http.Server
 	running   bool
@@ -88,6 +90,15 @@ func New(deps Deps) *DashboardModule {
 	}
 	if c, ok := deps.Bot.GetClient().(*bot.Client); ok {
 		m.client = c
+	}
+	// Audit logs live beside the bot's own daily logs. A failure here must not
+	// take the dashboard down: newAuditLog falls back to memory-only.
+	base := deps.Bot.GetConfigDir()
+	if base == "" {
+		base = deps.DataDir
+	}
+	if base != "" {
+		m.audit = newAuditLog(filepath.Join(base, "logs"), deps.Logger)
 	}
 	return m
 }

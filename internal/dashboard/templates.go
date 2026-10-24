@@ -184,6 +184,8 @@ func pageTitle(page string) string {
 		return "Permissions"
 	case "logs":
 		return "Logs"
+	case "audit":
+		return "Audit Log"
 	case "config":
 		return "Configuration"
 	case "imagefilter":

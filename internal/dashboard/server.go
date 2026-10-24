@@ -24,6 +24,8 @@ func (m *DashboardModule) buildHandler() http.Handler {
 	mux.HandleFunc("/", m.route)
 
 	var h http.Handler = mux
+	// audit sits inside authMiddleware so the session is already attached.
+	h = m.auditMiddleware(h)
 	h = m.authMiddleware(h)
 	h = m.securityHeaders(h)
 	h = m.logMiddleware(h)
@@ -252,6 +254,13 @@ func (m *DashboardModule) route(w http.ResponseWriter, r *http.Request) {
 	case "logs":
 		if r.Method == "GET" {
 			m.requireOwner(m.handleLogsPage)(w, r)
+			return
+		}
+		methodNotAllowed(w)
+		return
+	case "audit":
+		if r.Method == "GET" {
+			m.requireOwner(m.handleAuditPage)(w, r)
 			return
 		}
 		methodNotAllowed(w)
