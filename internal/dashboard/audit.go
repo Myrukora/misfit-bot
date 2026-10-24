@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -283,7 +284,11 @@ func (m *DashboardModule) recordRequest(r *http.Request, sw *statusWriter) {
 	us := sessionOf(r)
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:
-		if !strings.HasPrefix(strings.ToLower(sw.Header().Get("Content-Type")), "text/html") {
+		// Known dashboard pages are logged regardless of the response content
+		// type (a proxy/handler can strip it); unknown paths only when the
+		// response is HTML, so JSON API reads and static assets stay out.
+		ct := strings.ToLower(sw.Header().Get("Content-Type"))
+		if !isDashboardPage(path) && !strings.HasPrefix(ct, "text/html") {
 			return
 		}
 		e := auditEntry{
@@ -375,6 +380,23 @@ func clientIP(r *http.Request) string {
 		}
 	}
 	return host
+}
+
+func isDashboardPage(path string) bool {
+	if path == "" {
+		path = "/"
+	}
+	if path != "/" {
+		path = strings.TrimSuffix(path, "/")
+	}
+	switch path {
+	case "/", "/login", "/tos", "/policy", "/overview", "/config", "/permissions",
+		"/logs", "/audit", "/modules", "/tickets", "/settings", "/configuration", "/admin":
+		return true
+	}
+	return strings.HasPrefix(path, "/g/") ||
+		strings.HasPrefix(path, "/guild/") ||
+		strings.HasPrefix(path, "/tickets/")
 }
 
 func pageLabel(path string) string {
@@ -491,6 +513,16 @@ func (m *DashboardModule) handleAuditPage(w http.ResponseWriter, r *http.Request
 	}
 	d := m.baseData(sessionOf(r))
 	d.Page = "audit"
+	query := url.Values{}
+	if event != "" {
+		query.Set("event", event)
+	}
+	if userID != "" {
+		query.Set("user", userID)
+	}
+	if limit != defaultAuditCap {
+		query.Set("limit", strconv.Itoa(limit))
+	}
 	d.Content = map[string]any{
 		"entries":       entries,
 		"total":         total,
@@ -499,6 +531,8 @@ func (m *DashboardModule) handleAuditPage(w http.ResponseWriter, r *http.Request
 		"filterEvent":   event,
 		"filterUser":    userID,
 		"limit":         limit,
+		"query":         query.Encode(),
+		"generated":     time.Now().UTC().Format("2006-01-02 15:04:05"),
 	}
 	m.tmpl.render(w, "rd_audit", d)
 }

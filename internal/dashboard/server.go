@@ -86,6 +86,10 @@ func (m *DashboardModule) securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
+		// Dashboard pages are private, dynamic, and audited: no browser or
+		// reverse-proxy cache should satisfy a visit without hitting the bot.
+		// The static handler overrides this with its own revalidation header.
+		h.Set("Cache-Control", "no-store")
 		h.Set("Content-Security-Policy", "default-src 'self'; img-src 'self' https: data:; media-src 'self' https://cdn.discordapp.com https://media.discordapp.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline'; connect-src 'self'")
 		next.ServeHTTP(w, r)
 	})

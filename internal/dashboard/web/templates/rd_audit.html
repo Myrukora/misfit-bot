@@ -28,10 +28,11 @@
               </select>
             </div>
             <button type="submit" class="btn btn-small">Filter</button>
+            <a class="btn btn-small" href="/audit{{if .Content.query}}?{{.Content.query}}{{end}}">Refresh</a>
             {{if or .Content.filterEvent .Content.filterUser}}<a class="btn btn-small" href="/audit">Clear</a>{{end}}
           </form>
 
-          <p class="muted audit-meta">{{.Content.total}} event(s) in the retention window{{if .Content.path}} · <code>{{.Content.path}}</code>{{else}} · in-memory only{{end}}</p>
+          <p class="muted audit-meta">{{.Content.total}} event(s) in the retention window{{if .Content.path}} · <code>{{.Content.path}}</code>{{else}} · in-memory only{{end}} · generated {{.Content.generated}} UTC</p>
 
           {{if .Content.entries}}
           <div class="audit-table-wrap">

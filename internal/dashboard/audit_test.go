@@ -144,6 +144,60 @@ func TestAuditMiddlewarePagesAndMutations(t *testing.T) {
 	}
 }
 
+func TestAuditLogsKnownPagesWithoutHTMLContentType(t *testing.T) {
+	m := &DashboardModule{
+		bot:    &welcomeFakeBot{owner: "1"},
+		audit:  newAuditLog(t.TempDir(), deadlockLogger{}),
+		logger: deadlockLogger{},
+	}
+	// A proxy or handler can leave an unexpected content type; a known page
+	// visit must still be recorded (the pre-fix code only logged text/html).
+	h := m.auditMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+	}))
+	for _, path := range []string{"/tos", "/policy", "/audit/", "/g/1/commands"} {
+		h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, path, nil))
+	}
+	// An unknown non-HTML path is not a page and stays out.
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/me", nil))
+
+	entries := m.audit.list(auditFilter{Event: "page"})
+	if len(entries) != 4 {
+		t.Fatalf("page entries = %d, want 4: %+v", len(entries), entries)
+	}
+	seen := map[string]bool{}
+	for _, e := range entries {
+		seen[e.Action] = true
+	}
+	for _, want := range []string{"GET /tos", "GET /policy", "GET /audit/", "GET /g/1/commands"} {
+		if !seen[want] {
+			t.Errorf("missing %q in %+v", want, seen)
+		}
+	}
+}
+
+func TestDashboardPagesAreNotCacheable(t *testing.T) {
+	m := legalTestModule(t)
+	h := m.buildHandler()
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/tos", nil))
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("/tos Cache-Control = %q, want no-store", got)
+	}
+
+	// Static assets keep their revalidation policy (they set it themselves).
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/static/style.css", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("static status = %d", w.Code)
+	}
+	if got := w.Header().Get("Cache-Control"); got == "no-store" || !strings.Contains(got, "no-cache") {
+		t.Fatalf("static Cache-Control = %q, want the asset revalidation policy", got)
+	}
+}
+
 func TestClientIP(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -210,7 +264,7 @@ func TestAuditPageRoute(t *testing.T) {
 		t.Fatalf("status = %d body %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	for _, want := range []string{"Dashboard audit", "GET /tos", "Terms of Service", "203.0.113.9", "30 days"} {
+	for _, want := range []string{"Dashboard audit", "GET /tos", "Terms of Service", "203.0.113.9", "30 days", "Refresh", "generated"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("audit page missing %q", want)
 		}
