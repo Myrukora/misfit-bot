@@ -1,7 +1,7 @@
 {{define "rd_audit"}}{{template "rd_header" .}}
         <section class="card">
           <h2>Dashboard audit</h2>
-          <p class="muted">Page visits, login attempts and authenticated changes for the last {{.Content.retentionDays}} days. Visible to the owner and elevated users.</p>
+          <p class="muted">Page visits, logins and changes from the last {{.Content.retentionDays}} days.</p>
 
           <form method="get" class="audit-filter">
             <div class="field">

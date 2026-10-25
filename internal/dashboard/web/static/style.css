@@ -626,12 +626,17 @@ body {
     border-radius: 12px;
     padding: 20px;
     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    min-width: 0;
 }
 
 .stat-value {
     color: white;
     font-size: 28px;
     font-weight: 700;
+    line-height: 1.15;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Suffix like "/8" in a module count */

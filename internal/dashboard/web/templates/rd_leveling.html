@@ -3,7 +3,7 @@
           <div class="mod-head">
             <div>
               <h2 style="margin:0">Leveling</h2>
-              <p class="muted" style="margin:4px 0 0">Award XP for messages and voice, grant role rewards, and replay the messages the bot missed while it was offline.</p>
+              <p class="muted" style="margin:4px 0 0">Message/voice XP, role rewards, and offline catch-up.</p>
             </div>
             {{if .Content.Admin}}
             <button type="button" class="btn {{if .Content.Config.Enabled}}btn-danger{{else}}btn-primary{{end}}" id="lvl-toggle" data-enabled="{{if .Content.Config.Enabled}}true{{else}}false{{end}}">
@@ -21,7 +21,7 @@
           {{end}}
 
           {{if not .Content.Admin}}
-          <p class="muted" style="margin-top:16px">The <strong>leveling</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          <p class="muted" style="margin-top:16px">The <strong>leveling</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
           {{else}}
           {{$c := .Content}}
           {{$cfg := $c.Config}}
@@ -91,7 +91,7 @@
                 <input class="field-input" type="number" id="lvl-catchup-channels" min="1" max="500" step="1" value="{{$cfg.CatchupMaxChannels}}">
               </div>
             </div>
-            <p class="muted" style="margin:8px 0 0;font-size:13px">Catch-up replays the messages sent while the bot was offline with the normal cooldown and is capped per channel. Channels are scanned in position order and active threads are included.</p>
+            <p class="muted" style="margin:8px 0 0;font-size:13px">Replays offline messages with normal cooldowns, capped per channel.</p>
           </div>
 
           <div class="mod-section">
@@ -114,7 +114,7 @@
             <div class="field" style="margin-top:12px">
               <label class="field-label" for="lvl-announce-message">Announcement message</label>
               <textarea class="field-input" id="lvl-announce-message" rows="2" maxlength="1000">{{$cfg.AnnounceMessage}}</textarea>
-              <p class="muted" style="margin:6px 0 0;font-size:13px">Placeholders: <code>{user}</code>, <code>{user.name}</code>, <code>{level}</code>, <code>{server}</code>. An empty channel means no announcement is posted.</p>
+              <p class="muted" style="margin:6px 0 0;font-size:13px">Placeholders: <code>{user}</code>, <code>{user.name}</code>, <code>{level}</code>, <code>{server}</code>.</p>
             </div>
           </div>
 
@@ -122,7 +122,7 @@
             <div class="mod-section-head">
               <div>
                 <h3>Role rewards</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">Rewards stack: reaching a level grants every configured reward at or below it. Roles are removed only when a member's XP is reset here.</p>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">Rewards stack; roles are removed only when XP is reset here.</p>
               </div>
               <button type="button" class="btn btn-small" id="lvl-add-reward">Add reward</button>
             </div>
@@ -154,7 +154,7 @@
 
           <div class="mod-section">
             <h3>Ignored channels and roles</h3>
-            <p class="muted" style="margin:4px 0 12px;font-size:13px">Messages in these channels, and from members with these roles, never earn XP.</p>
+            <p class="muted" style="margin:4px 0 12px;font-size:13px">Ignored channels and roles earn no XP.</p>
             <div class="mod-grid">
               <div class="field">
                 <label class="field-label" for="lvl-ignore-channels">Ignored channels</label>

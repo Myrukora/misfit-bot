@@ -1,7 +1,7 @@
 {{define "rd_field"}}
 <div class="field" data-key="{{.Key}}" data-type="{{.Type}}" data-guild="{{.GuildID}}"{{if .Locked}} data-owneronly="true"{{end}}>
   <div class="field-label"><label for="f-{{.Key}}">{{.Label}}</label><span class="scope scope-{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}">{{if .GuildScoped}}guild{{else}}{{if .OwnerOnly}}owner{{else}}global{{end}}{{end}}</span></div>
-  {{if .Help}}<p class="muted field-help">{{.Help}}{{if .Locked}} <em>Owner only — elevated users cannot change this.</em>{{end}}</p>{{end}}
+  {{if .Help}}<p class="muted field-help">{{.Help}}</p>{{end}}
   {{if eq .Type "toggle"}}
     <label class="toggle"><input type="checkbox" id="f-{{.Key}}" class="cfg-field" {{if eq .Value "true"}}checked{{end}}{{if .Locked}} disabled{{end}}><span class="toggle-track"></span></label>
   {{else if eq .Type "textarea"}}

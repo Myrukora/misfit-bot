@@ -91,10 +91,10 @@
         <!-- ===== Settings: transcript log channel ===== -->
         <section class="card" id="tickets-settings" data-guild="{{.Content.GuildID}}">
           <h2>Ticket settings</h2>
-          <p class="muted">Closed-ticket transcripts and close notices are posted to the log channel. Retention and modal behaviour live in the module's global settings on the Configuration page.</p>
+          <p class="muted">Close notices and transcripts post here. Retention is global.</p>
           <div class="field">
             <label class="field-label" for="tk-log-channel">Log channel</label>
-            <p class="muted field-help">Leave empty to skip posting to Discord — transcripts stay available in the dashboard.</p>
+            <p class="muted field-help">Empty = dashboard only.</p>
             <select class="field-input" id="tk-log-channel">
               <option value="">— none —</option>
               {{$log := .Content.Settings.LogChannel}}
@@ -107,7 +107,7 @@
         <!-- ===== Ticket types ===== -->
         <section class="card" id="tickets-types" data-guild="{{.Content.GuildID}}">
           <h2>Ticket types</h2>
-          <p class="muted">A type defines where its tickets are created, who can open and help, and how its panel button looks. Types that are disabled (or have no category) cannot be opened.</p>
+          <p class="muted">Defines ticket creation, access, and the panel button.</p>
           {{if .Content.TypeDetails}}
           <div class="tbl-wrap">
             <table class="tbl">
@@ -138,7 +138,7 @@
         <!-- ===== Panels ===== -->
         <section class="card" id="tickets-panels" data-guild="{{.Content.GuildID}}">
           <h2>Panels</h2>
-          <p class="muted">A panel is a posted embed with an Open button bound to one type. Questions asked when a ticket is opened are configured per panel.</p>
+          <p class="muted">Posted embed with an Open button for one ticket type.</p>
           {{if .Content.Panels}}
           <div class="tbl-wrap">
             <table class="tbl">

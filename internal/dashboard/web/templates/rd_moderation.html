@@ -3,12 +3,12 @@
           <div class="mod-head">
             <div>
               <h2 style="margin:0">Moderation</h2>
-              <p class="muted" style="margin:4px 0 0">Ban, kick, timeout and warn members. Every action is recorded in the audit log.</p>
+              <p class="muted" style="margin:4px 0 0">Ban, kick, timeout and warn. Actions are audited.</p>
             </div>
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>moderation</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          <p class="muted" style="margin-top:16px">The <strong>moderation</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
           {{else}}
           {{$cfg := .Content.config}}
           {{with .Content.configError}}<p class="mod-error">Config problem: {{.}}</p>{{end}}
@@ -33,7 +33,7 @@
             </div>
             <div class="mod-grid">
               <div class="field">
-                <label class="field-label" for="mod-audit-channel">Audit log channel (channel or thread)</label>
+                <label class="field-label" for="mod-audit-channel">Audit log channel</label>
                 <select class="field-input" id="mod-audit-channel">
                   <option value="">— none —</option>
                   {{range .Content.channels}}<option value="{{.ID}}" {{if eq $cfg.AuditChannel .ID}}selected{{end}}>{{.Name}}</option>{{end}}
@@ -41,7 +41,7 @@
                 </select>
               </div>
               <div class="field">
-                <label class="field-label" for="mod-warn-channel">Warn notification channel (channel or thread)</label>
+                <label class="field-label" for="mod-warn-channel">Warn notification channel</label>
                 <select class="field-input" id="mod-warn-channel">
                   <option value="">— use audit channel —</option>
                   {{range .Content.channels}}<option value="{{.ID}}" {{if eq $cfg.WarnChannel .ID}}selected{{end}}>{{.Name}}</option>{{end}}
@@ -54,14 +54,14 @@
                 <span class="toggle-label">Post warn notifications</span>
               </label>
             </div>
-            <p class="muted" style="margin:8px 0 0;font-size:13px">Threads work as destinations. Warn notifications include the target, reason and active warning total.</p>
+            <p class="muted" style="margin:8px 0 0;font-size:13px">Channels or threads.</p>
           </div>
 
           <div class="mod-section">
             <div class="mod-section-head">
               <div>
                 <h3>Automatic escalation</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">When a member reaches exactly N active warnings, the bot applies the action automatically (same role-hierarchy checks as manual commands).</p>
+                <p class="muted" style="margin:4px 0 0;font-size:13px">At exactly N active warnings, apply this action automatically.</p>
               </div>
               <button type="button" class="btn btn-small" id="mod-add-rule">Add rule</button>
             </div>

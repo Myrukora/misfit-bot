@@ -619,13 +619,13 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 	// the single obvious place to configure them. Only the fields that stay in
 	// the 0600 module config file remain self-configurable here.
 	return []modules.ConfigField{
-		{Key: "client_id", Label: "OAuth Client ID", Help: "Discord application client ID. Auto-derived from the bot application if left empty.", Type: modules.FieldTypeText, Scope: "global"},
-		{Key: "session_secret", Label: "Session Secret", Help: "Secret used to sign session cookies. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
-		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional allowlist of servers. Empty = allow all bot guilds. Checked servers stay accessible; unchecked ones are locked out of the dashboard.", Type: modules.FieldTypeMulti, Options: m.guildLabelOptions(), Scope: "global"},
+		{Key: "client_id", Label: "OAuth Client ID", Help: "App client ID. Auto-filled from the bot if empty.", Type: modules.FieldTypeText, Scope: "global"},
+		{Key: "session_secret", Label: "Session Secret", Help: "Cookie-signing secret. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
+		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional server allowlist. Empty = all servers.", Type: modules.FieldTypeMulti, Options: m.guildLabelOptions(), Scope: "global"},
 		// Guild-scoped: rendered only on the per-server modules page, where
 		// the picker is populated from that server's channels. Stored in the
 		// core config (updater.notify_channels) — see WebSetConfig.
-		{Key: "notify_channel", Label: "Update notification channel", Help: "Channel in this server that receives the bot's PR, commit and release embeds. Empty = this server gets no update notifications.", Type: modules.FieldTypeChannel, Scope: "guild", GuildScoped: true},
+		{Key: "notify_channel", Label: "Update notification channel", Help: "Channel for update notifications. Empty = none.", Type: modules.FieldTypeChannel, Scope: "guild", GuildScoped: true},
 	}
 }
 

@@ -3,12 +3,12 @@
           <div class="rr-head">
             <div>
               <h2 style="margin:0">Reaction roles</h2>
-              <p class="muted" style="margin:4px 0 0">Post an embed with reactions. Members who react receive the mapped role; removing the reaction removes it when enabled.</p>
+              <p class="muted" style="margin:4px 0 0">React to get a role; removing the reaction removes it when enabled.</p>
             </div>
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>reactionroles</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          <p class="muted" style="margin-top:16px">The <strong>reactionroles</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
           {{else}}
           {{with .Content.configError}}<p class="rr-error">Config problem: {{.}}</p>{{end}}
           {{with .Content.lastError}}<p class="rr-error">Last error: {{.}}</p>{{end}}

@@ -3,7 +3,7 @@
           <div class="welcome-head">
             <div>
               <h2 style="margin:0">Welcome message</h2>
-              <p class="muted" style="margin:4px 0 0">Send a message when a member joins or leaves this server. Variables expand when the event fires.</p>
+              <p class="muted" style="margin:4px 0 0">Join and leave messages with variables.</p>
             </div>
             {{if .Content.admin}}
             <div class="cmd-tabs" role="tablist" aria-label="Event">
@@ -13,7 +13,7 @@
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>welcome</strong> module is not loaded. Enable it on <a href="/config">Config → Modules</a> (or with <code>enabled_modules</code>) and restart the bot.</p>
+          <p class="muted" style="margin-top:16px">The <strong>welcome</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
           {{else}}
           {{with .Content.configError}}<p class="welcome-error">{{.}}</p>{{end}}
 

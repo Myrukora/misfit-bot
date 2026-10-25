@@ -117,7 +117,7 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 ## Versioning
 
 `VERSION` at the repository root is the **single source of truth** for the bot's
-version (currently `0.16.0`). Every build site stamps it into the binary:
+version (currently `0.16.2`). Every build site stamps it into the binary:
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
