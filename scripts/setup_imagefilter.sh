@@ -7,10 +7,13 @@
 #
 # The model variant defaults to b32; set VARIANT=b16|l14|l14-336 to provision a
 # non-default export (the bot passes its configured variant automatically).
+# b32 is downloaded prebuilt from the bot's GitHub release, so provisioning does
+# not require Python/torch on the host; non-default variants (or a failed
+# download) use the local export path below.
 #
 # Then proves the export with the export script's `verify` subcommand (torch vs
 # onnxruntime cosine on the same input). Everything heavy happens ONCE: the
-# venv and the .onnx are reused on every later run, so calling this after each
+# prebuilt model/venv is reused on every later run, so calling this after each
 # self-update costs nothing.
 #
 # It is called by install.sh (fresh install) and by the updater after a binary
@@ -22,7 +25,7 @@
 #   bash scripts/setup_imagefilter.sh --strict    # exit 1 when an artifact cannot be built
 #   bash scripts/setup_imagefilter.sh --verify    # also re-run `verify` (needs the export venv)
 #   bash scripts/setup_imagefilter.sh --check     # report readiness, change nothing
-#   bash scripts/setup_imagefilter.sh --force     # re-export even if the .onnx exists
+#   bash scripts/setup_imagefilter.sh --force     # re-download/re-export even if present
 #   bash scripts/setup_imagefilter.sh --clean     # delete the export venv, keep artifacts
 #   VARIANT=b16 bash scripts/setup_imagefilter.sh # provision a non-default variant
 #
@@ -42,6 +45,18 @@ MODEL_FILE="$MODELS_DIR/clip-vision-${VARIANT}.onnx"
 # Cheap "is this a real export?" floor in bytes — the b32 export is ~334 MiB;
 # anything below 100 MiB is a truncated/failed download, not a model.
 MIN_MODEL_BYTES=$((100 * 1024 * 1024))
+
+# Default b32 artifact: prebuilt from this bot's GitHub release, so a host
+# without a usable Python/torch toolchain can still provision the filter. The
+# release is tagged separately from bot versions, so the updater ignores it.
+# Override with IMAGEFILTER_MODEL_URL / IMAGEFILTER_MODEL_SHA256 (e.g. a fork
+# or an internal mirror); non-default variants fall back to a local export.
+MODEL_URL="${IMAGEFILTER_MODEL_URL:-}"
+MODEL_SHA256="${IMAGEFILTER_MODEL_SHA256:-}"
+if [ -z "$MODEL_URL" ] && [ "$VARIANT" = "b32" ]; then
+  MODEL_URL="https://github.com/Myrukora/misfit-bot/releases/download/clip-models-v1/clip-vision-b32.onnx"
+  MODEL_SHA256="61dafa49ffb54653287f95b40f44ce82e6de67b1f985c5770b7c9b7bd85a7843"
+fi
 
 # CPU-only torch: the CPU wheel index carries torch and its whole dep set, so a
 # single index URL installs a ~200 MB CPU wheel instead of the multi-GB CUDA one.
@@ -82,13 +97,68 @@ done
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+download_file() { # $1 = URL, $2 = destination
+  if have curl; then
+    curl -fL --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 1800 -o "$2" "$1"
+  elif have wget; then
+    wget -q --tries=3 --timeout=60 -O "$2" "$1"
+  else
+    return 1
+  fi
+}
+
+sha256_file() { # $1 = file
+  if have sha256sum; then
+    sha256sum "$1" | awk '{print $1}'
+  elif have shasum; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    return 1
+  fi
+}
+
+# Download the prebuilt model for this variant when configured. Returns 1 on
+# any failure so the caller can fall back to a local torch export.
+download_prebuilt_model() {
+  [ -n "$MODEL_URL" ] || return 1
+  mkdir -p "$MODELS_DIR"
+  local tmp="${MODEL_FILE}.part"
+  rm -f "$tmp"
+  info "downloading prebuilt CLIP ${VARIANT} model (no Python required)"
+  if ! download_file "$MODEL_URL" "$tmp"; then
+    rm -f "$tmp"
+    warn "prebuilt model download failed — trying a local export"
+    return 1
+  fi
+  if [ -n "$MODEL_SHA256" ]; then
+    local got
+    got=$(sha256_file "$tmp" 2>/dev/null || true)
+    if [ "$got" != "$MODEL_SHA256" ]; then
+      rm -f "$tmp"
+      warn "prebuilt model checksum mismatch (got ${got:-unavailable}) — trying a local export"
+      return 1
+    fi
+  fi
+  if ! model_size_ok "$tmp"; then
+    rm -f "$tmp"
+    warn "prebuilt model is too small — trying a local export"
+    return 1
+  fi
+  mv -f "$tmp" "$MODEL_FILE"
+  ok "prebuilt CLIP model installed ($(model_size_mb) MB)"
+  return 0
+}
+
 lib_present() { [ -f "$ROOT/lib/onnxruntime/lib/libonnxruntime.so" ]; }
 
-model_present() {
-  [ -f "$MODEL_FILE" ] || return 1
+model_size_ok() { # $1 = path
   local size
-  size=$(stat -c %s "$MODEL_FILE" 2>/dev/null || echo 0)
+  size=$(stat -c %s "$1" 2>/dev/null || echo 0)
   [ "$size" -ge "$MIN_MODEL_BYTES" ]
+}
+
+model_present() {
+  [ -f "$MODEL_FILE" ] && model_size_ok "$MODEL_FILE"
 }
 
 model_size_mb() {
@@ -165,6 +235,16 @@ if model_present && [ "$FORCE" != 1 ]; then
 fi
 
 [ "$FORCE" = 1 ] && info "forced rebuild of the ${VARIANT} model" || true
+
+# Prefer the published prebuilt artifact: it needs no Python/torch/pip on the
+# host and is hash-verified. A failed download falls through to a local export.
+if download_prebuilt_model; then
+  if [ "$DO_VERIFY" = 1 ]; then
+    info "prebuilt model hash verified; torch verification skipped (no export venv needed)"
+  fi
+  ok "image filter runtime ready"
+  exit 0
+fi
 
 # ── interpreter selection ─────────────────────────────────────────────────
 #

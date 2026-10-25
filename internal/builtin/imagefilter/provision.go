@@ -25,9 +25,10 @@ import (
 // soon as that script exits. Nothing here ever blocks a gateway goroutine or
 // an HTTP response beyond cheap stat calls.
 const (
-	// provisionTimeout bounds one setup run. The first run may download a
-	// ~300 MB ONNX export plus a ~200 MB CPU torch wheel, so this is generous;
-	// subsequent runs are near-instant.
+	// provisionTimeout bounds one setup run. The first run may download the
+	// ~334 MB prebuilt b32 model (non-default variants may also install a
+	// torch export stack), so this is generous; subsequent runs are
+	// near-instant.
 	provisionTimeout = 45 * time.Minute
 	// provisionTail keeps the last bytes of script output for diagnostics.
 	provisionTail = 4 << 10
@@ -156,7 +157,7 @@ func (m *ImageFilterModule) startProvisioning() {
 
 	log := m.logger()
 	if log != nil {
-		log.Info("imagefilter: provisioning runtime artifacts in the background (variant %s) — the first run downloads and exports, this can take minutes", variant)
+		log.Info("imagefilter: provisioning runtime artifacts in the background (variant %s) — the first run downloads the model, this can take minutes", variant)
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), provisionTimeout)

@@ -41,7 +41,7 @@ A self-hosting Discord bot in Go: a compiled-in core (web dashboard + feature mo
 ./install.sh --skip-imagefilter # skip the image-filter runtime (ONNX + CLIP)
 ```
 
-`install.sh` also provisions the **image filter** runtime: the ONNX Runtime library and the CLIP `b32` model (both gitignored, so a fresh clone has neither). It is idempotent and a no-op once they exist, and never fails the install — a machine that cannot build them simply leaves the filter cold, with the reason shown on the dashboard. The same step runs automatically after a self-update, and the bot also runs it **lazily itself**: enabling the filter on a deployment that is missing the artifacts starts the setup in the background (single-flight, `flock`-serialized with the installer) and the server page shows `preparing model…` — or the last setup error — until the model warms. Non-default CLIP variants are exported on demand with `scripts/export_clip_onnx.py`.
+`install.sh` also provisions the **image filter** runtime: the ONNX Runtime library and the CLIP `b32` model (both gitignored, so a fresh clone has neither). The **b32 model is downloaded prebuilt** from the bot's GitHub release, so no Python/torch is needed on the host; non-default variants (and a failed download) fall back to a local export. It is idempotent and a no-op once the artifacts exist, and never fails the install — a machine that cannot provision them simply leaves the filter cold, with the reason shown on the dashboard. The same step runs automatically after a self-update, and the bot also runs it **lazily itself**: enabling the filter on a deployment that is missing the artifacts starts the setup in the background (single-flight, `flock`-serialized with the installer) and the server page shows `preparing model…` — or the last setup error — until the model warms. Non-default CLIP variants are exported on demand with `scripts/export_clip_onnx.…
 
 Auto-detects the distro; supports apt (Debian/Ubuntu), pacman (Arch), dnf (Fedora/RHEL), zypper (openSUSE), apk (Alpine), xbps (Void), emerge (Gentoo), nix (NixOS), and FreeBSD pkg. Override detection with `DISTRO=<id> ./install.sh`.
 
@@ -117,7 +117,7 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 ## Versioning
 
 `VERSION` at the repository root is the **single source of truth** for the bot's
-version (currently `0.16.3`). Every build site stamps it into the binary:
+version (currently `0.16.4`). Every build site stamps it into the binary:
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
