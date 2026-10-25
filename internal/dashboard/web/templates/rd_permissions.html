@@ -2,11 +2,11 @@
         <!-- ===== Owner (read-only) ===== -->
         <section class="card">
           <h2>Owner</h2>
-          <p class="muted">The bot owner. Bypasses every permission check.</p>
+          <p class="muted">Bot owner. Full access.</p>
           <ul class="user-list">
             <li class="user-row">
               <div class="user-identity">
-                <span class="user-name">{{index .Content.names .Content.owner_id}}</span>
+                {{with index .Content.names .Content.owner_id}}<span class="user-name">{{.}}</span>{{end}}
                 <span class="user-id muted">{{.Content.owner_id}}</span>
               </div>
               <span class="user-badge">Owner</span>
@@ -17,13 +17,13 @@
         <!-- ===== Elevated users ===== -->
         <section class="card">
           <h2>Elevated users</h2>
-          <p class="muted">Users granted owner-like access. They bypass permission checks.</p>
+          <p class="muted">Owner-like access.</p>
           {{if .Content.elevated}}
           <ul class="user-list">
             {{range .Content.elevated}}
             <li class="user-row" data-user="{{.}}">
               <div class="user-identity">
-                <span class="user-name">{{index $.Content.names .}}</span>
+                {{with index $.Content.names .}}<span class="user-name">{{.}}</span>{{end}}
                 <span class="user-id muted">{{.}}</span>
               </div>
               {{if $.IsOwner}}<button class="btn btn-small btn-danger" data-remove-elevated="{{.}}">Remove</button>{{end}}
@@ -44,7 +44,7 @@
             <button class="btn btn-primary" id="add-elevated">Add</button>
           </div>
           {{else}}
-          <p class="muted">Only the bot owner can grant or revoke elevated access.</p>
+          <p class="muted">Only the owner can manage this list.</p>
           {{end}}
         </section>
 {{template "rd_footer" .}}{{end}}

@@ -624,9 +624,10 @@ func (m *DashboardModule) populateEntities(fr *fieldRender, guildID string, us *
 // ── /permissions ──────────────────────────────────────────────────────────
 
 // resolveUsernames maps user IDs to display names, cache-first. The member
-// cache is enumerated once and reused for the whole request (per-request memo,
-// no per-ID scans). IDs absent from the cache stay raw — the REST fallback the
-// plan mentions is skipped: a private bot's elevated list is always in cache.
+// cache is enumerated once and reused for the whole request. IDs absent from
+// the cache (no Server Members intent, or a user who is not a cached member)
+// are resolved through the REST API; if that also fails they stay unmapped and
+// the template renders the raw ID only.
 func (m *DashboardModule) resolveUsernames(ids []string) map[string]string {
 	out := make(map[string]string, len(ids))
 	if m.client == nil || len(ids) == 0 {
@@ -635,13 +636,34 @@ func (m *DashboardModule) resolveUsernames(ids []string) map[string]string {
 	byID := make(map[string]string, 64)
 	for g := range m.client.Caches.Guilds() {
 		for member := range m.client.Caches.Members(g.ID) {
-			byID[member.User.ID.String()] = member.User.Username
+			name := member.User.EffectiveName()
+			if name == "" {
+				name = member.User.Username
+			}
+			byID[member.User.ID.String()] = name
 		}
 	}
 	for _, id := range ids {
 		if name, ok := byID[id]; ok {
 			out[id] = name
+			continue
 		}
+		if m.client.Rest == nil {
+			continue
+		}
+		uid, err := snowflake.Parse(id)
+		if err != nil {
+			continue
+		}
+		user, err := m.client.Rest.GetUser(uid)
+		if err != nil || user == nil {
+			continue
+		}
+		name := user.EffectiveName()
+		if name == "" {
+			name = user.Username
+		}
+		out[id] = name
 	}
 	return out
 }
