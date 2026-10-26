@@ -222,7 +222,7 @@ func main() {
 	sigCh = make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
-	Log.Info("Starting %s v%s", Cfg.Bot.Name, Version)
+	Log.Info("Starting bot v%s", Version)
 	Log.Info("Owner: %s", Cfg.Bot.OwnerID)
 
 	// Self-update manager: constructed ONCE (never inside run()) so in-process
@@ -416,7 +416,7 @@ func run() bool {
 	// in-process — no .so, no plugin.Open — and OnLoad runs during
 	// registration (tickets loads its config/store + event hooks here).
 	if err := ModMgr.RegisterBuiltinsWithFilter(Cfg.Modules.EnabledModules, &modules.Context{
-		BotName:      Cfg.Bot.Name,
+		BotName:      ba.GetName(),
 		OwnerID:      Cfg.Bot.OwnerID,
 		DataDir:      filepath.Join(Dir, Cfg.Modules.Path),
 		Logger:       Log,
@@ -471,7 +471,7 @@ func run() bool {
 	// secret, allowed guilds) survives the migration.
 	dash = dashboard.New(dashboard.Deps{
 		Bot:     ba,
-		BotName: Cfg.Bot.Name,
+		BotName: ba.GetName(),
 		DataDir: filepath.Join(Dir, Cfg.Modules.Path, "Go", "dashboard"),
 		Logger:  Log,
 		MCP:     mcpSrv.Handler(),
@@ -1012,8 +1012,14 @@ func (b *botAdapter) GetSelfUserID() string {
 	return self.ID.String()
 }
 
+// GetName resolves the bot's display name live from the gateway self user
+// (the name set on the Developer Portal), so /info, /help and the dashboard
+// always match what the app actually is. Falls back to "Bot" before READY.
 func (b *botAdapter) GetName() string {
-	return Cfg.Snapshot().Bot.Name
+	if self, ok := Client.Caches.SelfUser(); ok {
+		return self.EffectiveName()
+	}
+	return "Bot"
 }
 
 func (b *botAdapter) GetVersion() string {
@@ -1324,7 +1330,7 @@ func (b *botAdapter) LoadModule(name string) error {
 		return err
 	}
 	if err := mod.OnLoad(&modules.Context{
-		BotName:      Cfg.Bot.Name,
+		BotName:      ba.GetName(),
 		OwnerID:      Cfg.Bot.OwnerID,
 		DataDir:      moduleDataDir(path),
 		Logger:       Log,
@@ -1440,9 +1446,9 @@ func (b *botAdapter) SetPresence(activityType string, status, text string) error
 		return Client.SetPresence(ctx, gateway.WithListeningActivity(text))
 	case "streaming":
 		if statusOpt != nil {
-			return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name), statusOpt)
+			return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+b.GetName()), statusOpt)
 		}
-		return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+Cfg.Bot.Name))
+		return Client.SetPresence(ctx, gateway.WithStreamingActivity(text, "https://twitch.tv/"+b.GetName()))
 	case "competing":
 		if statusOpt != nil {
 			return Client.SetPresence(ctx, gateway.WithCompetingActivity(text), statusOpt)
@@ -1672,7 +1678,7 @@ func loadSingleModule(ba *botAdapter, modulesDir, name string) {
 	}
 
 	if err := mod.OnLoad(&modules.Context{
-		BotName:      snap.Bot.Name,
+		BotName:      ba.GetName(),
 		OwnerID:      snap.Bot.OwnerID,
 		DataDir:      moduleDataDir(path),
 		Logger:       Log,

@@ -22,7 +22,6 @@ func Run(dir string) (*config.Config, error) {
 	cfg := &base
 	cfg.Bot.Token = ""
 	cfg.Bot.OwnerID = ""
-	cfg.Bot.Name = ""
 
 	fmt.Print("Enter bot token: ")
 	token, err := reader.ReadString('\n')
@@ -38,16 +37,8 @@ func Run(dir string) (*config.Config, error) {
 	}
 	cfg.Bot.OwnerID = strings.TrimSpace(ownerID)
 
-	fmt.Print("Enter bot name (default: Bot): ")
-	name, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read name: %w", err)
-	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "Bot"
-	}
-	cfg.Bot.Name = name
+	// The bot's name is not configured: it is resolved live from the
+	// app's Developer Portal identity at runtime.
 
 	cfg.Modules.AutoLoad = true
 	cfg.Modules.Path = "modules"

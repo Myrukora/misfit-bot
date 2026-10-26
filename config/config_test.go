@@ -101,7 +101,7 @@ func TestDashboardKeysRoundTrip(t *testing.T) {
 // (which would silently disable the self-updater).
 func TestLoadAppliesDefaults(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    name: 'Custom'\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "config.yml"), []byte("bot:\n    owner_id: '123'\n"), 0644); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	cfg, err := Load(dir)
@@ -111,8 +111,8 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if !cfg.Updater.Enabled || cfg.Updater.Branch != "main" || cfg.Updater.CheckInterval != 300 || !cfg.Updater.AutoPull {
 		t.Errorf("updater defaults not applied: %+v", cfg.Updater)
 	}
-	if cfg.Bot.Name != "Custom" {
-		t.Errorf("yaml overlay lost: name = %q", cfg.Bot.Name)
+	if cfg.Bot.OwnerID != "123" {
+		t.Errorf("yaml overlay lost: owner_id = %q", cfg.Bot.OwnerID)
 	}
 }
 
