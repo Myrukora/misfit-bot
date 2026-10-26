@@ -1,12 +1,39 @@
 package leveling
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/misfit/bot/modules"
 )
+
+// TestOpenStoreCreatesDataDirectory pins the fresh-install case: the builtin's
+// modules/leveling/ directory does not exist yet, and SQLite needs it before
+// it can create leveling.db.
+func TestOpenStoreCreatesDataDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "modules", "leveling")
+	store, err := openStore(filepath.Join(dir, "leveling.db"), nil)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	defer store.Close()
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("data directory missing: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%s is not a directory", dir)
+	}
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("data directory mode = %o, want 700", perm)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "leveling.db")); err != nil {
+		t.Fatalf("database missing: %v", err)
+	}
+}
 
 // TestAwardMessagePersistence pins the durable round-trip: award XP, reopen the
 // database, and read back the exact entry, checkpoint and watermark.

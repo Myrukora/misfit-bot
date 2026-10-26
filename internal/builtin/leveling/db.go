@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -106,6 +107,12 @@ type levelStore struct {
 func openStore(path string, log func(msg string, args ...any)) (*levelStore, error) {
 	if log == nil {
 		log = func(string, ...any) {}
+	}
+	// The builtin's DataDir is modules/leveling/; it is not created by
+	// setupDirs() or the module manager, and SQLite cannot create missing
+	// parent directories itself.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create leveling data directory: %w", err)
 	}
 	u := url.URL{
 		Scheme:   "file",
