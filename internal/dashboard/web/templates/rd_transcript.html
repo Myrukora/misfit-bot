@@ -4,6 +4,7 @@
 {{range $t.VisibleLog}}
 {{$entry := .}}
 <div class="msg-entry">
+  {{if eq $t.Status "closed"}}<label class="msg-select" aria-label="Select message"><input type="checkbox" class="tk-msg-check" value="{{.MsgID}}"></label>{{end}}
   <div class="msg-avatar">{{if .AuthorName}}{{substrUpper .AuthorName 1}}{{else}}?{{end}}</div>
   <div class="msg-main">
     <div class="msg-head">
@@ -80,10 +81,33 @@
       {{end}}
     </section>
 
+    {{if eq $t.Status "closed"}}
+    <div class="transcript-actions archive-actions" id="tk-archive-actions" data-guild="{{.Content.GuildID}}" data-ticket="{{$t.ID}}">
+      <button type="button" class="btn btn-small" id="tk-select-toggle">Select messages</button>
+      <button type="button" class="btn btn-small btn-danger" id="tk-delete-selected" disabled>Delete selected</button>
+      <button type="button" class="btn btn-small btn-danger" id="tk-delete-ticket">Delete ticket</button>
+    </div>
+    {{end}}
+
     <section class="card">
       <h2 id="tk-conv-title">Conversation ({{$t.LogCount}} entries)</h2>
       <div id="tk-conversation" data-guild="{{.Content.GuildID}}" data-ticket="{{$t.ID}}">{{template "tk_conversation" (dict "Ticket" $t "GuildID" .Content.GuildID)}}</div>
     </section>
+
+    {{if $t.ArchiveAudit}}
+    <section class="card">
+      <h2>Archive audit</h2>
+      <div class="archive-audit">
+        {{range $t.ArchiveAudit}}
+        <div class="archive-audit-row">
+          <div><strong>{{if .ActorName}}{{.ActorName}}{{else}}<code>{{.ActorID}}</code>{{end}}</strong> <span class="muted">{{dateHuman .Time}}</span></div>
+          <div>Deleted {{.Count}} message(s)</div>
+          <div class="muted">Reason: {{.Reason}}</div>
+        </div>
+        {{end}}
+      </div>
+    </section>
+    {{end}}
 
     {{template "tk_lightbox"}}
     <div class="transcript-actions">
@@ -91,6 +115,30 @@
       <a class="btn btn-small" href="/api/tickets/{{.Content.GuildID}}/{{$t.ID}}/transcript">Download transcript</a>
     </div>
   </main>
+
+  {{if eq $t.Status "closed"}}
+  <div class="gear-modal" id="tk-reason-modal" hidden>
+    <div class="gear-backdrop"></div>
+    <div class="gear-panel" role="dialog" aria-modal="true" aria-labelledby="tk-reason-title">
+      <div class="gear-head">
+        <h4 id="tk-reason-title">Delete archived messages</h4>
+        <button type="button" class="gear-close" id="tk-reason-close" aria-label="Close">✕</button>
+      </div>
+      <div class="gear-body">
+        <p class="muted" id="tk-reason-help">The selected messages and their mirrored attachments are removed permanently. The reason is recorded in the archive audit; message content is not retained.</p>
+        <div class="field">
+          <label class="field-label" for="tk-reason-input">Reason (required)</label>
+          <textarea class="field-input" id="tk-reason-input" rows="3" maxlength="1000" placeholder="Why are these messages being deleted?"></textarea>
+        </div>
+      </div>
+      <div class="gear-foot">
+        <button type="button" class="btn btn-small" id="tk-reason-cancel">Cancel</button>
+        <button type="button" class="btn btn-small btn-danger" id="tk-reason-confirm">Delete messages</button>
+      </div>
+    </div>
+  </div>
+  {{end}}
+
 <script src="/static/app.js?v={{.AssetVersion}}"></script>
 </body>
 </html>

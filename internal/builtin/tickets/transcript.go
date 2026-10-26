@@ -172,6 +172,15 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 // path, and the exact snapshot that was rendered (the caller uses the snapshot
 // to detect that something landed while it was writing).
 func (m *TicketsModule) renderTranscriptToDisk(guildID, ticketID string) (data []byte, absPath string, rendered *modules.Ticket, err error) {
+	m.transcriptMu.Lock()
+	defer m.transcriptMu.Unlock()
+	return m.renderTranscriptToDiskLocked(guildID, ticketID)
+}
+
+// renderTranscriptToDiskLocked is renderTranscriptToDisk with transcriptMu
+// already held by the caller (archive deletion removes stale files and
+// regenerates under one lock).
+func (m *TicketsModule) renderTranscriptToDiskLocked(guildID, ticketID string) (data []byte, absPath string, rendered *modules.Ticket, err error) {
 	tk, err := m.store.load(guildID, ticketID)
 	if err != nil {
 		return nil, "", nil, err
@@ -303,9 +312,13 @@ func mergeEntriesInto(tk *modules.Ticket, history []modules.LogEntry) bool {
 	for _, e := range tk.Log {
 		have[e.MsgID] = true
 	}
+	removed := make(map[string]bool, len(tk.RemovedMessages))
+	for _, id := range tk.RemovedMessages {
+		removed[id] = true
+	}
 	added := false
 	for _, e := range history {
-		if !have[e.MsgID] {
+		if !have[e.MsgID] && !removed[e.MsgID] {
 			tk.Log = append(tk.Log, e)
 			have[e.MsgID] = true
 			added = true
@@ -414,6 +427,7 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 	b.WriteString(".ptime{font-size:12px;color:#a1a1aa;white-space:nowrap}")
 	b.WriteString(".paudio .pfull{display:none}.paudio audio{height:40px;max-height:40px}")
 	b.WriteString("img.attachment{cursor:zoom-in}")
+	b.WriteString(".audit{margin-top:22px;padding-top:14px;border-top:1px solid #42454a}.audit h2{font-size:16px}.audit-row{padding:8px 0;border-bottom:1px solid #40444b}.audit-row:last-child{border-bottom:none}.audit-row .time{color:#72767d;font-size:12px;margin-left:6px}.audit-reason{margin-top:3px;color:#b9bbbe}")
 	b.WriteString("</style></head><body><div class='wrap'>")
 	b.WriteString("<h1>" + esc(title) + "</h1>")
 	status := "Open"
@@ -517,6 +531,20 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 		b.WriteString("</div></div>")
 	}
 	b.WriteString("</div>")
+	if len(t.ArchiveAudit) > 0 {
+		b.WriteString("<div class='audit'><h2>Archive audit</h2>")
+		for _, ev := range t.ArchiveAudit {
+			actor := ev.ActorName
+			if actor == "" {
+				actor = ev.ActorID
+			}
+			b.WriteString("<div class='audit-row'><b>" + esc(actor) + "</b><span class='time'>" +
+				ev.Time.UTC().Format("Jan 2, 2006 15:04") + "</span>")
+			b.WriteString("<div>Deleted " + fmt.Sprintf("%d", ev.Count) + " message(s)</div>")
+			b.WriteString("<div class='audit-reason'>Reason: " + esc(ev.Reason) + "</div></div>")
+		}
+		b.WriteString("</div>")
+	}
 	b.WriteString("<div id='lb'><div class='lbtools'><a id='lbdl' class='lbbtn' href='#' download>⬇ Download</a><button type='button' id='lbclose' class='lbbtn'>✕</button></div><img id='lbi' alt=''></div>")
 	b.WriteString("<script>(function(){var lb=document.getElementById('lb'),im=document.getElementById('lbi'),dl=document.getElementById('lbdl'),s=1,x=0,y=0,d=null;function apply(){im.style.transform='translate('+x+'px,'+y+'px) scale('+s+')';}function close(){lb.classList.remove('open');im.removeAttribute('src');s=1;x=0;y=0;apply();}document.querySelectorAll('img.attachment').forEach(function(i){i.addEventListener('click',function(){im.src=this.src;dl.href=this.src;s=1;x=0;y=0;apply();lb.classList.add('open');});});lb.addEventListener('click',function(e){if(e.target===lb)close();});document.getElementById('lbclose').addEventListener('click',close);im.addEventListener('wheel',function(e){e.preventDefault();s=Math.min(6,Math.max(1,s*(e.deltaY<0?1.15:1/1.15)));if(s===1){x=0;y=0;}apply();},{passive:false});im.addEventListener('mousedown',function(e){if(s<=1)return;e.preventDefault();d={x:e.clientX,y:e.clientY,tx:x,ty:y};});document.addEventListener('mousemove',function(e){if(!d)return;x=d.tx+(e.clientX-d.x);y=d.ty+(e.clientY-d.y);apply();});document.addEventListener('mouseup',function(){d=null;});im.addEventListener('dblclick',function(e){e.preventDefault();if(s>1){s=1;x=0;y=0;}else{s=2.5;}apply();});document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});function fmt(t){if(!isFinite(t)||t<0)t=0;var m=Math.floor(t/60),q=Math.floor(t%60);return m+':'+(q<10?'0':'')+q;}document.querySelectorAll('[data-player]').forEach(function(p){var m=p.querySelector('video,audio'),play=p.querySelector('.pplay'),seek=p.querySelector('.pseek'),time=p.querySelector('.ptime'),mute=p.querySelector('.pmute'),vol=p.querySelector('.pvol'),full=p.querySelector('.pfull');if(!m||!play)return;function sync(){var dur=m.duration||0,cur=m.currentTime||0;seek.value=dur?Math.round(cur/dur*1000):0;time.textContent=fmt(cur)+' / '+fmt(dur);play.textContent=m.paused?'▶':'❚❚';if(vol)vol.value=Math.round((m.muted?0:m.volume)*100);}function toggle(){if(m.paused){var pr=m.play();if(pr&&pr.catch)pr.catch(function(){});}else{m.pause();}}play.addEventListener('click',toggle);m.addEventListener('click',toggle);['play','pause','timeupdate','loadedmetadata'].forEach(function(ev){m.addEventListener(ev,sync);});seek.addEventListener('input',function(){if(m.duration)m.currentTime=seek.value/1000*m.duration;});mute.addEventListener('click',function(){m.muted=!m.muted;mute.textContent=m.muted?'🔇':'🔊';sync();});if(vol)vol.addEventListener('input',function(){m.volume=vol.value/100;m.muted=vol.value==='0';mute.textContent=m.muted?'🔇':'🔊';});if(full)full.addEventListener('click',function(){if(document.fullscreenElement)document.exitFullscreen();else if(p.requestFullscreen)p.requestFullscreen();});sync();});})();</script>")
 	b.WriteString("</body></html>")

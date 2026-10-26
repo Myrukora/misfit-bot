@@ -568,9 +568,12 @@
   var tkTypes = byId("tickets-types");
   var tkPanels = byId("tickets-panels");
   var tkSettings = byId("tickets-settings");
+  var tkArchive = byId("tk-archive-actions");
   var tkGuild = (tkTypes && tkTypes.dataset.guild) ||
     (tkPanels && tkPanels.dataset.guild) ||
-    (tkSettings && tkSettings.dataset.guild) || "";
+    (tkSettings && tkSettings.dataset.guild) ||
+    (tkArchive && tkArchive.dataset.guild) || "";
+  var tkTicket = (tkArchive && tkArchive.dataset.ticket) || "";
   var tkBase = "/api/tickets/" + encodeURIComponent(tkGuild);
 
   /* Live updates: the dashboard re-renders the list fragments server-side and
@@ -583,6 +586,26 @@
       if (open && typeof payload.open === "string") open.innerHTML = payload.open;
       var closed = byId("tk-closed-list");
       if (closed && typeof payload.closed === "string") closed.innerHTML = payload.closed;
+    });
+  }
+
+  /* Archive list: per-row delete. Delegated because SSE replaces the list
+     fragment (and therefore the buttons) without a reload. */
+  var tkClosedList = byId("tk-closed-list");
+  if (tkClosedList && tkGuild) {
+    tkClosedList.addEventListener("click", function (ev) {
+      var btn = ev.target.closest("button.tk-ticket-delete");
+      if (!btn) return;
+      var id = btn.dataset.ticket;
+      if (!id) return;
+      if (!confirm("Delete archived ticket " + id + " and all its mirrored files? This cannot be undone.")) return;
+      btn.disabled = true;
+      api("POST", tkBase + "/" + encodeURIComponent(id) + "/delete", {})
+        .then(function () {
+          toast("Ticket " + id + " deleted");
+          setTimeout(function () { location.reload(); }, 250);
+        })
+        .catch(function (e) { tkFail(e); btn.disabled = false; });
     });
   }
 
@@ -950,7 +973,114 @@
       if (title) title.textContent = "Conversation (" + p.count + " entries)";
       var status = byId("tk-status");
       if (status) status.textContent = p.status;
+      if (typeof tkUpdateSelection === "function") tkUpdateSelection();
       if (nearBottom) window.scrollTo(0, document.body.scrollHeight);
+    });
+  }
+
+  /* ---------- archived transcript: selective message deletion ---------- */
+  var tkSelectToggle = byId("tk-select-toggle");
+  var tkDeleteSelected = byId("tk-delete-selected");
+  var tkDeleteTicket = byId("tk-delete-ticket");
+  var tkUpdateSelection = function () {
+    if (!tkDeleteSelected) return;
+    var n = tkConv ? tkConv.querySelectorAll(".tk-msg-check:checked").length : 0;
+    tkDeleteSelected.textContent = n ? "Delete selected (" + n + ")" : "Delete selected";
+    tkDeleteSelected.disabled = n === 0;
+  };
+
+  if (tkArchive && tkConv && tkSelectToggle) {
+    tkSelectToggle.addEventListener("click", function () {
+      var selecting = document.body.classList.toggle("tk-selecting");
+      tkSelectToggle.textContent = selecting ? "Cancel selection" : "Select messages";
+      if (!selecting) {
+        tkConv.querySelectorAll(".tk-msg-check").forEach(function (box) { box.checked = false; });
+      }
+      tkUpdateSelection();
+    });
+    tkConv.addEventListener("change", function (ev) {
+      if (ev.target.classList && ev.target.classList.contains("tk-msg-check")) tkUpdateSelection();
+    });
+    tkUpdateSelection();
+  }
+
+  /* The deletion reason modal is shared by archive mutations. It never reads
+     message text — only the operator-supplied reason goes to the API. */
+  var tkReasonModal = byId("tk-reason-modal");
+  var tkReasonTitle = byId("tk-reason-title");
+  var tkReasonHelp = byId("tk-reason-help");
+  var tkReasonInput = byId("tk-reason-input");
+  var tkReasonConfirm = byId("tk-reason-confirm");
+  var tkReasonCancel = byId("tk-reason-cancel");
+  var tkReasonClose = byId("tk-reason-close");
+  var tkReasonAction = null;
+  var tkCloseReason = function () {
+    if (tkReasonModal) tkReasonModal.hidden = true;
+    tkReasonAction = null;
+  };
+  var tkOpenReason = function (title, help, action) {
+    if (!tkReasonModal || !tkReasonInput) return;
+    tkReasonTitle.textContent = title;
+    tkReasonHelp.textContent = help;
+    tkReasonInput.value = "";
+    tkReasonAction = action;
+    tkReasonModal.hidden = false;
+    tkReasonInput.focus();
+  };
+  if (tkReasonModal) {
+    if (tkReasonCancel) tkReasonCancel.addEventListener("click", tkCloseReason);
+    if (tkReasonClose) tkReasonClose.addEventListener("click", tkCloseReason);
+    var tkReasonBackdrop = tkReasonModal.querySelector(".gear-backdrop");
+    if (tkReasonBackdrop) tkReasonBackdrop.addEventListener("click", tkCloseReason);
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key === "Escape" && !tkReasonModal.hidden) tkCloseReason();
+    });
+    if (tkReasonConfirm) {
+      tkReasonConfirm.addEventListener("click", function () {
+        var reason = tkReasonInput.value.trim();
+        if (!reason) {
+          toast("A reason is required", true);
+          tkReasonInput.focus();
+          return;
+        }
+        if (!tkReasonAction) return;
+        tkReasonConfirm.disabled = true;
+        Promise.resolve(tkReasonAction(reason))
+          .then(tkCloseReason)
+          .catch(function (e) { tkFail(e); })
+          .finally(function () { tkReasonConfirm.disabled = false; });
+      });
+    }
+  }
+
+  if (tkDeleteSelected && tkConv && tkTicket && tkGuild) {
+    tkDeleteSelected.addEventListener("click", function () {
+      var ids = Array.prototype.slice.call(tkConv.querySelectorAll(".tk-msg-check:checked"))
+        .map(function (box) { return box.value; });
+      if (!ids.length) {
+        toast("Select at least one message", true);
+        return;
+      }
+      tkOpenReason("Delete archived messages",
+        "The selected messages and their mirrored attachments are removed permanently. The reason is recorded in the archive audit; message content is not retained.",
+        function (reason) {
+          return api("POST", tkBase + "/" + encodeURIComponent(tkTicket) + "/messages/delete",
+            { ids: ids, reason: reason })
+            .then(function (res) {
+              toast("Deleted " + (res.deleted || ids.length) + " message(s)");
+              setTimeout(function () { location.reload(); }, 350);
+            });
+        });
+    });
+  }
+
+  if (tkDeleteTicket && tkTicket && tkGuild) {
+    tkDeleteTicket.addEventListener("click", function () {
+      if (!confirm("Delete archived ticket " + tkTicket + " and all its mirrored files? This cannot be undone.")) return;
+      tkDeleteTicket.disabled = true;
+      api("POST", "/api/tickets/" + encodeURIComponent(tkGuild) + "/" + encodeURIComponent(tkTicket) + "/delete", {})
+        .then(function () { window.location.href = "/g/" + encodeURIComponent(tkGuild) + "/tickets"; })
+        .catch(function (e) { tkFail(e); tkDeleteTicket.disabled = false; });
     });
   }
 

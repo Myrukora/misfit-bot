@@ -14,6 +14,21 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
+const (
+	maxTicketArchiveReason   = 1000
+	maxTicketArchiveMessages = 500
+)
+
+// archiveAuditReason collapses a user-written reason to one bounded audit
+// line. It is detail for the dashboard audit row — never message content.
+func archiveAuditReason(reason string) string {
+	reason = strings.Join(strings.Fields(reason), " ")
+	if r := []rune(reason); len(r) > 500 {
+		reason = string(r[:500]) + "…"
+	}
+	return reason
+}
+
 // tickets.go — dashboard ↔ tickets module integration (v4, dashboard-managed).
 //
 // The dashboard is the ONLY management surface: ticket types, panels and the
@@ -45,6 +60,9 @@ import (
 //	POST /api/tickets/<guild>/panels/<name>/delete  delete
 //	POST /api/tickets/<guild>/panels/<name>/suspend|resume|resend
 //	GET  /api/tickets/<guild>/<ticket>/transcript   regenerate + download
+//	POST /api/tickets/<guild>/<ticket>/delete       delete an archived ticket
+//	POST /api/tickets/<guild>/<ticket>/messages/delete
+//	                                                delete selected archived messages (reason required)
 //	GET  /api/ticketfiles/<guild>/<ticket>/<name>   mirrored attachment bytes
 
 func (m *DashboardModule) ticketProvider() (modules.TicketProvider, bool) {
@@ -205,8 +223,66 @@ func (m *DashboardModule) routeTicketsAPI(w http.ResponseWriter, r *http.Request
 		m.routeTicketPanels(w, r, meth, parts, guildID, us, adm, hasAdmin)
 
 	default:
-		// /api/tickets/<guild>/<ticket>/stream|transcript
+		// /api/tickets/<guild>/<ticket>/stream|transcript|delete,
+		// /api/tickets/<guild>/<ticket>/messages/delete
 		switch {
+		case meth == "POST" && len(parts) == 4 && parts[3] == "delete":
+			if !hasAdmin {
+				writeError(w, http.StatusNotFound, "tickets module has no admin surface")
+				return
+			}
+			if !m.ticketWriteAllowed(w, r, guildID) {
+				return
+			}
+			if err := adm.DeleteArchivedTicket(guildID, parts[2], us.userID.String()); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
+			setAuditDetail(w, "Archived ticket "+parts[2]+" deleted")
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": parts[2]})
+
+		case meth == "POST" && len(parts) == 5 && parts[3] == "messages" && parts[4] == "delete":
+			if !hasAdmin {
+				writeError(w, http.StatusNotFound, "tickets module has no admin surface")
+				return
+			}
+			if !m.ticketWriteAllowed(w, r, guildID) {
+				return
+			}
+			var in struct {
+				IDs    []string `json:"ids"`
+				Reason string   `json:"reason"`
+			}
+			if err := json.Unmarshal(readAll(r), &in); err != nil {
+				writeError(w, http.StatusUnprocessableEntity, "invalid payload: "+err.Error())
+				return
+			}
+			reason := strings.TrimSpace(in.Reason)
+			if reason == "" {
+				writeError(w, http.StatusUnprocessableEntity, "a reason is required")
+				return
+			}
+			if len([]rune(reason)) > maxTicketArchiveReason {
+				writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("reason is too long (max %d characters)", maxTicketArchiveReason))
+				return
+			}
+			if len(in.IDs) == 0 {
+				writeError(w, http.StatusUnprocessableEntity, "no messages selected")
+				return
+			}
+			if len(in.IDs) > maxTicketArchiveMessages {
+				writeError(w, http.StatusUnprocessableEntity, fmt.Sprintf("too many messages selected (max %d)", maxTicketArchiveMessages))
+				return
+			}
+			deleted, err := adm.DeleteArchivedMessages(guildID, parts[2], in.IDs, us.userID.String(), us.username, reason)
+			if err != nil {
+				writeError(w, http.StatusUnprocessableEntity, err.Error())
+				return
+			}
+			setAuditDetail(w, fmt.Sprintf("Archived ticket %s: %d message(s) deleted — reason: %s",
+				parts[2], deleted, archiveAuditReason(reason)))
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "deleted": deleted})
+
 		case meth == "GET" && len(parts) == 4 && parts[3] == "stream":
 			guildID, ticketID := parts[1], parts[2]
 			if !m.canManageGuild(us, guildID) {
@@ -798,7 +874,9 @@ func (m *DashboardModule) serveTranscriptStream(w http.ResponseWriter, r *http.R
 		if err == nil && tk != nil {
 			sig := ticketLogSig(tk)
 			if sig != last {
-				html, ferr := m.tmpl.fragment("tk_conversation", map[string]any{"Ticket": tk, "GuildID": guildID})
+				html, ferr := m.tmpl.fragment("tk_conversation", map[string]any{
+					"Ticket": tk, "GuildID": guildID,
+				})
 				if ferr == nil {
 					last = sig
 					writeSSE(w, fl, "messages", map[string]any{

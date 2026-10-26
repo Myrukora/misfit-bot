@@ -268,6 +268,19 @@ func (m *DashboardModule) auditMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// setAuditDetail lets a handler override the generic mutation detail for the
+// request's audit row. It only reaches the audit middleware's statusWriter;
+// other wrappers ignore it.
+func setAuditDetail(w http.ResponseWriter, detail string) {
+	if sw, ok := w.(interface{ setAuditDetail(string) }); ok {
+		sw.setAuditDetail(detail)
+	}
+}
+
+func (s *statusWriter) setAuditDetail(detail string) {
+	s.auditDetail = detail
+}
+
 func (m *DashboardModule) recordRequest(r *http.Request, sw *statusWriter) {
 	if m.audit == nil {
 		return
@@ -309,6 +322,12 @@ func (m *DashboardModule) recordRequest(r *http.Request, sw *statusWriter) {
 		if us == nil || path == "/login" {
 			return
 		}
+		detail := mutationDetail(path)
+		if sw.auditDetail != "" {
+			// Handlers that know more than the route (e.g. archive deletion
+			// reasons) supply a specific detail. Never include deleted content.
+			detail = sw.auditDetail
+		}
 		m.audit.record(auditEntry{
 			Event:    "mutation",
 			Success:  sw.status < 400,
@@ -317,7 +336,7 @@ func (m *DashboardModule) recordRequest(r *http.Request, sw *statusWriter) {
 			Level:    m.resolveLevel(us),
 			IP:       clientIP(r),
 			Action:   r.Method + " " + path,
-			Detail:   mutationDetail(path),
+			Detail:   detail,
 			Status:   sw.status,
 		})
 	}

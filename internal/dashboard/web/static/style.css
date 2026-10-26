@@ -864,6 +864,11 @@ textarea.field-input {
     font-size: 13px;
 }
 
+.btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 /* Destructive action in a monochrome scheme = hollow, not colored */
 .btn-danger {
     background: transparent;
@@ -1998,6 +2003,26 @@ input[type="range"].cfg-field::-moz-range-thumb {
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
+/* Archive selection: hidden until the transcript page enters select mode. */
+.msg-select {
+    display: none;
+    flex: none;
+    align-items: flex-start;
+    padding-top: 11px;
+    cursor: pointer;
+}
+
+.transcript-page.tk-selecting .msg-select {
+    display: flex;
+}
+
+.msg-select input {
+    width: 16px;
+    height: 16px;
+    accent-color: #fff;
+    cursor: pointer;
+}
+
 .msg-entry:last-child {
     border-bottom: none;
 }
@@ -2171,6 +2196,28 @@ input[type="range"].cfg-field::-moz-range-thumb {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.archive-actions {
+    padding: 4px 0;
+}
+
+.archive-audit {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.archive-audit-row {
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    background: #141417;
+    font-size: 14px;
+}
+
+.archive-audit-row > div + div {
+    margin-top: 3px;
 }
 
 #lightbox {

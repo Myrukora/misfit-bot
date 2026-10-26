@@ -56,6 +56,26 @@ type Ticket struct {
 	TranscriptPath string     `json:"transcript_path,omitempty"` // relative to DataDir; set after close
 	CloseReason    string     `json:"close_reason,omitempty"`    // "user" | "channel_deleted"
 	Log            []LogEntry `json:"log"`
+
+	// Archive maintenance. RemovedMessages is the tombstone list for messages
+	// deleted from a closed archive: the merge path must not resurrect one
+	// from a late close-tail history fetch. ArchiveAudit records WHO removed
+	// messages, when, and why — never the removed content.
+	RemovedMessages []string             `json:"removed_messages,omitempty"`
+	ArchiveAudit    []TicketArchiveEvent `json:"archive_audit,omitempty"`
+}
+
+// TicketArchiveEvent is one durable archive-maintenance audit entry. It
+// intentionally stores message IDs + reason only; the deleted message content
+// and media are never retained here.
+type TicketArchiveEvent struct {
+	Time       time.Time `json:"time"`
+	ActorID    string    `json:"actor_id"`
+	ActorName  string    `json:"actor_name,omitempty"`
+	Action     string    `json:"action"` // "messages_deleted"
+	MessageIDs []string  `json:"message_ids,omitempty"`
+	Count      int       `json:"count"`
+	Reason     string    `json:"reason"`
 }
 
 // Type returns the effective type key (v1 files only carry Group).
@@ -191,6 +211,14 @@ type TicketAdmin interface {
 	// Per-guild settings (the transcript log channel).
 	GetGuildSettings(guildID string) (TicketGuildSettings, error)
 	SetGuildSettings(guildID string, in TicketGuildSettings) error
+
+	// Archive maintenance. Both methods operate on CLOSED tickets only.
+	// DeleteArchivedTicket removes the archived ticket (JSON, transcript,
+	// mirrored media). DeleteArchivedMessages removes selected messages from
+	// one archived ticket and requires a non-empty reason, which is written to
+	// the durable TicketArchiveEvent audit (message content is not retained).
+	DeleteArchivedTicket(guildID, ticketID, byUserID string) error
+	DeleteArchivedMessages(guildID, ticketID string, msgIDs []string, byUserID, byUserName, reason string) (int, error)
 }
 
 // TicketGuildSettings is the per-guild ticket configuration the dashboard

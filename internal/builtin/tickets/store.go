@@ -101,6 +101,18 @@ func copyTicket(tk *modules.Ticket) *modules.Ticket {
 	if tk.Members != nil {
 		out.Members = append([]string(nil), tk.Members...)
 	}
+	if tk.RemovedMessages != nil {
+		out.RemovedMessages = append([]string(nil), tk.RemovedMessages...)
+	}
+	if tk.ArchiveAudit != nil {
+		out.ArchiveAudit = make([]modules.TicketArchiveEvent, len(tk.ArchiveAudit))
+		for i, ev := range tk.ArchiveAudit {
+			out.ArchiveAudit[i] = ev
+			if ev.MessageIDs != nil {
+				out.ArchiveAudit[i].MessageIDs = append([]string(nil), ev.MessageIDs...)
+			}
+		}
+	}
 	if tk.Log != nil {
 		out.Log = make([]modules.LogEntry, len(tk.Log))
 		for i, e := range tk.Log {
@@ -284,6 +296,42 @@ func (s *store) hasOpenTicketOnChannel(guildID, channelID string) bool {
 		}
 	}
 	return false
+}
+
+// deleteArchivedTicket removes one CLOSED ticket's JSON, HTML transcript and
+// mirrored-media directory. The status is re-checked under the lock so an
+// open ticket can never be removed by a stale dashboard request.
+func (s *store) deleteArchivedTicket(guildID, ticketID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	base := filepath.Join(ticketsRoot(s.dataDir), guildID)
+	jsonPath := filepath.Join(base, ticketID+".json")
+	tk, err := readTicketFile(jsonPath)
+	if err != nil {
+		return err
+	}
+	if tk == nil {
+		return fmt.Errorf("ticket %s not found", ticketID)
+	}
+	if tk.Status != "closed" {
+		return fmt.Errorf("ticket %s is not archived", ticketID)
+	}
+	// Remove the derived artifacts BEFORE the JSON source of truth: if a
+	// media/HTML removal fails, the ticket remains and the caller can retry
+	// instead of being left with a half-visible archive entry.
+	if err := os.RemoveAll(filepath.Join(base, ticketID)); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(base, ticketID+".html")); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Remove(jsonPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if s.tickets[guildID] != nil {
+		delete(s.tickets[guildID], ticketID)
+	}
+	return s.writeIndexLocked(guildID)
 }
 
 // listClosed returns summaries of closed tickets by scanning ticket files

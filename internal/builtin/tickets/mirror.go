@@ -3,6 +3,7 @@ package tickets
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -80,9 +81,27 @@ func (q *mirrorQueue) run(dataDir string, st *store, stop <-chan struct{}) {
 			if len(fixes) == 0 {
 				continue
 			}
-			_, _, _ = st.mutate(job.guildID, job.ticketID, func(tk *modules.Ticket) bool {
+			post, _, _ := st.mutate(job.guildID, job.ticketID, func(tk *modules.Ticket) bool {
 				return applyMediaFixes(tk, fixes)
 			})
+			// The archive may have deleted the ticket or the message while the
+			// downloads were in flight. Those files must not survive on disk
+			// with no log entry referencing them.
+			live := map[string]bool{}
+			if post != nil {
+				for _, e := range post.Log {
+					live[e.MsgID] = true
+				}
+			}
+			for _, fix := range fixes {
+				if live[fix.msgID] || fix.localPath == "" {
+					continue
+				}
+				abs := filepath.Join(dataDir, filepath.FromSlash(fix.localPath))
+				if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+					q.logger.Warn("Tickets: remove orphaned mirror file %s failed: %v", fix.localPath, err)
+				}
+			}
 		}
 	}
 }

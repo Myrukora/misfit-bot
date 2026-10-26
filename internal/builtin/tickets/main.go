@@ -25,6 +25,11 @@ type TicketsModule struct {
 	botSelfID string     // cached GetSelfUserID for overwrites
 	loaded    bool       // OnLoad done, OnUnload not yet run
 
+	// transcriptMu serializes HTML transcript reads/writes. Archive message
+	// deletion must be able to remove+regenerate the file without a concurrent
+	// RefreshTranscript/close tail writing the pre-deletion log back.
+	transcriptMu sync.Mutex
+
 	// Background-loop delays (testability seam; defaults unchanged).
 	reconcileDelay      time.Duration // reconcileOpenTickets startup delay
 	retentionFirstDelay time.Duration // retentionLoop first-run delay

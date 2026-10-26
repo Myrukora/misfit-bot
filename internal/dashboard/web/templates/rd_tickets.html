@@ -65,7 +65,7 @@
 {{if .Closed}}
 <div class="tbl-wrap">
   <table class="tbl">
-    <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th></tr></thead>
+    <thead><tr><th>Ticket</th><th>Type</th><th>Opener</th><th>Closed</th><th></th></tr></thead>
     <tbody>
       {{range .Closed}}
       {{$p := index $.People .OpenerID}}
@@ -74,6 +74,7 @@
         <td>{{.Type}}</td>
         <td>{{if $p.Name}}{{$p.Name}}{{else if .OpenerID}}<code>{{.OpenerID}}</code>{{else}}—{{end}}</td>
         <td title="{{.ClosedAt}}">{{dateHuman .ClosedAt}}</td>
+        <td><button type="button" class="btn btn-small btn-danger tk-ticket-delete" data-ticket="{{.ID}}">Delete</button></td>
       </tr>
       {{end}}
     </tbody>

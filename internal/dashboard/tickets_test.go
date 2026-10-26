@@ -51,6 +51,10 @@ type stubTickets struct {
 	typeWrites     []typeWriteCall
 	typeDeletes    []string
 	settingsWrites []settingsWriteCall
+	ticketDeletes  []ticketDeleteCall
+	messageDeletes []messageDeleteCall
+	archiveErr     error
+	messageErr     error
 
 	// TicketTranscript behavior: bytes returned / error to return, plus the
 	// recorded calls. The zero value (nil bytes, nil error) keeps existing
@@ -58,6 +62,15 @@ type stubTickets struct {
 	transcriptBytes []byte
 	transcriptErr   error
 	transcriptCalls []transcriptCall
+}
+
+type ticketDeleteCall struct {
+	guild, ticket, user string
+}
+
+type messageDeleteCall struct {
+	guild, ticket, user, name, reason string
+	ids                               []string
 }
 
 type panelWriteCall struct {
@@ -102,6 +115,18 @@ func (s *stubTickets) settingsWriteLog() []settingsWriteCall {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]settingsWriteCall(nil), s.settingsWrites...)
+}
+
+func (s *stubTickets) ticketDeleteLog() []ticketDeleteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]ticketDeleteCall(nil), s.ticketDeletes...)
+}
+
+func (s *stubTickets) messageDeleteLog() []messageDeleteCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]messageDeleteCall(nil), s.messageDeletes...)
 }
 
 type transcriptCall struct {
@@ -259,6 +284,26 @@ func (s *stubTickets) SetGuildSettings(guildID string, in modules.TicketGuildSet
 	s.settings = in
 	s.settingsWrites = append(s.settingsWrites, settingsWriteCall{guild: guildID, in: in})
 	return nil
+}
+
+func (s *stubTickets) DeleteArchivedTicket(guildID, ticketID, byUserID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ticketDeletes = append(s.ticketDeletes, ticketDeleteCall{guild: guildID, ticket: ticketID, user: byUserID})
+	return s.archiveErr
+}
+
+func (s *stubTickets) DeleteArchivedMessages(guildID, ticketID string, msgIDs []string, byUserID, byUserName, reason string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.messageDeletes = append(s.messageDeletes, messageDeleteCall{
+		guild: guildID, ticket: ticketID, user: byUserID, name: byUserName,
+		reason: reason, ids: append([]string(nil), msgIDs...),
+	})
+	if s.messageErr != nil {
+		return 0, s.messageErr
+	}
+	return len(msgIDs), nil
 }
 
 // modules.TicketTranscript
@@ -549,6 +594,82 @@ func TestServeTicketFileNotFoundOnProviderError(t *testing.T) {
 // TestTicketsTranscriptDownload pins the regenerate+download endpoint: the
 // module's rendered bytes are served with attachment headers, and the module
 // is called exactly once with the routed guild + ticket.
+func TestTicketsArchiveDeleteRequiresCSRF(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/support-1/delete", "{}", "wrong-token")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body %s)", w.Code, w.Body.String())
+	}
+	if n := len(stub.ticketDeleteLog()); n != 0 {
+		t.Fatalf("module reached %d times without CSRF, want 0", n)
+	}
+}
+
+func TestTicketsArchiveDeleteForwards(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/support-1/delete", "{}", "tok")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	calls := stub.ticketDeleteLog()
+	if len(calls) != 1 || calls[0].guild != "1" || calls[0].ticket != "support-1" || calls[0].user != "1" {
+		t.Fatalf("archive delete calls = %+v", calls)
+	}
+}
+
+func TestTicketsMessageDeleteRequiresReason(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/support-1/messages/delete",
+		`{"ids":["m1"],"reason":"   "}`, "tok")
+	if w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 (body %s)", w.Code, w.Body.String())
+	}
+	if n := len(stub.messageDeleteLog()); n != 0 {
+		t.Fatalf("module reached %d times with a blank reason, want 0", n)
+	}
+}
+
+func TestTicketsMessageDeleteForwardsReason(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/support-1/messages/delete",
+		`{"ids":["m1","m2"],"reason":"privacy request"}`, "tok")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	calls := stub.messageDeleteLog()
+	if len(calls) != 1 {
+		t.Fatalf("message delete calls = %+v", calls)
+	}
+	c := calls[0]
+	if c.guild != "1" || c.ticket != "support-1" || c.user != "1" || c.name != "owner" ||
+		c.reason != "privacy request" || strings.Join(c.ids, ",") != "m1,m2" {
+		t.Fatalf("message delete call = %+v", c)
+	}
+}
+
+func TestTicketsMessageDeleteAuditsReason(t *testing.T) {
+	stub := &stubTickets{}
+	m, cookie := ticketsTestModule(t, stub)
+	m.audit = newAuditLog(t.TempDir(), deadlockLogger{})
+	w := ticketsReq(m, cookie, "POST", "/api/tickets/1/support-1/messages/delete",
+		`{"ids":["m1"],"reason":"privacy request"}`, "tok")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	entries := m.audit.list(auditFilter{Event: "mutation", Limit: 10})
+	if len(entries) != 1 {
+		t.Fatalf("audit entries = %d, want 1", len(entries))
+	}
+	if !strings.Contains(entries[0].Detail, "privacy request") ||
+		!strings.Contains(entries[0].Detail, "1 message(s) deleted") {
+		t.Fatalf("audit detail = %q", entries[0].Detail)
+	}
+}
+
 func TestTicketsTranscriptDownload(t *testing.T) {
 	want := []byte("<!doctype html><html><body>transcript</body></html>")
 	stub := &stubTickets{transcriptBytes: want}
@@ -680,6 +801,10 @@ func TestTranscriptEmbedsAndCloseReason(t *testing.T) {
 	tk := &modules.Ticket{
 		ID: "support-0007", Type: "support", GuildID: "1", Status: "closed",
 		CloseReason: "channel_deleted", ClosedAt: now,
+		ArchiveAudit: []modules.TicketArchiveEvent{{
+			Time: now, ActorID: "7", ActorName: "moderator", Action: "messages_deleted",
+			MessageIDs: []string{"m0"}, Count: 1, Reason: "privacy request",
+		}},
 		Log: []modules.LogEntry{{
 			MsgID: "m1", AuthorID: "2", AuthorName: "opener", Timestamp: now,
 			Embeds: []modules.Media{
@@ -707,6 +832,12 @@ func TestTranscriptEmbedsAndCloseReason(t *testing.T) {
 		`/api/ticketfiles/1/support-0007/x.gif`, // embed LocalPath mirroring
 		`class="zoomable msg-media"`,
 		`https://example.com/page`,
+		`id="tk-archive-actions"`,
+		`id="tk-select-toggle"`,
+		`class="tk-msg-check"`,
+		`id="tk-reason-modal"`,
+		`Archive audit`,
+		`privacy request`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q", want)
@@ -759,6 +890,8 @@ func TestTicketsListPageRendersProviderRows(t *testing.T) {
 		"staff-0002",     // the closed ticket row
 		"Ticket types",   // the types card heading
 		`data-name="p1"`, // the panel row
+		`class="btn btn-small btn-danger tk-ticket-delete"`,
+		`data-ticket="staff-0002"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in rendered page", want)

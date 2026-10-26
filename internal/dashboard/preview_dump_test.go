@@ -320,6 +320,23 @@ func TestPreviewDumpRedesign(t *testing.T) {
 				}},
 			},
 		}, true},
+		{"transcript-closed.html", "transcript", "rd_transcript", struct {
+			Ticket  *modules.Ticket
+			GuildID string
+		}{
+			Ticket: &modules.Ticket{
+				ID: "support-0011", Type: "support", GuildID: "1", OpenerID: "111", Status: "closed",
+				OpenedAt: time.Now().Add(-3 * time.Hour), ClosedAt: time.Now().Add(-time.Hour),
+				ArchiveAudit: []modules.TicketArchiveEvent{{
+					Time: time.Now().Add(-30 * time.Minute), ActorID: "9", ActorName: "Sam",
+					Action: "messages_deleted", MessageIDs: []string{"m1"}, Count: 1, Reason: "privacy request",
+				}},
+				Log: []modules.LogEntry{
+					{MsgID: "m2", AuthorID: "9", AuthorName: "Sam", Timestamp: time.Now().Add(-90 * time.Minute), Content: "Archived conversation entry."},
+				},
+			},
+			GuildID: "1",
+		}, false},
 		{"transcript.html", "transcript", "rd_transcript", struct {
 			Ticket  *modules.Ticket
 			GuildID string
