@@ -8,6 +8,7 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/gateway"
+	"github.com/disgoorg/snowflake/v2"
 	"github.com/gorilla/websocket"
 
 	"github.com/misfit/bot/config"
@@ -100,6 +101,42 @@ func TestIsDisallowedIntentClose(t *testing.T) {
 	}
 	if isDisallowedIntentClose(nil) {
 		t.Error("nil must not trigger the fallback")
+	}
+}
+
+// TestInvokerAuthorization pins the interaction-borne authorization source:
+// when the interaction payload carries the invoker's member (always, for guild
+// interactions, regardless of the Server Members intent) its Discord-computed
+// permissions and roles win over the member cache — which is empty without the
+// intent. With no interaction member the cache fallback applies.
+func TestInvokerAuthorization(t *testing.T) {
+	oldClient := Client
+	defer func() { Client = oldClient }()
+	Client = nil // any cache access would panic; the interaction path must not touch it
+
+	const invokerID = "1234567890123456789"
+	b := &botAdapter{}
+
+	interaction := &discord.ResolvedMember{
+		Permissions: discord.PermissionBanMembers,
+		Member: discord.Member{
+			RoleIDs: []snowflake.ID{42, 43},
+			User:    discord.User{ID: 1234567890123456789},
+		},
+	}
+	perms, roles := b.invokerAuthorization("9876543210987654321", invokerID, interaction)
+	if !perms.Has(discord.PermissionBanMembers) {
+		t.Fatalf("interaction perms lost: got %v, want BanMembers", perms)
+	}
+	if len(roles) != 2 {
+		t.Fatalf("interaction roles lost: got %d, want 2", len(roles))
+	}
+
+	// No interaction member (DM or absent payload): falls back to the cache,
+	// which under a nil Client must read as zero without panicking.
+	perms, roles = b.invokerAuthorization("9876543210987654321", invokerID, nil)
+	if perms != 0 || len(roles) != 0 {
+		t.Fatalf("cache fallback with nil client = %v, %d; want 0, 0", perms, len(roles))
 	}
 }
 

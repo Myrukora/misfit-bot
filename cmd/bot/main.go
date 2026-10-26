@@ -784,11 +784,19 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	}
 
 	guildOwnerID := ba.GetGuildOwnerID(guildID)
+
+	// The interaction payload carries the invoker's member record and effective
+	// permissions, computed by Discord itself. It is available regardless of
+	// the Server Members intent, so it is the primary source for authorization:
+	// the member cache is the fallback (empty when the intent is off).
+	interactionMember := event.Member()
+	invokerPerms, invokerRoles := ba.invokerAuthorization(guildID, user.ID.String(), interactionMember)
+
 	if scmd.SuperOwnerOnly && !ba.IsOwner(user.ID.String()) {
 		_ = ctx.Respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
 		return
 	}
-	if !ba.CanUse(user.ID.String(), ba.GetUserPermissions(user.ID.String(), guildID), scmd.RequiredPerm, scmd.OwnerOnly, guildOwnerID) {
+	if !ba.CanUse(user.ID.String(), invokerPerms, scmd.RequiredPerm, scmd.OwnerOnly, guildOwnerID) {
 		_ = ctx.Respond(embed.Error("🚫 Permission Denied", "You don't have permission to use this command."))
 		return
 	}
@@ -798,7 +806,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 	// matching the dispatcher's tiering. The dispatcher treats a nil store as
 	// "allowed".
 	if ov := ba.CommandOverrides(); ov != nil {
-		if !ov.Allowed(scmd.Name, guildID, channelID, roleIDs(ba, guildID, user.ID.String()), isMod(ba, guildID, user.ID.String())) {
+		if !ov.Allowed(scmd.Name, guildID, channelID, invokerRoleIDs(invokerRoles), invokerIsMod(invokerPerms)) {
 			_ = ctx.Respond(embed.Error("🚫 Command Disabled", "This command is disabled for this server."))
 			return
 		}
@@ -918,7 +926,7 @@ func (b *botAdapter) CanUse(userID string, perms discord.Permissions, requiredPe
 }
 
 func (b *botAdapter) GetUserPermissions(userID string, guildID string) discord.Permissions {
-	if guildID == "" || userID == "" {
+	if guildID == "" || userID == "" || Client == nil {
 		return 0
 	}
 	guildSnowflake, ok := safeParseID(guildID)
@@ -934,6 +942,51 @@ func (b *botAdapter) GetUserPermissions(userID string, guildID string) discord.P
 		return 0
 	}
 	return Client.Caches.MemberPermissions(member)
+}
+
+// invokerAuthorization determines a slash-command invoker's permissions and
+// role IDs for authorization in this guild. The interaction payload carries
+// both, computed by Discord itself, and is independent of the Server Members
+// intent — so when present it wins. The member cache is the fallback (DMs and
+// the no-intents case, where the cache is empty and both values read as zero).
+func (b *botAdapter) invokerAuthorization(guildID, userID string, member *discord.ResolvedMember) (discord.Permissions, []snowflake.ID) {
+	if guildID == "" {
+		return 0, nil
+	}
+	if member != nil && member.User.ID.String() == userID {
+		return member.Permissions, member.RoleIDs
+	}
+	return b.GetUserPermissions(userID, guildID), roleIDList(b, guildID, userID)
+}
+
+// roleIDList is the cache-fallback role lookup, kept separate from
+// roleIDs/GetMemberRoles to return raw snowflakes.
+func roleIDList(b *botAdapter, guildID, userID string) []snowflake.ID {
+	roles := b.GetMemberRoles(guildID, userID)
+	return memberRoleIDs(roles)
+}
+
+func memberRoleIDs(roles []discord.Role) []snowflake.ID {
+	ids := make([]snowflake.ID, 0, len(roles))
+	for _, r := range roles {
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
+// invokerRoleIDs converts interaction role IDs to the string form the
+// per-command override store expects.
+func invokerRoleIDs(roleIDs []snowflake.ID) []string {
+	out := make([]string, 0, len(roleIDs))
+	for _, id := range roleIDs {
+		out = append(out, id.String())
+	}
+	return out
+}
+
+// invokerIsMod mirrors isMod but for interaction-borne permissions.
+func invokerIsMod(perms discord.Permissions) bool {
+	return perms.Has(discord.PermissionManageMessages) || perms.Has(discord.PermissionAdministrator)
 }
 
 func (b *botAdapter) GetGuildOwnerID(guildID string) string {
@@ -1085,7 +1138,7 @@ func (b *botAdapter) GetCachedChannel(channelID string) discord.GuildChannel {
 }
 
 func (b *botAdapter) GetMemberRoles(guildID string, userID string) []discord.Role {
-	if guildID == "" || userID == "" {
+	if guildID == "" || userID == "" || Client == nil {
 		return nil
 	}
 	gSnowflake, ok := safeParseID(guildID)
