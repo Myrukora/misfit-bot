@@ -19,17 +19,6 @@ func findSlashOpts(t *testing.T, name string) []discord.ApplicationCommandOption
 	return nil
 }
 
-// subNames returns the names of the subcommand options in opts.
-func subNames(opts []discord.ApplicationCommandOption) []string {
-	var out []string
-	for _, o := range opts {
-		if s, ok := o.(discord.ApplicationCommandOptionSubCommand); ok {
-			out = append(out, s.Name)
-		}
-	}
-	return out
-}
-
 // subOptByName returns the subcommand option with the given name.
 func subOptByName(t *testing.T, opts []discord.ApplicationCommandOption, name string) discord.ApplicationCommandOptionSubCommand {
 	t.Helper()
@@ -40,32 +29,6 @@ func subOptByName(t *testing.T, opts []discord.ApplicationCommandOption, name st
 	}
 	t.Fatalf("subcommand %q not found", name)
 	return discord.ApplicationCommandOptionSubCommand{}
-}
-
-// TestCoreSlashNestedSubcommands pins the handler-parity contract of the
-// nested slash schemas: the slash dispatcher prepends the subcommand name and
-// appends the provided options in declaration order, so each subcommand's
-// options must line up exactly with the positional args the handler reads.
-func TestCoreSlashNestedSubcommands(t *testing.T) {
-	// update: check | now | status | test | set <key> <value>
-	upd := findSlashOpts(t, "update")
-	if got := subNames(upd); !equalStrings(got, []string{"check", "now", "status", "test", "set"}) {
-		t.Fatalf("update subcommands = %v, want [check now status test set]", got)
-	}
-	for _, sub := range []string{"check", "now", "status", "test"} {
-		if s := subOptByName(t, upd, sub); len(s.Options) != 0 {
-			t.Fatalf("update %s should take no options, got %v", sub, s.Options)
-		}
-	}
-	setSub := subOptByName(t, upd, "set")
-	if len(setSub.Options) != 2 || setSub.Options[0].OptionName() != "key" || setSub.Options[1].OptionName() != "value" {
-		t.Fatalf("update set should take key + value, got %v", setSub.Options)
-	}
-	for _, o := range setSub.Options {
-		if !optReq(o) {
-			t.Fatalf("update set option %s must be required", o.OptionName())
-		}
-	}
 }
 
 // TestCoreSlashHelpOptional pins /help's optional command argument.
@@ -102,16 +65,4 @@ func optReq(o discord.ApplicationCommandOption) bool {
 	default:
 		return false
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

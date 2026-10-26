@@ -302,7 +302,7 @@ func (m *CleanupModule) dispatch(ctx *commands.Context) error {
 	case "duplicates", "spam":
 		return m.cmdDuplicates(ctx, args)
 	default:
-		return ctx.Respond(embed.Warning("⚠️ Unknown subcommand", fmt.Sprintf("`%s` is not a valid cleanup subcommand. Use `cleanup` to see available commands.", sub)))
+		return ctx.Respond(embed.Warning("Unknown subcommand", fmt.Sprintf("`%s` is not a valid cleanup subcommand. Use `cleanup` to see available commands.", sub)))
 	}
 }
 
@@ -310,20 +310,20 @@ func (m *CleanupModule) Dependencies() []string { return nil }
 
 func (m *CleanupModule) cmdMessages(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup messages <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup messages <number>`"))
 	}
 	number, err := parseCount(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, number, 0, func(discord.Message) bool { return true })
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -333,7 +333,7 @@ func (m *CleanupModule) cmdMessages(ctx *commands.Context, args []string) error 
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -341,28 +341,28 @@ func (m *CleanupModule) cmdMessages(ctx *commands.Context, args []string) error 
 
 func (m *CleanupModule) cmdUser(ctx *commands.Context, args []string) error {
 	if len(args) < 2 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup user <@user> <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup user <@user> <number>`"))
 	}
 	targetID := util.ExtractID(args[0])
 	number, err := parseCount(args[1])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	userID, err := parseSnowflake(targetID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid user ID: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid user ID: %v", err)))
 	}
 
 	toDelete, err := m.fetchMessages(channelID, number, 0, func(msg discord.Message) bool {
 		return msg.Author.ID == userID
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -372,7 +372,7 @@ func (m *CleanupModule) cmdUser(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -380,29 +380,29 @@ func (m *CleanupModule) cmdUser(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdText(ctx *commands.Context, args []string) error {
 	if len(args) < 2 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup text \"hello\" <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup text \"hello\" <number>`"))
 	}
 	text := strings.Trim(args[0], `"`)
 	// An empty filter matches EVERY message (strings.Contains(msg, "") is
 	// always true) — reject it so `cleanup text ""` cannot become an
 	// unrestricted deletion.
 	if text == "" {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Text to match cannot be empty."))
+		return ctx.Respond(embed.Warning("Usage", "Text to match cannot be empty."))
 	}
 	number, err := parseCount(args[1])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, number, 0, func(msg discord.Message) bool {
 		return strings.Contains(msg.Content, text)
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -412,7 +412,7 @@ func (m *CleanupModule) cmdText(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -420,22 +420,22 @@ func (m *CleanupModule) cmdText(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup bot <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup bot <number>`"))
 	}
 	number, err := parseCount(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, number, 0, func(msg discord.Message) bool {
 		return msg.Author.Bot
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -445,7 +445,7 @@ func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -453,16 +453,16 @@ func (m *CleanupModule) cmdBot(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdSelf(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup self <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup self <number>`"))
 	}
 	number, err := parseCount(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	selfID := m.ctx.Bot.GetSelfUserID()
 
@@ -470,7 +470,7 @@ func (m *CleanupModule) cmdSelf(ctx *commands.Context, args []string) error {
 		return msg.Author.ID.String() == selfID
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -488,22 +488,22 @@ func (m *CleanupModule) cmdSelf(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdAfter(ctx *commands.Context, args []string) error {
 	if len(args) == 0 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup after <message_id>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup after <message_id>`"))
 	}
 	afterID, err := parseSnowflake(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Invalid message ID."))
+		return ctx.Respond(embed.Warning("Usage", "Invalid message ID."))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, 1000, 0, func(msg discord.Message) bool {
 		return msg.ID > afterID
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -513,7 +513,7 @@ func (m *CleanupModule) cmdAfter(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -521,24 +521,24 @@ func (m *CleanupModule) cmdAfter(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdBefore(ctx *commands.Context, args []string) error {
 	if len(args) < 2 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup before <message_id> <number>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup before <message_id> <number>`"))
 	}
 	beforeID, err := parseSnowflake(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Invalid message ID."))
+		return ctx.Respond(embed.Warning("Usage", "Invalid message ID."))
 	}
 	number, err := parseCount(args[1])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+		return ctx.Respond(embed.Warning("Usage", err.Error()))
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, number, beforeID, func(discord.Message) bool { return true })
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -548,7 +548,7 @@ func (m *CleanupModule) cmdBefore(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -556,15 +556,15 @@ func (m *CleanupModule) cmdBefore(ctx *commands.Context, args []string) error {
 
 func (m *CleanupModule) cmdBetween(ctx *commands.Context, args []string) error {
 	if len(args) < 2 {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "`cleanup between <id1> <id2>`"))
+		return ctx.Respond(embed.Warning("Usage", "`cleanup between <id1> <id2>`"))
 	}
 	id1, err := parseSnowflake(args[0])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Invalid first message ID."))
+		return ctx.Respond(embed.Warning("Usage", "Invalid first message ID."))
 	}
 	id2, err := parseSnowflake(args[1])
 	if err != nil {
-		return ctx.Respond(embed.Warning("⚠️ Usage", "Invalid second message ID."))
+		return ctx.Respond(embed.Warning("Usage", "Invalid second message ID."))
 	}
 	if id1 > id2 {
 		id1, id2 = id2, id1
@@ -572,7 +572,7 @@ func (m *CleanupModule) cmdBetween(ctx *commands.Context, args []string) error {
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 	toDelete, err := m.fetchMessages(channelID, 1000, id2, func(msg discord.Message) bool {
 		// Inclusive of the older anchor: everything from id1 up to (not
@@ -580,7 +580,7 @@ func (m *CleanupModule) cmdBetween(ctx *commands.Context, args []string) error {
 		return msg.ID >= id1 && msg.ID < id2
 	})
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	ids := make([]snowflake.ID, 0, len(toDelete))
@@ -590,7 +590,7 @@ func (m *CleanupModule) cmdBetween(ctx *commands.Context, args []string) error {
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil
@@ -601,19 +601,19 @@ func (m *CleanupModule) cmdDuplicates(ctx *commands.Context, args []string) erro
 	if len(args) > 0 {
 		n, err := parseCount(args[0])
 		if err != nil {
-			return ctx.Respond(embed.Warning("⚠️ Usage", err.Error()))
+			return ctx.Respond(embed.Warning("Usage", err.Error()))
 		}
 		number = n
 	}
 
 	channelID, err := safeParseChannelID(ctx.ChannelID)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Invalid channel: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Invalid channel: %v", err)))
 	}
 
 	msgs, err := m.fetchMessages(channelID, number, 0, func(discord.Message) bool { return true })
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to fetch: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to fetch: %v", err)))
 	}
 
 	seen := make(map[string]bool)
@@ -642,7 +642,7 @@ func (m *CleanupModule) cmdDuplicates(ctx *commands.Context, args []string) erro
 
 	failed, err := m.bulkDelete(channelID, ids)
 	if err != nil {
-		return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("Failed to delete: %v", err)))
+		return ctx.Respond(embed.Error("Error", fmt.Sprintf("Failed to delete: %v", err)))
 	}
 	m.done(ctx, ids, failed)
 	return nil

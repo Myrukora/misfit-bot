@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"sort"
@@ -78,7 +77,7 @@ func init() {
 			start := time.Now()
 			latency := ctx.Bot.GetLatency()
 			apiMs := time.Since(start).Round(time.Millisecond)
-			e := embed.Info("🏓 Pong!", fmt.Sprintf("**Gateway:** %s\n**API:** %s", latency, apiMs))
+			e := embed.Info("Pong!", fmt.Sprintf("**Gateway:** %s\n**API:** %s", latency, apiMs))
 			return ctx.Respond(e)
 		},
 	})
@@ -90,7 +89,7 @@ func init() {
 		Category:    "general",
 		Execute: func(ctx *Context) error {
 			d := time.Since(startTime).Round(time.Second)
-			return ctx.Respond(embed.Info("⏱️ Uptime", fmt.Sprintf("Running for %s", d)))
+			return ctx.Respond(embed.Info("Uptime", fmt.Sprintf("Running for %s", d)))
 		},
 	})
 
@@ -134,8 +133,8 @@ func init() {
 			}
 
 			e := embed.New().
-				WithTitle(fmt.Sprintf("🤖 %s", ctx.Bot.GetName())).
-				WithDescription("A custom Discord bot with modular architecture.").
+				WithTitle(ctx.Bot.GetName()).
+				WithDescription("Community bot for this server. See /help for commands.").
 				WithColor(embed.ColorPurple).
 				WithFields(fields...).
 				WithTimestamp(time.Now())
@@ -183,7 +182,7 @@ func init() {
 						continue
 					}
 					if !canUse(cmd) {
-						return ctx.Respond(embed.Error("🚫 Permission Denied", fmt.Sprintf("You don't have permission to use `/%s`.", ctx.Args[0])))
+						return ctx.Respond(embed.Error("Permission Denied", fmt.Sprintf("You don't have permission to use `/%s`.", ctx.Args[0])))
 					}
 					usage := cmd.Usage
 					if usage == "" {
@@ -202,14 +201,14 @@ func init() {
 						})
 					}
 					e := embed.New().
-						WithTitle(fmt.Sprintf("📖 %s", cmd.Name)).
+						WithTitle(cmd.Name).
 						WithDescription(cmd.Description).
 						WithFields(fields...).
 						WithColor(embed.ColorInfo).
 						WithTimestamp(time.Now())
 					return ctx.Respond(e)
 				}
-				return ctx.Respond(embed.Error("❌ Not Found", fmt.Sprintf("Command `/%s` not found.", ctx.Args[0])))
+				return ctx.Respond(embed.Error("Not Found", fmt.Sprintf("Command `/%s` not found.", ctx.Args[0])))
 			}
 
 			// Group all commands by category
@@ -242,7 +241,7 @@ func init() {
 
 			// Build embed
 			e := embed.New().
-				WithTitle(fmt.Sprintf("📖 %s Help", ctx.Bot.GetName())).
+				WithTitle(fmt.Sprintf("%s Help", ctx.Bot.GetName())).
 				WithColor(embed.ColorInfo).
 				WithTimestamp(time.Now())
 
@@ -265,7 +264,7 @@ func init() {
 				cmds := categories[cat]
 				var lines []string
 				for _, cmd := range cmds {
-					lines = append(lines, fmt.Sprintf("`/%s` — %s", cmd.Name, cmd.Description))
+					lines = append(lines, fmt.Sprintf("`/%s`: %s", cmd.Name, cmd.Description))
 				}
 				fields = append(fields, discord.EmbedField{
 					Name:   fmt.Sprintf("▸ %s", title(cat)),
@@ -278,311 +277,6 @@ func init() {
 			return ctx.Respond(e)
 		},
 	})
-
-	RegisterCoreSlash(SlashCommand{
-		Name:        "modules",
-		Description: "List modules, or enable/disable a compiled-in feature module (applies after restart).",
-		Usage:       "modules | modules enable <name> | modules disable <name>",
-		Category:    "modules",
-		OwnerOnly:   true,
-		Options: []discord.ApplicationCommandOption{
-			subOpt("list", "List loaded and available modules"),
-			subOpt("enable", "Enable a compiled-in feature module", strOpt("module", "Module name", true)),
-			subOpt("disable", "Disable a compiled-in feature module", strOpt("module", "Module name", true)),
-		},
-		Execute: func(ctx *Context) error {
-			// enable/disable subcommands for compiled-in feature modules.
-			if len(ctx.Args) > 0 {
-				switch strings.ToLower(ctx.Args[0]) {
-				case "enable", "disable":
-					if len(ctx.Args) < 2 {
-						return ctx.Respond(embed.Warning("⚠️ Usage", "modules enable <name> | modules disable <name>"))
-					}
-					name := ctx.Args[1]
-					if !ctx.Bot.IsBuiltinModule(name) {
-						return ctx.Respond(embed.Error("❌ Error", fmt.Sprintf("`%s` is not a compiled-in feature module. Lua/Python modules are managed with `load`/`unload`.", name)))
-					}
-					enabled := strings.ToLower(ctx.Args[0]) == "enable"
-					if err := ctx.Bot.SetEnabledModule(name, enabled); err != nil {
-						return ctx.Respond(embed.Error("❌ Error", err.Error()))
-					}
-					verb := "enabled"
-					if !enabled {
-						verb = "disabled"
-					}
-					return ctx.Respond(embed.Success("✅ Module", fmt.Sprintf("`%s` %s. Applies after the next restart.", name, verb)))
-				}
-			}
-
-			loaded := ctx.Bot.GetLoadedModuleNames()
-			available := ctx.Bot.GetAvailableModuleNames()
-
-			e := embed.New().
-				WithTitle("📦 Modules").
-				WithColor(embed.ColorInfo).
-				WithTimestamp(time.Now())
-
-			var fields []discord.EmbedField
-
-			if len(loaded) > 0 {
-				var lines []string
-				for _, name := range loaded {
-					marker := ""
-					if ctx.Bot.IsBuiltinModule(name) {
-						marker = " (builtin)"
-					}
-					lines = append(lines, fmt.Sprintf("`%s` ✅%s", name, marker))
-				}
-				fields = append(fields, discord.EmbedField{
-					Name:   fmt.Sprintf("Loaded (%d)", len(loaded)),
-					Value:  strings.Join(lines, "\n"),
-					Inline: util.PtrBool(true),
-				})
-			} else {
-				fields = append(fields, discord.EmbedField{
-					Name:   "Loaded (0)",
-					Value:  "None",
-					Inline: util.PtrBool(true),
-				})
-			}
-
-			var unloaded []string
-			loadedSet := make(map[string]bool)
-			for _, name := range loaded {
-				loadedSet[name] = true
-			}
-			for _, name := range available {
-				if !loadedSet[name] {
-					unloaded = append(unloaded, name)
-				}
-			}
-
-			if len(unloaded) > 0 {
-				var lines []string
-				for _, name := range unloaded {
-					lines = append(lines, fmt.Sprintf("`%s` ❌", name))
-				}
-				fields = append(fields, discord.EmbedField{
-					Name:   fmt.Sprintf("Available (%d)", len(unloaded)),
-					Value:  strings.Join(lines, "\n"),
-					Inline: util.PtrBool(true),
-				})
-			} else {
-				fields = append(fields, discord.EmbedField{
-					Name:   "Available (0)",
-					Value:  "None",
-					Inline: util.PtrBool(true),
-				})
-			}
-
-			e = e.WithFields(fields...)
-			return ctx.Respond(e)
-		},
-	})
-
-	RegisterCoreSlash(SlashCommand{
-		Name:        "load",
-		Description: "Load a module so its commands become available. Use `all` to load every module.",
-		Usage:       "load <module> | load all",
-		OwnerOnly:   true,
-		Category:    "modules",
-		Options: []discord.ApplicationCommandOption{
-			strOpt("module", "Module name or 'all'", true),
-		},
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "load <module> | load all"))
-			}
-			target := ctx.Args[0]
-			if target == "all" {
-				// Single discovery source: the configured modules path (respects
-				// a custom modules.path AND the Go/Lua/Python layout). Scanning
-				// GetConfigDir()/modules directly would miss every candidate on
-				// installs with a customized path.
-				loaded := 0
-				for _, name := range ctx.Bot.GetAvailableModuleNames() {
-					if err := ctx.Bot.LoadModule(name); err != nil {
-						continue // already loaded or failed — count only successes
-					}
-					loaded++
-				}
-				return ctx.Respond(embed.Success("✅ Loaded", fmt.Sprintf("Loaded %d modules.", loaded)))
-			}
-			if err := ctx.Bot.LoadModule(target); err != nil {
-				return ctx.Respond(embed.Error("❌ Failed", err.Error()))
-			}
-			return ctx.Respond(embed.Success("✅ Loaded", fmt.Sprintf("Module `%s` loaded successfully.", target)))
-		},
-	})
-
-	RegisterCoreSlash(SlashCommand{
-		Name:        "unload",
-		Description: "Unload a module so its commands stop working. Use `all` to unload every module.",
-		Usage:       "unload <module> | unload all",
-		OwnerOnly:   true,
-		Category:    "modules",
-		Options: []discord.ApplicationCommandOption{
-			strOpt("module", "Module name or 'all'", true),
-		},
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "unload <module> | unload all"))
-			}
-			target := ctx.Args[0]
-			if target == "all" {
-				if err := ctx.Bot.UnloadAllModules(); err != nil {
-					return ctx.Respond(embed.Error("❌ Failed", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Unloaded", "All modules unloaded."))
-			}
-			if err := ctx.Bot.UnloadModule(target); err != nil {
-				return ctx.Respond(embed.Error("❌ Failed", err.Error()))
-			}
-			return ctx.Respond(embed.Success("✅ Unloaded", fmt.Sprintf("Module `%s` unloaded successfully.", target)))
-		},
-	})
-
-	RegisterCoreSlash(SlashCommand{
-		Name:        "reload",
-		Description: "Reload a module to pick up changes without restarting the bot. Use `all` for all.",
-		Usage:       "reload <module> | reload all",
-		OwnerOnly:   true,
-		Category:    "modules",
-		Options: []discord.ApplicationCommandOption{
-			strOpt("module", "Module name or 'all'", true),
-		},
-		Execute: func(ctx *Context) error {
-			if len(ctx.Args) == 0 {
-				return ctx.Respond(embed.Warning("⚠️ Usage", "reload <module> | reload all"))
-			}
-			target := ctx.Args[0]
-			if target == "all" {
-				names := ctx.Bot.GetLoadedModuleNames()
-				if len(names) == 0 {
-					return ctx.Respond(embed.Info("📦 Reloading", "No modules to reload."))
-				}
-				failed := 0
-				for _, name := range names {
-					if err := ctx.Bot.ReloadModule(name); err != nil {
-						failed++
-					}
-				}
-				return ctx.Respond(embed.Success("✅ Reloaded", fmt.Sprintf("Reloaded %d modules (%d failed).", len(names)-failed, failed)))
-			}
-			if err := ctx.Bot.ReloadModule(target); err != nil {
-				return ctx.Respond(embed.Error("❌ Failed", err.Error()))
-			}
-			return ctx.Respond(embed.Success("✅ Reloaded", fmt.Sprintf("Module `%s` reloaded successfully.", target)))
-		},
-	})
-
-	RegisterCoreSlash(SlashCommand{
-		Name:        "update",
-		Description: "Check for bot updates, apply them now, or show updater status.",
-		Usage:       "update [check|now|status|test|set <key> <value>]",
-		OwnerOnly:   true,
-		Category:    "core",
-		Options: []discord.ApplicationCommandOption{
-			subOpt("check", "Check for new commits"),
-			subOpt("now", "Pull, rebuild and restart the bot"),
-			subOpt("status", "Show updater status"),
-			subOpt("test", "Send sample PR + commit embeds"),
-			subOpt("set", "Set an updater config value", strOpt("key", "Config key: enabled, repo, branch, token, interval, auto_pull, notify_channel", true), strOpt("value", "Config value", true)),
-		},
-		Execute: func(ctx *Context) error {
-			upd, _ := ctx.Bot.GetUpdater().(*updater.Manager)
-			if upd == nil {
-				return ctx.Respond(embed.Error("❌ Updater", "Updater is not available."))
-			}
-			sub := ""
-			if len(ctx.Args) > 0 {
-				sub = strings.ToLower(ctx.Args[0])
-			}
-			switch sub {
-			case "", "check":
-				res, err := upd.Check(context.Background())
-				if err != nil {
-					return ctx.Respond(embed.Error("❌ Update Check Failed", err.Error()))
-				}
-				// Four states, version first where the repo has release tags.
-				// "Commits are current" and "the running binary is current" are
-				// different facts: a manual `git pull` without a rebuild leaves the
-				// process on the previous release while HEAD sits on the new tag, and
-				// that must never be reported as "up to date".
-				switch {
-				case res.VersionBehind && res.UpToDate:
-					return ctx.Respond(embed.Info("📥 Rebuild Pending",
-						fmt.Sprintf("The code is at **v%s** but this process runs **v%s** — it was pulled without rebuilding. Run `/update now` to rebuild and restart.",
-							res.ToVersion, res.FromVersion)))
-				case res.VersionBehind:
-					return ctx.Respond(embed.Info("📥 Update Available",
-						fmt.Sprintf("%s (**%d** new commit%s). Run `/update now` to pull, rebuild and restart.",
-							res.VersionSummary(), res.Behind, plural(res.Behind))))
-				case res.UpToDate:
-					title := fmt.Sprintf("`%s` is on the latest commit (`%s`).", ctx.Bot.GetName(), short7(res.LocalSHA))
-					if summary := res.VersionSummary(); summary != "" {
-						title = fmt.Sprintf("`%s` is up to date — %s (`%s`).", ctx.Bot.GetName(), summary, short7(res.LocalSHA))
-					}
-					return ctx.Respond(embed.Success("✅ Up to Date", title))
-				default:
-					return ctx.Respond(embed.Info("📥 Update Available",
-						fmt.Sprintf("**%d** new commit%s available. Run `/update now` to pull, rebuild and restart.", res.Behind, plural(res.Behind))))
-				}
-			case "now":
-				if err := ctx.Respond(embed.Info("🔄 Updating", "Pulling latest code, rebuilding...")); err != nil {
-					return err
-				}
-				if err := upd.Apply(context.Background()); err != nil {
-					return ctx.Respond(embed.Error("❌ Update Failed", err.Error()))
-				}
-				// OnApplied (wired in main.go) triggers the restart after a short
-				// delay so this success embed is delivered first.
-				return ctx.Respond(embed.Success("✅ Update Applied", "New binary built. Restarting in a moment..."))
-			case "status":
-				s := upd.Status()
-				fields := []discord.EmbedField{
-					{Name: "Repo", Value: "`" + s["repo"] + "`", Inline: util.PtrBool(true)},
-					{Name: "Branch", Value: "`" + s["branch"] + "`", Inline: util.PtrBool(true)},
-					{Name: "Enabled", Value: s["enabled"], Inline: util.PtrBool(true)},
-					{Name: "Interval", Value: s["interval"], Inline: util.PtrBool(true)},
-					{Name: "Auto Pull", Value: s["auto_pull"], Inline: util.PtrBool(true)},
-					{Name: "Notify Channels", Value: valueOrDash(s["notify_channel"]), Inline: util.PtrBool(true)},
-					{Name: "Last Seen SHA", Value: "`" + s["last_sha"] + "`", Inline: util.PtrBool(true)},
-					{Name: "Last Check", Value: s["last_check"], Inline: util.PtrBool(true)},
-					{Name: "Running Version", Value: displayVersion(s["version"]), Inline: util.PtrBool(true)},
-				}
-				if s["latest_version"] != "" {
-					fields = append(fields, discord.EmbedField{Name: "Latest Release", Value: "v" + s["latest_version"], Inline: util.PtrBool(true)})
-				}
-				if s["last_error"] != "" {
-					fields = append(fields, discord.EmbedField{Name: "Last Error", Value: s["last_error"], Inline: util.PtrBool(false)})
-				}
-				e := embed.New().WithTitle("🔄 Updater Status").WithColor(embed.ColorInfo).WithFields(fields...).WithTimestamp(time.Now())
-				return ctx.Respond(e)
-			case "test":
-				if err := upd.NotifyTest(); err != nil {
-					return ctx.Respond(embed.Error("❌ Update Test Failed", err.Error()))
-				}
-				return ctx.Respond(embed.Success("✅ Test Sent", "Sample PR + commit embeds posted to the configured notify channel(s)."))
-			case "set":
-				if len(ctx.Args) < 3 {
-					return ctx.Respond(embed.Warning("⚠️ Usage", "update set <key> <value>\nKeys: enabled, repo, branch, token, interval, auto_pull"))
-				}
-				key := ctx.Args[1]
-				value := strings.Join(ctx.Args[2:], " ")
-				if err := ctx.Bot.SetConfig("updater_"+key, value); err != nil {
-					return ctx.Respond(embed.Error("❌ Error", err.Error()))
-				}
-				if key == "token" {
-					return ctx.Respond(embed.Success("✅ Set", "`updater_token` updated (value hidden)."))
-				}
-				return ctx.Respond(embed.Success("✅ Set", fmt.Sprintf("`updater_%s` = `%s`", key, value)))
-			default:
-				return ctx.Respond(embed.Warning("⚠️ Usage", "update [check|now|status|test|set <key> <value>]"))
-			}
-		},
-	})
-
 }
 
 func strOpt(name, desc string, required bool) discord.ApplicationCommandOptionString {
@@ -618,16 +312,5 @@ func boolOpt(name, desc string, required bool) discord.ApplicationCommandOptionB
 		Name:        name,
 		Description: desc,
 		Required:    required,
-	}
-}
-
-// subOpt builds a nested subcommand option. The slash dispatcher prepends the
-// subcommand name to the dispatched args, then appends the provided options in
-// declaration order — exactly the positional args the handler reads.
-func subOpt(name, desc string, opts ...discord.ApplicationCommandOption) discord.ApplicationCommandOptionSubCommand {
-	return discord.ApplicationCommandOptionSubCommand{
-		Name:        name,
-		Description: desc,
-		Options:     opts,
 	}
 }

@@ -196,7 +196,7 @@ func (m *LevelingModule) executeLeaderboard(ctx *commands.Context) error {
 				name = member.EffectiveName()
 			}
 		}
-		lines = append(lines, fmt.Sprintf("#%d **%s** — Level %d · %s XP",
+		lines = append(lines, fmt.Sprintf("#%d **%s**: Level %d · %s XP",
 			entry.Rank, name, entry.Level, formatCompact(entry.XP)))
 	}
 	description := "No XP yet."
