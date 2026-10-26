@@ -449,9 +449,9 @@ func (m *DashboardModule) handleModulesPage(w http.ResponseWriter, r *http.Reque
 //
 // Values come from coreSettingsGet() so the JSON API and the page always
 // agree. File-only values are deliberately NOT exposed (edit config.yml/.env
-// on the host): owner_id, tos_url, privacy_url, dashboard listen/public_url,
-// bot token, OAuth client secret, updater token, MCP token, dashboard client
-// ID/session secret.
+// on the host): owner_id, dashboard listen/public_url, bot token, OAuth client
+// secret, updater token, MCP token, dashboard client ID/session secret. Legal
+// links are derived from the dashboard /tos and /policy pages.
 //
 // Other fields intentionally omitted:
 //   - log_channel: Discord channel logging was never implemented (file-only)

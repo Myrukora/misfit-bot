@@ -73,7 +73,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 
 | Section | Keys |
 |---|---|
-| `bot` | `owner_id`, `elevated_ids`, `name`, `status`, `tos_url`, `privacy_url` (the `token` lives in `.env`) |
+| `bot` | `owner_id`, `elevated_ids`, `name`, `status` (the `token` lives in `.env`) |
 | `modules` | `auto_load`, `path`, `disabled`, `enabled_modules` (gates the compiled-in builtins: cleanup, tickets, imagefilter, welcome, moderation, reactionroles, leveling) |
 | `logging` | `enabled`, `file_path`, `level` |
 | `dashboard` | `listen`, `public_url` (optional pins for the dashboard module) |
@@ -81,7 +81,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
-The web dashboard's **Configuration** page manages only presence, intents, logging, updater settings, and the per-server update-notify channel. Owner ID, legal URLs, dashboard `listen`/`public_url`, bot/OAuth/updater/MCP secrets, and the dashboard's own client/session credentials are **file-only**: edit `config.yml` / `.env` on the host and restart. The `/update set <key> <value>` command remains for updater keys.
+The web dashboard's **Configuration** page manages only presence, intents, logging, updater settings, and the per-server update-notify channel. Owner ID, dashboard `listen`/`public_url`, bot/OAuth/updater/MCP secrets, and the dashboard's own client/session credentials are **file-only**: edit `config.yml` / `.env` on the host and restart. Legal links are derived from the dashboard pages; the old `tos_url`/`privacy_url` keys no longer exist. The `/update set <key> <value>` command remains for updater keys.
 
 ## Commands
 
@@ -117,7 +117,7 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 ## Versioning
 
 `VERSION` at the repository root is the **single source of truth** for the bot's
-version (currently `0.16.6`). Every build site stamps it into the binary:
+version (currently `0.16.7`). Every build site stamps it into the binary:
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
@@ -207,6 +207,8 @@ The login card links two **public** documents (no OAuth required): `/tos` and `/
 ```bash
 $EDITOR legal/terms.md legal/privacy.md
 ```
+
+The old `tos_url` / `privacy_url` config keys are gone. `/info` links to these dashboard pages by deriving the base from `dashboard.public_url` when set, otherwise from the Discord application's Dev Portal Terms/Privacy URLs.
 
 ### Welcome messages
 

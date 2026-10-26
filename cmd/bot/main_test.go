@@ -14,6 +14,24 @@ import (
 	"github.com/misfit/bot/embed"
 )
 
+// TestLegalURLUsesDashboardBase pins the deprecated-config replacement: with
+// the file-only dashboard public URL set, /info links resolve to the canonical
+// dashboard /tos and /policy pages.
+func TestLegalURLUsesDashboardBase(t *testing.T) {
+	oldCfg, oldClient := Cfg, Client
+	defer func() { Cfg, Client = oldCfg, oldClient }()
+	Cfg = &config.Config{Dashboard: config.DashboardCoreConfig{PublicURL: "https://dash.example/"}}
+	Client = nil
+
+	b := &botAdapter{}
+	if got := b.GetToS(); got != "https://dash.example/tos" {
+		t.Fatalf("GetToS = %q, want dashboard /tos", got)
+	}
+	if got := b.GetPrivacy(); got != "https://dash.example/policy" {
+		t.Fatalf("GetPrivacy = %q, want dashboard /policy", got)
+	}
+}
+
 // TestGatewayIntents pins the identify mask: presence is never requested, the
 // non-privileged intents are always on, and the privileged bits follow config.
 func TestGatewayIntents(t *testing.T) {

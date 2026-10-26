@@ -108,8 +108,6 @@ type BotConfig struct {
 	Token       string   `yaml:"-"`
 	OwnerID     string   `yaml:"owner_id"`
 	ElevatedIDs []string `yaml:"elevated_ids"`
-	ToS         string   `yaml:"tos_url"`
-	Privacy     string   `yaml:"privacy_url"`
 	Name        string   `yaml:"name"`
 	// Status is the Discord presence status (online/idle/dnd/invisible). It is
 	// applied on every (re)start via SetPresence so the bot comes up with the
@@ -219,9 +217,7 @@ type MCPConfig struct {
 
 var DefaultConfig = &Config{
 	Bot: BotConfig{
-		Name:    "Bot",
-		ToS:     "",
-		Privacy: "",
+		Name: "Bot",
 	},
 	// Privileged intents are requested by default (the historical behavior);
 	// the gateway automatically drops them on Discord's 4014 and runs gated
@@ -480,10 +476,6 @@ func (c *Config) Set(key, value string) error {
 			return fmt.Errorf("invalid owner_id: %q is not a Discord user ID", value)
 		}
 		c.Bot.OwnerID = v
-	case "tos_url":
-		c.Bot.ToS = value
-	case "privacy_url":
-		c.Bot.Privacy = value
 	case "name":
 		c.Bot.Name = value
 	case "status":

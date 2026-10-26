@@ -269,8 +269,6 @@ func (s *Server) getConfig(ctx context.Context, req *mcp.CallToolRequest, in str
 	}
 	out := map[string]string{
 		"owner_id":                cfg.Bot.OwnerID,
-		"tos_url":                 cfg.Bot.ToS,
-		"privacy_url":             cfg.Bot.Privacy,
 		"status":                  cfg.Bot.Status,
 		"log_level":               cfg.Logging.Level,
 		"log_enabled":             strconv.FormatBool(cfg.Logging.Enabled),

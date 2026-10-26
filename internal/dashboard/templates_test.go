@@ -357,7 +357,7 @@ func TestCoreSettingsExcludeFileOnlyFields(t *testing.T) {
 		}
 	}
 	fileOnly := []string{
-		"owner_id", "tos_url", "privacy_url",
+		"owner_id",
 		"dashboard_listen", "dashboard_public_url",
 		"token", "oauth_client_secret", "updater_token", "mcp_token",
 		"client_id", "session_secret",

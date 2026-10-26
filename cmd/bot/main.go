@@ -887,6 +887,14 @@ type botAdapter struct {
 	// not decide these). Read by the dashboard gating.
 	memberIntent   bool
 	messageContent bool
+
+	// Legal links are derived, not configured: dashboard public_url + /tos or
+	// /policy when set, otherwise the application's Dev Portal ToS/Privacy
+	// URLs fetched once.
+	legalMu      sync.Mutex
+	legalFetched bool
+	legalToS     string
+	legalPrivacy string
 }
 
 func (b *botAdapter) IsOwner(userID string) bool {
@@ -963,12 +971,44 @@ func (b *botAdapter) GetOwnerID() string {
 	return Cfg.Snapshot().Bot.OwnerID
 }
 
+// legalURL resolves a dashboard legal page. The canonical documents now live
+// at /tos and /policy on the dashboard; the old config.yml URL fields are
+// deprecated. Prefer the configured dashboard public URL, then fall back to
+// the Discord application's Dev Portal Terms/Privacy URLs (which can point at
+// the same dashboard pages).
+func (b *botAdapter) legalURL(path string) string {
+	if Cfg != nil {
+		if base := strings.TrimRight(strings.TrimSpace(Cfg.Snapshot().Dashboard.PublicURL), "/"); base != "" {
+			return base + path
+		}
+	}
+	b.legalMu.Lock()
+	defer b.legalMu.Unlock()
+	if !b.legalFetched {
+		b.legalFetched = true
+		if Client != nil && Client.Rest != nil {
+			if app, err := Client.Rest.GetCurrentApplication(); err == nil && app != nil {
+				if app.TermsOfServiceURL != nil {
+					b.legalToS = strings.TrimSpace(*app.TermsOfServiceURL)
+				}
+				if app.PrivacyPolicyURL != nil {
+					b.legalPrivacy = strings.TrimSpace(*app.PrivacyPolicyURL)
+				}
+			}
+		}
+	}
+	if path == "/tos" {
+		return b.legalToS
+	}
+	return b.legalPrivacy
+}
+
 func (b *botAdapter) GetToS() string {
-	return Cfg.Snapshot().Bot.ToS
+	return b.legalURL("/tos")
 }
 
 func (b *botAdapter) GetPrivacy() string {
-	return Cfg.Snapshot().Bot.Privacy
+	return b.legalURL("/policy")
 }
 
 func (b *botAdapter) GetPermissionManager() *permissions.Manager {

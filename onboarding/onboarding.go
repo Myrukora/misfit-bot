@@ -49,20 +49,6 @@ func Run(dir string) (*config.Config, error) {
 	}
 	cfg.Bot.Name = name
 
-	fmt.Print("Enter Terms of Service URL (optional): ")
-	tos, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read ToS URL: %w", err)
-	}
-	cfg.Bot.ToS = strings.TrimSpace(tos)
-
-	fmt.Print("Enter Privacy Policy URL (optional): ")
-	privacy, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, fmt.Errorf("failed to read privacy URL: %w", err)
-	}
-	cfg.Bot.Privacy = strings.TrimSpace(privacy)
-
 	cfg.Modules.AutoLoad = true
 	cfg.Modules.Path = "modules"
 	cfg.Modules.Disabled = []string{}
