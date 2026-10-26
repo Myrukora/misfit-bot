@@ -1277,21 +1277,18 @@ functions and `ctx.data_dir` (the module's folder) for persistence.
   process (in Python's case, round-tripped through IPC with a 5s timeout), so
   keep them fast.
 - **Dogfooding reference.** The dashboard configures *itself* through the same
-  contract: its `WebConfigSchema` declares `client_id` (text), `session_secret`
-  (secret) and `allowed_guilds` (multi) — all global — plus one guild-scoped
-  field, `notify_channel` (channel picker): the per-server update notification
-  channel, shown on each server's Modules page and stored in the core config's
-  `updater.notify_channels` map. It
-  intentionally does **not** expose `listen`, `public_url` or `client_secret`
-  there any more; those live on the core settings page (the `dashboard:` and
-  `oauth:` sections of the main `config.yml`) as the single obvious place to
-  configure them. Its module config file
-  (`modules/Go/dashboard/config.yml`, mode 0600, pinned historical path) holds
-  the rest, and a legacy `client_secret` fallback is still read. Read
+  contract: its `WebConfigSchema` declares only `allowed_guilds` (multi, global)
+  plus one guild-scoped field, `notify_channel` (channel picker): the per-server
+  update notification channel, shown on each server's Modules page and stored in
+  the core config's `updater.notify_channels` map. `client_id` is always derived
+  from the bot application, `session_secret` is auto-generated, and `listen`,
+  `public_url` and `client_secret` are intentionally file-only. Its module
+  config file (`modules/Go/dashboard/config.yml`, mode 0600, pinned historical
+  path) holds the auto-managed values; secrets live in `.env`. Read
   `internal/dashboard/main.go` (`WebConfigSchema`) and
   `internal/builtin/tickets/webconfig.go` for real, shipping implementations of
   every field type.
 
 See `internal/dashboard/README.md` for the dashboard-specific setup flow
-(OAuth, the `dashboard:` **and** `oauth:` sections of the main `config.yml`)
+(OAuth, the file-only `dashboard:` section in the main `config.yml`, and `.env`)
 and the RBAC table for who sees which config sections.

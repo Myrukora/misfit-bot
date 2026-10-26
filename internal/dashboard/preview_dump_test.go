@@ -230,8 +230,8 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		}, Modules: []string{"cleanup", "tickets", "imagefilter"}}, false},
 		{"config.html", "config", "rd_admin", map[string]any{
 			"isOwner": true,
-			"sections": []settingsSection{{Title: "Bot", Help: "Identity", Fields: []fieldRender{
-				{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123456789012345678"},
+			"sections": []settingsSection{{Title: "Bot", Help: "Presence", Fields: []fieldRender{
+				{Key: "status", Label: "Presence status", Type: "select", Value: "", Options: []string{"", "online"}},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info", "warn", "error"}},
 				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
 			}}},

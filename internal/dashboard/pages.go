@@ -196,8 +196,8 @@ func (m *DashboardModule) handleConfigPage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	level := m.resolveLevel(us)
-	// Owner + elevated: elevated users get the same page with secrets and the
-	// owner-only action cards (updater, rate limit, CLIP variant) locked/hidden.
+	// Owner + elevated: the core settings contain no secrets; the owner-only
+	// action cards (rate limit, CLIP variant) are hidden for elevated users.
 	if !levelGEQ(level, lvlElevated) {
 		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
@@ -207,7 +207,7 @@ func (m *DashboardModule) handleConfigPage(w http.ResponseWriter, r *http.Reques
 	d.Page = "config"
 	variants := m.imageFilterVariants()
 	d.Content = map[string]any{
-		"sections":    m.coreSettingsFields(owner, "", us),
+		"sections":    m.coreSettingsFields("", us),
 		"variants":    variants,
 		"variant":     m.imageFilterVariant(),
 		"moduleViews": m.globalModuleViews(us),
@@ -438,33 +438,30 @@ func (m *DashboardModule) handleModulesPage(w http.ResponseWriter, r *http.Reque
 
 // ── core settings (schema-driven, grouped into sections) ────────────────
 
-// coreSettingsFields renders every core bot setting as a typed, labeled field
-// through the same schema-driven "field" partial the WebConfigurable module
-// fields use. Fields are grouped into titled sections (bot / logging /
-// dashboard / updater / secrets).
+// coreSettingsFields renders the dashboard-managed core bot settings as typed,
+// labeled fields through the same schema-driven "field" partial the
+// WebConfigurable module fields use. Fields are grouped into titled sections
+// (bot / intents / logging / updater).
 //
-// Permission model (mirrors the Discord commands):
-//   - owner + elevated: every field except the owner-only secrets
-//   - owner only: bot token, updater token, OAuth client secret (locked for
-//     elevated viewers — rendered disabled and skipped by the JS save)
+// Permission model:
+//   - owner + elevated: every field (none are secrets)
 //   - staff/regular: no core settings at all (the page is gated upstream)
 //
 // Values come from coreSettingsGet() so the JSON API and the page always
-// agree. Deliberately NOT exposed (dead or misleading in the UI):
+// agree. File-only values are deliberately NOT exposed (edit config.yml/.env
+// on the host): owner_id, tos_url, privacy_url, dashboard listen/public_url,
+// bot token, OAuth client secret, updater token, MCP token, dashboard client
+// ID/session secret.
+//
+// Other fields intentionally omitted:
 //   - log_channel: Discord channel logging was never implemented (file-only)
 //   - name: the header shows the live Discord name; config bot.name is only a
 //     bridge/fallback value (streaming presence URL, module contexts)
-//   - status: bot.status is never read by the bot — presence is live
 //   - elevated_ids: managed on the dedicated /permissions page
-func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *userSession) []settingsSection {
+func (m *DashboardModule) coreSettingsFields(guildID string, us *userSession) []settingsSection {
 	vals := m.coreSettingsGet()
-	lock := func(f fieldRender) fieldRender {
-		f.Locked = f.OwnerOnly && !owner
-		return f
-	}
 	sec := func(title, help string, fs ...fieldRender) settingsSection {
 		for i := range fs {
-			fs[i] = lock(fs[i])
 			// Pickers (channel/role/user) populate from the selected server
 			// (gated on shared-guild membership in populateEntities).
 			m.populateEntities(&fs[i], guildID, us)
@@ -472,10 +469,7 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 		return settingsSection{Title: title, Help: help, Fields: fs}
 	}
 	return []settingsSection{
-		sec("Bot", "Bot identity and info links.",
-			fieldRender{Key: "owner_id", Label: "Owner ID", Help: "Bot owner's user ID. Owners bypass permission checks.", Type: "user", Value: vals["owner_id"], Placeholder: "123456789012345678", OwnerOnly: true},
-			fieldRender{Key: "tos_url", Label: "Terms of Service URL", Help: "Shown by /info.", Type: "text", Value: vals["tos_url"], Placeholder: "https://example.com/tos"},
-			fieldRender{Key: "privacy_url", Label: "Privacy Policy URL", Help: "Shown by /info.", Type: "text", Value: vals["privacy_url"], Placeholder: "https://example.com/privacy"},
+		sec("Bot", "Presence status.",
 			fieldRender{Key: "status", Label: "Presence status", Help: "Presence status. Applied on restart.", Type: "select", Value: vals["status"], Options: []string{"", "online", "idle", "dnd", "invisible"}},
 		),
 		sec("Intents", "Discord gateway intents. Restart required.",
@@ -487,21 +481,12 @@ func (m *DashboardModule) coreSettingsFields(owner bool, guildID string, us *use
 			fieldRender{Key: "log_enabled", Label: "File logging", Help: "Write logs to disk. Restart required.", Type: "toggle", Value: vals["log_enabled"]},
 			fieldRender{Key: "log_file_path", Label: "Log file path", Help: "Log file path. A daily date suffix is added. Restart required.", Type: "text", Value: vals["log_file_path"], Placeholder: "logs/bot.log"},
 		),
-		sec("Dashboard", "Dashboard settings. Changes apply immediately.",
-			fieldRender{Key: "dashboard_listen", Label: "Listen address", Help: "HTTP bind address. Empty = 127.0.0.1:8080.", Type: "text", Value: vals["dashboard_listen"], Placeholder: "127.0.0.1:8080"},
-			fieldRender{Key: "dashboard_public_url", Label: "Public URL", Help: "Public base URL for OAuth. Empty = browser origin.", Type: "text", Value: vals["dashboard_public_url"], Placeholder: "https://dashboard.example.com"},
-		),
 		sec("Updater", "Self-updater settings.",
 			fieldRender{Key: "updater_enabled", Label: "Enabled", Help: "Enable the self-updater.", Type: "toggle", Value: vals["updater_enabled"]},
 			fieldRender{Key: "updater_repo", Label: "Repository", Help: "GitHub repo as owner/name. Empty = off.", Type: "text", Value: vals["updater_repo"], Placeholder: "Myrukora/misfit-bot"},
 			fieldRender{Key: "updater_branch", Label: "Branch", Help: "Branch to track.", Type: "text", Value: vals["updater_branch"], Placeholder: "main"},
 			fieldRender{Key: "updater_interval", Label: "Check interval (seconds)", Help: "Poll interval in seconds (min 30).", Type: "number", Value: vals["updater_interval"], Min: "30", Step: "1", Placeholder: "300"},
 			fieldRender{Key: "updater_auto_pull", Label: "Auto pull", Help: "Pull, rebuild and restart on new commits.", Type: "toggle", Value: vals["updater_auto_pull"]},
-			fieldRender{Key: "updater_token", Label: "GitHub token", Help: "GitHub token. Stored in .env. Leave blank to keep current.", Type: "secret", Value: vals["updater_token"], OwnerOnly: true},
-		),
-		sec("Secrets", "Owner-only credentials.",
-			fieldRender{Key: "token", Label: "Bot token", Help: "Bot token. Stored in .env. Blank = unchanged. Restart required.", Type: "secret", Value: vals["token"], OwnerOnly: true},
-			fieldRender{Key: "oauth_client_secret", Label: "OAuth client secret", Help: "OAuth client secret. Stored in .env. Blank = unchanged.", Type: "secret", Value: vals["oauth_client_secret"], OwnerOnly: true},
 		),
 	}
 }

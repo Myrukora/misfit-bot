@@ -113,10 +113,13 @@ func (m *DashboardModule) Start() {
 		m.logger.Error("Dashboard: load config failed: %v", err)
 		return
 	}
-	if cfg.ClientID == "" && m.client != nil {
-		cfg.ClientID = m.client.ApplicationID.String()
-		if err := cfg.Save(m.dataDir); err != nil {
-			m.logger.Warn("Dashboard: could not persist derived client ID: %v", err)
+	if m.client != nil && m.client.ApplicationID != 0 {
+		appID := m.client.ApplicationID.String()
+		if cfg.ClientID != appID {
+			cfg.ClientID = appID
+			if err := cfg.Save(m.dataDir); err != nil {
+				m.logger.Warn("Dashboard: could not persist derived client ID: %v", err)
+			}
 		}
 	}
 	if err := cfg.ensureSessionSecret(m.dataDir); err != nil {
@@ -614,13 +617,10 @@ func (m *DashboardModule) isRunning() bool {
 // ── WebConfigurable (dogfood + live self-config) ──────────────────────────
 
 func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
-	// listen / public_url / client_secret are intentionally NOT here — they now
-	// live in the core settings page (Dashboard + Secrets sections), which is
-	// the single obvious place to configure them. Only the fields that stay in
-	// the 0600 module config file remain self-configurable here.
+	// listen, public_url and client_secret are file-only; client_id is derived
+	// from the bot application and session_secret is auto-generated. Only the
+	// allowed-guild allowlist and the per-server notify channel are exposed.
 	return []modules.ConfigField{
-		{Key: "client_id", Label: "OAuth Client ID", Help: "App client ID. Auto-filled from the bot if empty.", Type: modules.FieldTypeText, Scope: "global"},
-		{Key: "session_secret", Label: "Session Secret", Help: "Cookie-signing secret. Auto-generated if empty.", Type: modules.FieldTypeSecret, Scope: "global"},
 		{Key: "allowed_guilds", Label: "Allowed Guilds", Help: "Optional server allowlist. Empty = all servers.", Type: modules.FieldTypeMulti, Options: m.guildLabelOptions(), Scope: "global"},
 		// Guild-scoped: rendered only on the per-server modules page, where
 		// the picker is populated from that server's channels. Stored in the
@@ -629,9 +629,10 @@ func (m *DashboardModule) WebConfigSchema() []modules.ConfigField {
 	}
 }
 
-// WebGetConfig returns the dashboard's config for the web UI (secrets
-// redacted). guildID == "" is the global panel; a guild ID returns that
-// server's guild-scoped fields (the update notification channel).
+// WebGetConfig returns the dashboard's config for the web UI. guildID == ""
+// is the global panel; a guild ID returns that server's guild-scoped fields
+// (the update notification channel). The auto-managed client/session values
+// are not exposed.
 func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error) {
 	if guildID != "" {
 		ch := ""
@@ -647,8 +648,6 @@ func (m *DashboardModule) WebGetConfig(guildID string) (map[string]string, error
 		return map[string]string{}, nil
 	}
 	v := map[string]string{
-		"client_id":      cfg.ClientID,
-		"session_secret": redactedIfSet(cfg.SessionSecret),
 		"allowed_guilds": strings.Join(m.guildLabels(cfg.AllowedGuilds), "\n"),
 	}
 	return v, nil
@@ -717,54 +716,23 @@ func (m *DashboardModule) WebSetConfig(guildID, key, value string) error {
 		m.invalidateCoreConfig()
 		return nil
 	}
-	// listen & public_url live in the core bot config.yml `dashboard:` section
-	// (so the owner can pin the port from the main config — e.g. when 8080 is
-	// taken and the web UI can't start). The OAuth client_secret lives in core
-	// config's `oauth:` section (the single shared Discord-app credential). Only
-	// client_id, session_secret, and allowed_guilds stay in the 0600 module file.
-	switch key {
-	case "listen":
-		if err := m.bot.SetConfig("dashboard_listen", value); err != nil {
-			return err
-		}
-		m.invalidateCoreConfig()
-		m.rebindSoon(key)
-		return nil
-	case "public_url":
-		if err := m.bot.SetConfig("dashboard_public_url", value); err != nil {
-			return err
-		}
-		m.invalidateCoreConfig()
-		m.rebindSoon(key)
-		return nil
-	case "client_secret":
-		if err := m.bot.SetConfig("oauth_client_secret", value); err != nil {
-			return err
-		}
-		m.invalidateCoreConfig()
-		m.refreshOAuth()
-		m.sessions.clear() // invalidate existing sessions (secret changed)
-		return nil
-	case "allowed_guilds":
-		// Web UI sends "Name (ID)" labels, newline-separated (newline keeps
-		// commas legal inside guild names); convert back to IDs before the
-		// generic Set path (which splits on comma/space).
-		value = strings.Join(parseGuildLabels(strings.Split(value, "\n")), ",")
+	// The dashboard's client ID is derived from the application, its session
+	// secret is auto-generated, and listen/public URL are file-only. Only the
+	// allowed-guild allowlist is editable here; the per-server notify channel
+	// is handled above.
+	if key != "allowed_guilds" {
+		return fmt.Errorf("unknown setting: %q", key)
 	}
+	// Web UI sends "Name (ID)" labels, newline-separated (newline keeps commas
+	// legal inside guild names); convert back to IDs before the generic Set
+	// path (which splits on comma/space).
+	value = strings.Join(parseGuildLabels(strings.Split(value, "\n")), ",")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.cfg.Set(key, value); err != nil {
 		return err
 	}
-	if err := m.cfg.Save(m.dataDir); err != nil {
-		return err
-	}
-	switch key {
-	case "client_id", "session_secret":
-		m.refreshOAuthLocked()
-		m.sessions.clear() // invalidate existing sessions (secret changed)
-	}
-	return nil
+	return m.cfg.Save(m.dataDir)
 }
 
 // rebindSoon restarts the HTTP server in a background goroutine so the request

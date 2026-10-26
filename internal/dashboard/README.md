@@ -41,23 +41,24 @@ The listen address comes from, in this priority:
      listen: "127.0.0.1:9090"
      public_url: "https://dashboard.example.com"
    ```
-   Then restart the bot (or change it from the Admin page) to pick it up.
+   Then restart the bot to pick it up.
 2. **Module config** — `modules/Go/dashboard/config.yml`'s `listen`/
    `public_url` (used only when the core `config.yml` `dashboard:` section is
    empty).
 
-Only the non-secret, infrastructure fields (`listen`, `public_url`) can live in
-the world-readable core `config.yml`. The OAuth `client_secret` lives in core
-`config.yml` under `oauth:` (the single shared Discord-app credential). The
-per-installation `session_secret` and `allowed_guilds` stay in the dashboard's
-own 0600 config file. When both define a value, the core config wins.
+`listen` and `public_url` are file-only; the dashboard no longer exposes them.
+The OAuth `client_secret` lives in `.env` as `DISCORD_OAUTH_CLIENT_SECRET`.
+The per-installation `session_secret` is auto-generated and the `client_id` is
+derived from the bot application; neither is exposed in dashboard settings.
+`allowed_guilds` remains editable in the dashboard's module settings (and in
+the 0600 module config file). When both config files define a value, core wins.
 
 ## LAN access
 
 By default the dashboard binds `127.0.0.1` (localhost only). To reach it from
 other devices on your network, set `dashboard.listen` to `0.0.0.0:<port>` in
-`config.yml` (all interfaces) or from the Admin page, and bind a single
-interface by replacing `0.0.0.0` with the machine's LAN IP, e.g. `192.168.1.5:8080`.
+`config.yml` (all interfaces) and restart, or bind a single interface by
+replacing `0.0.0.0` with the machine's LAN IP, e.g. `192.168.1.5:8080`.
 
 When `public_url` is **not** set, the OAuth redirect URI is derived per request
 from the address the browser opened (scheme + Host), so the same server works
@@ -78,24 +79,23 @@ Discord Developer Portal.
 
 ## First-time setup (web login)
 
-1. (Optional) Set `dashboard.public_url` to the base URL where the dashboard is
-   reachable (a tunnel/domain for remote access; **skip for direct LAN access**
-   — the LAN URL is auto-derived from the address you open).
+1. (Optional) Set `dashboard.public_url` in `config.yml` if you want a fixed
+   external base URL. It is not required: by default the OAuth redirect is
+   derived from the browser origin.
 2. Open the dashboard → **Login with Discord**.
 3. Register the redirect URI (the `/callback` URL, printed on the login/setup
    page) under **Discord Developer Portal → your application → OAuth2 →
    Redirects**.
-4. Create a **Client Secret** on that same page, then set it via the **Admin**
-   page (or `oauth.client_secret` in core `config.yml`).
+4. Create a **Client Secret** on that same page and write it to `.env` on the
+   host as `DISCORD_OAUTH_CLIENT_SECRET=...` (mode 0600).
 
-`client_id` is auto-derived from the bot application when left empty (it equals
-the bot's application ID, available in-process as `ctx.Bot.GetClient().(*bot.Client).ApplicationID`) — nothing to fill in. `session_secret` is
-auto-generated (32 random bytes) on first run and stored in the dashboard's own
-0600 config file (`modules/Go/dashboard/config.yml`), alongside the
-`allowed_guilds` allowlist and a backwards-compatible fallback for
-`client_id`/`client_secret`. `allowed_guilds` takes a comma- or
-whitespace-separated list of guild IDs; if set, only those guilds are
-shown/managed. Empty = allow all servers the bot is in.
+`client_id` is always derived from the bot application on restart (it equals
+the bot's application ID, available in-process as `ctx.Bot.GetClient().(*bot.Client).ApplicationID`) — there is nothing to fill in and no dashboard field for
+it. `session_secret` is auto-generated (32 random bytes) on first run and stored
+in the dashboard's own 0600 config file. Neither value is exposed in the
+dashboard. `allowed_guilds` remains editable on the dashboard's module settings
+page and in the 0600 module config file; it takes a comma- or whitespace-
+separated list of guild IDs. Empty = allow all servers the bot is in.
 
 ## Access tiers (RBAC)
 
@@ -103,8 +103,8 @@ The level is recomputed per request from the logged-in Discord user:
 
 | level | who | can see / do |
 |---|---|---|
-| **owner** | `config.owner_id` | everything: metrics, full command catalog (with a "raw" toggle), core settings, the Admin page, all module config (global + guild), module enable/disable, elevated-user management, presence, logs, shutdown/restart |
-| **elevated** | a bot elevated user | same global access as owner for dashboard purposes (Admin page is owner-only) |
+| **owner** | `config.owner_id` | everything: metrics, full command catalog (with a "raw" toggle), core settings, the Config page, all module config (global + guild), module enable/disable, elevated-user management, presence, logs, shutdown/restart |
+| **elevated** | a bot elevated user | same global access as owner for dashboard purposes (the owner-only action cards on the Config page are hidden) |
 | **staff** | manages ≥1 mutual guild (guild owner or `ManageGuild`/`Administrator`) | their manageable guilds' detail pages, **guild-scoped** module config fields, and their usable commands. No core/global settings, no module enable/disable, no elevated management, no logs |
 | **regular** | shares a mutual guild but manages none | only `/` (metrics + public info) and `/commands` (only their usable commands). **All config is hidden** — `/admin`, `/modules`, `/permissions`, `/logs` and every mutating `POST /api/*` return 403 |
 

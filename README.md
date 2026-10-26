@@ -69,7 +69,7 @@ Run `./bot`. If no `config.yml` exists, an interactive onboarding wizard asks fo
 
 ## Configuration
 
-All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** and must never be committed. **Three secrets live in `.env` instead** (mode 0600, also gitignored), not in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET` and `UPDATER_GITHUB_TOKEN` — written by onboarding or the dashboard/settings API. The MCP bearer token stays in `config.yml`.
+All configuration lives in `config.yml` (auto-created, auto-saved). It is **gitignored** and must never be committed. **Three secrets live in `.env` instead** (mode 0600, also gitignored), not in `config.yml`: `DISCORD_BOT_TOKEN`, `DISCORD_OAUTH_CLIENT_SECRET` and `UPDATER_GITHUB_TOKEN` — written by onboarding or by editing `.env` on the host; the dashboard no longer exposes secret writes. The MCP bearer token stays in `config.yml`.
 
 | Section | Keys |
 |---|---|
@@ -81,7 +81,7 @@ All configuration lives in `config.yml` (auto-created, auto-saved). It is **giti
 | `updater` | `enabled`, `repo`, `branch`, `check_interval`, `auto_pull`, `notify_channels` (per-server map, set per server on the dashboard; the token lives in `.env` as `UPDATER_GITHUB_TOKEN`) |
 | `mcp` | `enabled`, `token` (built-in MCP server on the dashboard listener; token auto-generated when empty) |
 
-Config values can be changed at runtime from the web dashboard's **Configuration** tab (validated, persisted; updater keys too). The `/update set <key> <value>` command also remains for updater keys.
+The web dashboard's **Configuration** page manages only presence, intents, logging, updater settings, and the per-server update-notify channel. Owner ID, legal URLs, dashboard `listen`/`public_url`, bot/OAuth/updater/MCP secrets, and the dashboard's own client/session credentials are **file-only**: edit `config.yml` / `.env` on the host and restart. The `/update set <key> <value>` command remains for updater keys.
 
 ## Commands
 
@@ -117,7 +117,7 @@ A module can implement the optional `WebConfigurable` interface (declare a schem
 ## Versioning
 
 `VERSION` at the repository root is the **single source of truth** for the bot's
-version (currently `0.16.5`). Every build site stamps it into the binary:
+version (currently `0.16.6`). Every build site stamps it into the binary:
 
 ```bash
 go build -ldflags "-X main.Version=$(./scripts/version.sh)" -o bot ./cmd/bot/
@@ -190,9 +190,9 @@ The GitHub token lives **only** in the gitignored `.env` (`UPDATER_GITHUB_TOKEN`
 The web dashboard runs in-process (compiled into the single binary). Setup:
 
 1. Create a Discord application and note the OAuth2 **client secret** (Dev Portal → OAuth2 → General).
-2. Set the OAuth client secret from the dashboard's Admin page (it is written to `.env` as `DISCORD_OAUTH_CLIENT_SECRET`).
+2. Write the OAuth client secret to `.env` on the host as `DISCORD_OAUTH_CLIENT_SECRET=...` (mode 0600).
 3. Open the dashboard and complete the **Login with Discord** flow; register the redirect URI it shows in the Dev Portal.
-4. The default bind is `http://127.0.0.1:8080` (expose remotely via a reverse proxy/tunnel and set `dashboard.public_url`).
+4. The default bind is `http://127.0.0.1:8080`; set `dashboard.listen` in `config.yml` if needed (expose remotely via a reverse proxy/tunnel). `dashboard.public_url` is optional and not required for the normal browser-origin redirect.
 
 Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `/help`).
 

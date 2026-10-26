@@ -99,7 +99,7 @@ func TestTemplatesParseAndRender(t *testing.T) {
 		{"rd_logs", map[string]any{"path": "logs/bot.log", "lines": nil, "note": "no log file"}},
 		{"rd_admin", map[string]any{
 			"sections": []settingsSection{{Title: "Bot", Help: "h", Fields: []fieldRender{
-				{Key: "owner_id", Label: "Owner ID", Type: "text", Value: "123"},
+				{Key: "status", Label: "Presence status", Type: "select", Value: "online", Options: []string{"online", "idle"}},
 				{Key: "log_level", Label: "Log level", Type: "select", Value: "info", Options: []string{"debug", "info"}},
 				{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"},
 			}}},
@@ -260,30 +260,23 @@ func TestSettingsFieldEveryType(t *testing.T) {
 	}
 }
 
-// TestSettingsSectionsPins covers the /config page (rd_admin): five core
-// sections render with their titles; secret fields are enabled for the
-// owner and locked (disabled + data-owneronly) for elevated viewers; the
-// updater/rate-limit panels are owner-only while the lifecycle controls are
-// available to both (the page itself is owner/elevated-gated upstream).
+// TestSettingsSectionsPins covers the /config page (rd_admin): the remaining
+// core sections render, no file-only fields appear, and the owner-only action
+// cards are hidden for elevated viewers while lifecycle controls stay available.
 func TestSettingsSectionsPins(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
 	}
-	// locked=true renders secrets locked (the elevated view); the owner
-	// render passes false. isOwner drives the owner-only action cards.
-	build := func(locked bool) map[string]any {
+	// isOwner drives the owner-only action cards.
+	build := func(owner bool) map[string]any {
 		return map[string]any{
-			"isOwner": !locked,
+			"isOwner": owner,
 			"sections": []settingsSection{
-				{Title: "Bot", Fields: []fieldRender{{Key: "owner_id", Label: "Owner ID", Type: "user", Value: "123"}}},
+				{Title: "Bot", Fields: []fieldRender{{Key: "status", Label: "Presence status", Type: "select", Value: ""}}},
+				{Title: "Intents", Fields: []fieldRender{{Key: "intents_guild_members", Label: "Server Members", Type: "toggle", Value: "true"}}},
 				{Title: "Logging", Fields: []fieldRender{{Key: "log_enabled", Label: "File logging", Type: "toggle", Value: "true"}}},
-				{Title: "Dashboard", Fields: []fieldRender{{Key: "dashboard_listen", Label: "Listen address", Type: "text", Value: ""}}},
 				{Title: "Updater", Fields: []fieldRender{{Key: "updater_enabled", Label: "Enabled", Type: "toggle", Value: "true"}}},
-				{Title: "Secrets", Fields: []fieldRender{
-					{Key: "token", Label: "Bot token", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: locked},
-					{Key: "oauth_client_secret", Label: "OAuth client secret", Type: "secret", Value: "••••••••", OwnerOnly: true, Locked: locked},
-				}},
 			},
 		}
 	}
@@ -297,18 +290,20 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 
 	owner := mkData(lvlOwner)
-	owner.Content = build(false)
+	owner.Content = build(true)
 	out := render(owner)
-	for _, title := range []string{"Bot", "Logging", "Dashboard", "Updater", "Secrets"} {
+	for _, title := range []string{"Bot", "Intents", "Logging", "Updater"} {
 		if !strings.Contains(out, "<h3>"+title+"</h3>") {
 			t.Errorf("owner render missing section %q", title)
 		}
 	}
-	if strings.Contains(out, `data-owneronly="true"`) {
-		t.Error("owner render must not lock any field")
+	for _, removed := range []string{"Dashboard", "Secrets", "owner_id", "oauth_client_secret", "updater_token"} {
+		if strings.Contains(out, removed) {
+			t.Errorf("owner render still contains removed config %q", removed)
+		}
 	}
-	if !strings.Contains(out, "scope-owner") {
-		t.Error("owner render must show the owner scope badge on secrets")
+	if strings.Contains(out, `data-owneronly="true"`) {
+		t.Error("owner render must not lock any core field")
 	}
 	if !strings.Contains(out, "updater-status") {
 		t.Error("owner render must include the updater status panel")
@@ -321,14 +316,8 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 
 	elevated := mkData(lvlElevated)
-	elevated.Content = build(true)
+	elevated.Content = build(false)
 	eOut := render(elevated)
-	if !strings.Contains(eOut, `data-owneronly="true"`) {
-		t.Error("elevated render must mark owner-only fields data-owneronly")
-	}
-	if !strings.Contains(eOut, `disabled`) {
-		t.Error("elevated render must disable owner-only inputs")
-	}
 	if strings.Contains(eOut, `id="upd-apply"`) {
 		t.Error("elevated render must not include the updater actions")
 	}
@@ -340,6 +329,56 @@ func TestSettingsSectionsPins(t *testing.T) {
 	}
 	if !strings.Contains(eOut, `id="bot-restart"`) || !strings.Contains(eOut, `id="bot-shutdown"`) {
 		t.Error("elevated render must include the lifecycle controls")
+	}
+}
+
+// TestCoreSettingsExcludeFileOnlyFields pins the dashboard boundary: secrets,
+// ownership, legal URLs, dashboard bind/public URL and the dashboard's own
+// OAuth/session credentials are not readable or writable through the config UI.
+func TestCoreSettingsExcludeFileOnlyFields(t *testing.T) {
+	m := legalTestModule(t)
+	sections := m.coreSettingsFields("", nil)
+	titles := map[string]bool{}
+	keys := map[string]bool{}
+	for _, s := range sections {
+		titles[s.Title] = true
+		for _, f := range s.Fields {
+			keys[f.Key] = true
+		}
+	}
+	for _, title := range []string{"Bot", "Intents", "Logging", "Updater"} {
+		if !titles[title] {
+			t.Errorf("missing section %q", title)
+		}
+	}
+	for _, removed := range []string{"Dashboard", "Secrets"} {
+		if titles[removed] {
+			t.Errorf("removed section %q still rendered", removed)
+		}
+	}
+	fileOnly := []string{
+		"owner_id", "tos_url", "privacy_url",
+		"dashboard_listen", "dashboard_public_url",
+		"token", "oauth_client_secret", "updater_token", "mcp_token",
+		"client_id", "session_secret",
+	}
+	for _, key := range fileOnly {
+		if _, ok := m.coreSettingsGet()[key]; ok {
+			t.Errorf("file-only key %q still returned by coreSettingsGet", key)
+		}
+		if keys[key] {
+			t.Errorf("file-only key %q still rendered", key)
+		}
+		if status, err := m.setCoreSetting(key, "x"); err != nil {
+			t.Errorf("setCoreSetting(%q) error = %v", key, err)
+		} else if status != "unknown key" {
+			t.Errorf("setCoreSetting(%q) = %q, want unknown key", key, status)
+		}
+	}
+	for _, key := range []string{"client_id", "session_secret", "listen", "public_url", "client_secret"} {
+		if err := m.WebSetConfig("", key, "x"); err == nil {
+			t.Errorf("WebSetConfig(%q) accepted a file-only key", key)
+		}
 	}
 }
 
