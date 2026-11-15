@@ -66,6 +66,16 @@ func TestLegalPagesArePublic(t *testing.T) {
 		if !strings.Contains(body, "<h1>"+title+"</h1>") {
 			t.Errorf("GET %s missing markdown heading %q", path, title)
 		}
+		// The document title must not carry the bot's display name. These pages
+		// are the public ToS/PP linked from the Discord app configuration, and
+		// the live app name (whatever it happens to be) has no business in the
+		// browser tab of a legal document.
+		if !strings.Contains(body, "<title>"+title+"</title>") {
+			t.Errorf("GET %s title is not the bare document name", path)
+		}
+		if strings.Contains(body, "<title>"+m.botName) {
+			t.Errorf("GET %s title leaks the bot name %q", path, m.botName)
+		}
 	}
 	// First render seeds the editable starter documents.
 	for _, name := range []string{"terms.md", "privacy.md"} {
