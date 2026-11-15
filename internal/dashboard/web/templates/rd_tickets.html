@@ -258,9 +258,10 @@
               <h5 class="gear-section-title">Behavior</h5>
               <div class="field-grid">
                 <label class="toggle"><input type="checkbox" id="tk-type-enabled"><span class="toggle-track"></span><span class="toggle-label">Enabled</span></label>
-                <label class="toggle"><input type="checkbox" id="tk-type-close" checked><span class="toggle-track"></span><span class="toggle-label">Allow close</span></label>
+                <label class="toggle"><input type="checkbox" id="tk-type-allowclose" checked><span class="toggle-track"></span><span class="toggle-label">Allow close</span></label>
+                <label class="toggle"><input type="checkbox" id="tk-type-closereason"><span class="toggle-track"></span><span class="toggle-label">Ask for a reason</span></label>
               </div>
-              <p class="muted field-help">Closing: the opener can close their own ticket while allowed; helpers and Manage Messages can always close. The closed channel is deleted after the transcript and archive are saved.</p>
+              <p class="muted field-help">Closing: the opener can close their own ticket while allowed; helpers and Manage Messages can always close. The closed channel is deleted after the transcript and archive are saved. "Ask for a reason" prompts whoever closes for a free-text reason first; it appears in the log embed and the transcript.</p>
             </div>
             <div class="gear-foot">
               <button type="button" class="btn btn-small btn-primary" id="tk-type-save">Save type</button>

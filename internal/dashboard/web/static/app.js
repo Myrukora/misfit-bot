@@ -727,7 +727,8 @@
       typeWelcome = byId("tk-type-welcome"), typeBody = byId("tk-type-body"),
       typeButton = byId("tk-type-button"), typeEmoji = byId("tk-type-emoji"),
       typeColor = byId("tk-type-color"), typeEnabled = byId("tk-type-enabled"),
-      typeClose = byId("tk-type-close"),
+      typeAllowClose = byId("tk-type-allowclose"),
+      typeAskReason = byId("tk-type-closereason"),
       typeHeading = byId("tk-type-heading"), typeSave = byId("tk-type-save");
     var typeMode = "create";
 
@@ -764,7 +765,8 @@
       typeEmoji.value = t ? t.button_emoji || "" : "";
       typeColor.value = typeColorHex(t ? t.color : 0x5865f2);
       typeEnabled.checked = t ? !!t.enabled : true;
-      typeClose.checked = !t || t.allow_close;
+      typeAllowClose.checked = !t || t.allow_close;
+      typeAskReason.checked = !!(t && t.close_reason);
     };
 
     document.querySelectorAll(".tk-type-edit").forEach(function (btn) {
@@ -808,7 +810,8 @@
           button_label: typeButton.value.trim(),
           button_emoji: typeEmoji.value.trim(),
           color: typeColorInt(typeColor.value),
-          allow_close: typeClose.checked
+          allow_close: typeAllowClose.checked,
+          close_reason: typeAskReason.checked
         };
         var url = tkBase + "/types";
         if (typeMode === "edit") {

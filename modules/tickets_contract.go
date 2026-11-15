@@ -40,22 +40,27 @@ type TicketProvider interface {
 // mirrored into <DataDir>/tickets/<guildID>/<ticketID>/files/ at close so
 // transcripts survive Discord CDN expiry.
 type Ticket struct {
-	ID             string     `json:"id"` // "<type>-<seq>", e.g. "staff-0007"
-	Type           string     `json:"type"`
-	Group          string     `json:"group"` // legacy alias of Type (v1 stores)
-	GuildID        string     `json:"guild_id"`
-	ChannelID      string     `json:"channel_id"`             // private text channel holding the conversation
-	ChannelName    string     `json:"channel_name,omitempty"` // stored at creation for collision detection
-	MessageID      string     `json:"message_id"`             // in-channel embed carrying the Close button
-	PanelName      string     `json:"panel_name,omitempty"`
-	OpenerID       string     `json:"opener_id"`
-	OpenedAt       time.Time  `json:"opened_at"`
-	ClosedAt       time.Time  `json:"closed_at"`                 // zero while open
-	Status         string     `json:"status"`                    // "open" | "closed"
-	Members        []string   `json:"members,omitempty"`         // extra members added via /add
-	TranscriptPath string     `json:"transcript_path,omitempty"` // relative to DataDir; set after close
-	CloseReason    string     `json:"close_reason,omitempty"`    // "user" | "channel_deleted"
-	Log            []LogEntry `json:"log"`
+	ID             string    `json:"id"` // "<type>-<seq>", e.g. "staff-0007"
+	Type           string    `json:"type"`
+	Group          string    `json:"group"` // legacy alias of Type (v1 stores)
+	GuildID        string    `json:"guild_id"`
+	ChannelID      string    `json:"channel_id"`             // private text channel holding the conversation
+	ChannelName    string    `json:"channel_name,omitempty"` // stored at creation for collision detection
+	MessageID      string    `json:"message_id"`             // in-channel embed carrying the Close button
+	PanelName      string    `json:"panel_name,omitempty"`
+	OpenerID       string    `json:"opener_id"`
+	OpenedAt       time.Time `json:"opened_at"`
+	ClosedAt       time.Time `json:"closed_at"`                 // zero while open
+	Status         string    `json:"status"`                    // "open" | "closed"
+	Members        []string  `json:"members,omitempty"`         // extra members added via /add
+	TranscriptPath string    `json:"transcript_path,omitempty"` // relative to DataDir; set after close
+	CloseReason    string    `json:"close_reason,omitempty"`    // "user" | "channel_deleted"
+	// CloseReasonNote is the free-text reason the closer typed into the close
+	// modal. It is deliberately SEPARATE from CloseReason: CloseReason stays
+	// the mechanical cause the code branches on ("user" vs "channel_deleted"),
+	// while this carries the human explanation and is only display material.
+	CloseReasonNote string     `json:"close_reason_note,omitempty"`
+	Log             []LogEntry `json:"log"`
 
 	// Archive maintenance. RemovedMessages is the tombstone list for messages
 	// deleted from a closed archive: the merge path must not resurrect one
@@ -246,6 +251,10 @@ type TypeDetail struct {
 	ButtonEmoji    string   `json:"button_emoji"`
 	Color          int      `json:"color"`
 	AllowClose     bool     `json:"allow_close"`
+	// CloseReason prompts the closer for a free-text reason in a modal before
+	// the ticket closes. When false the close is immediate (the historical
+	// behaviour). Default false so existing types keep their current flow.
+	CloseReason bool `json:"close_reason"`
 }
 
 // PanelInput is the write shape for creating/updating a panel. Name is the

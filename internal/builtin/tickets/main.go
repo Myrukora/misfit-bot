@@ -56,7 +56,7 @@ func (m *TicketsModule) Dependencies() []string {
 
 func (m *TicketsModule) SlashCommands() []commands.SlashCommand {
 	return []commands.SlashCommand{
-		{Name: "close", Description: "Close the ticket in this channel", Category: "Tickets", Execute: m.closeTicketCommand},
+		{Name: "close", Description: "Close the ticket in this channel", Category: "Tickets", Execute: m.closeTicketCommand, RawModal: m.closeTicketModal},
 		{
 			Name: "add", Description: "Add a member to the ticket in this channel", Category: "Tickets",
 			Options: []discord.ApplicationCommandOption{discord.ApplicationCommandOptionUser{

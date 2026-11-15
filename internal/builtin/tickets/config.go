@@ -39,10 +39,17 @@ type TypeConfig struct {
 	ButtonEmoji string     `yaml:"button_emoji"`
 	Color       colorValue `yaml:"color"`
 	AllowClose  *bool      `yaml:"allow_close"`
-	Seq         int        `yaml:"seq"`
+	// CloseReason prompts the closer for a free-text reason before closing.
+	// nil means off, so every existing type keeps its immediate-close flow.
+	CloseReason *bool `yaml:"close_reason,omitempty"`
+	Seq         int   `yaml:"seq"`
 }
 
 func (t *TypeConfig) AllowCloseOn() bool { return t.AllowClose == nil || *t.AllowClose }
+
+// CloseReasonOn reports whether this type asks for a close reason. Off by
+// default (nil), unlike AllowClose which defaults on.
+func (t *TypeConfig) CloseReasonOn() bool { return t.CloseReason != nil && *t.CloseReason }
 
 // QuestionConfig is one open-time modal field for a panel.
 type QuestionConfig struct {

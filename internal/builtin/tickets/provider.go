@@ -73,8 +73,10 @@ func (m *TicketsModule) GetTicket(guildID, ticketID string) (*modules.Ticket, er
 	return m.store.load(guildID, ticketID)
 }
 
-// CloseTicket closes a ticket on behalf of byUserID. Idempotent.
-func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
+// CloseTicket closes a ticket on behalf of byUserID. Idempotent. reasonNote is
+// the free-text reason the closer supplied (empty when the type does not ask
+// for one); it lands in the ticket's CloseReasonNote.
+func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID, reasonNote string) error {
 	if !m.isLoaded() {
 		return fmt.Errorf("tickets module is not loaded")
 	}
@@ -93,7 +95,7 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 	// caller (dashboard + in-chat, or two dashboard tabs) sees Status already
 	// closed and returns without duplicating the close entry or the tail.
 	tk, changed, err := m.store.mutate(guildID, ticketID, func(cur *modules.Ticket) bool {
-		return m.markClosed(cur, byUserID, closerName, "user")
+		return m.markClosed(cur, byUserID, closerName, "user", reasonNote)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to persist close: %w", err)
@@ -115,7 +117,7 @@ func (m *TicketsModule) CloseTicket(guildID, ticketID, byUserID string) error {
 				m.ctx.Logger.Error("Tickets: panic in close tail for %s: %v", tk.ID, r)
 			}
 		}()
-		m.finalizeTicket(tk, g, byUserID, "user", closeOptions{}, true)
+		m.finalizeTicket(tk, g, byUserID, "user", closeOptions{reasonNote: reasonNote}, true)
 	}()
 	return nil
 }

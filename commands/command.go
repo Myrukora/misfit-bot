@@ -20,6 +20,16 @@ type SlashCommand struct {
 	OwnerOnly      bool
 	SuperOwnerOnly bool
 	Execute        func(ctx *Context) error
+	// RawModal is offered the interaction BEFORE the automatic deferral and
+	// only after the permission gates pass. Returning true means it answered
+	// with a modal via ctx.Modal and Execute must be skipped — a modal is only
+	// valid as the INTERACTION'S INITIAL response, which is why this cannot be
+	// done from Execute (the dispatcher has already deferred by then).
+	//
+	// Implementations must return false when they do not want to prompt, and
+	// must treat ctx.Modal errors as a failed prompt (never as "already
+	// answered"). Nil for every command that never needs a modal.
+	RawModal func(ctx *Context) bool
 }
 
 type Context struct {
@@ -35,6 +45,11 @@ type Context struct {
 	// embeds). Nil for web-executed commands, which cannot attach files;
 	// callers must fall back to Respond.
 	RespondWithFiles func(files []*discord.File, embeds ...discord.Embed) error
+	// Modal sends a modal as the interaction's INITIAL response. It is only
+	// valid inside RawModal (the dispatcher has not deferred yet); it is nil
+	// everywhere else, including Execute and web execution. Callers that want
+	// to prompt must check for nil rather than assuming it exists.
+	Modal func(modal discord.ModalCreate) error
 }
 
 // Auto-delete rule (enforced by the dispatcher in cmd/bot/main.go):

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
@@ -59,6 +60,12 @@ func closeLogEmbed(tk *modules.Ticket, g TypeConfig, closedBy string) (title, de
 	}
 	desc = fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s>%s",
 		label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, reasonLine)
+	// The free-text reason the closer typed. Truncated generously: the embed
+	// description caps at 4096 chars and the label/IDs above are short, but a
+	// pasted essay is still possible.
+	if note := strings.TrimSpace(tk.CloseReasonNote); note != "" {
+		desc += "\n> " + truncateRunes(note, 1000)
+	}
 	return title, desc
 }
 
@@ -87,7 +94,7 @@ func (m *TicketsModule) finalizeDeletedTicket(tk *modules.Ticket, reason string)
 	// BEFORE editing buttons / saving / spawning the tail — otherwise the
 	// transcript and the "Ticket closed" log post would run twice.
 	post, changed, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
-		return m.markClosed(cur, "", "", reason)
+		return m.markClosed(cur, "", "", reason, "")
 	})
 	if err != nil || post == nil || !changed {
 		return

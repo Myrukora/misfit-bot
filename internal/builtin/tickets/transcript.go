@@ -29,14 +29,21 @@ const maxAttachmentBytes = 25 << 20 // 25MB per file
 type closeOptions struct {
 	skipLock    bool
 	skipHistory bool
+	// reasonNote is the free-text reason the closer typed. It is re-asserted
+	// onto the stored copy by the merge mutation below, because the caller's
+	// snapshot may never have been persisted (the channel-delete path).
+	reasonNote string
 }
 
 // markClosed marks a ticket closed (idempotent). Returns false if it was
-// already closed. reason is the CloseReason value ("user" | "channel_deleted").
+// already closed. reason is the CloseReason value ("user" | "channel_deleted");
+// note is the optional free-text explanation kept in CloseReasonNote. The two
+// are deliberately separate: reason is the mechanical cause the code branches
+// on, note is display material and may be empty.
 // Callers hold the serialization point: it either runs inside a store
 // mutation or is given a copy nobody else can reach, so no module lock is
 // taken here (the store lock is what makes the close atomic).
-func (m *TicketsModule) markClosed(tk *modules.Ticket, byUserID, byName, reason string) bool {
+func (m *TicketsModule) markClosed(tk *modules.Ticket, byUserID, byName, reason, note string) bool {
 	if tk.Status != "open" {
 		return false
 	}
@@ -44,6 +51,7 @@ func (m *TicketsModule) markClosed(tk *modules.Ticket, byUserID, byName, reason 
 	tk.Status = "closed"
 	tk.ClosedAt = now
 	tk.CloseReason = reason
+	tk.CloseReasonNote = note
 	return true
 }
 
@@ -83,7 +91,7 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 	post, _, err := m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
 		dirty := false
 		if cur.Status == "open" {
-			m.markClosed(cur, closedBy, closedBy, reason)
+			m.markClosed(cur, closedBy, closedBy, reason, opts.reasonNote)
 			dirty = true
 		}
 		if cur.ClosedAt.IsZero() {
@@ -92,6 +100,12 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 		}
 		if cur.CloseReason == "" {
 			cur.CloseReason = reason
+			dirty = true
+		}
+		// The note rides in closeOptions, not on tk: the caller's snapshot may
+		// never have been persisted (channel-delete path), so re-assert it here.
+		if opts.reasonNote != "" && cur.CloseReasonNote == "" {
+			cur.CloseReasonNote = opts.reasonNote
 			dirty = true
 		}
 		if mergeEntriesInto(cur, history) {
@@ -436,6 +450,11 @@ func buildTranscriptHTML(t *modules.Ticket, guildName string) string {
 	}
 	b.WriteString(fmt.Sprintf("<div class='meta'>Guild: %s · Ticket: <code>%s</code> · Status: %s · Opened %s</div>",
 		esc(guildName), esc(t.ID), status, t.OpenedAt.UTC().Format(time.RFC1123)))
+	// The free-text close reason, when one was collected. Kept out of the
+	// message stream: it is ticket metadata, not conversation.
+	if note := strings.TrimSpace(t.CloseReasonNote); note != "" {
+		b.WriteString("<div class='meta'>Close reason: " + esc(note) + "</div>")
+	}
 
 	for _, e := range t.VisibleLog() {
 		cls := "msg"

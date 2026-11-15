@@ -202,6 +202,38 @@ func (m *TicketsModule) renameTicketCommand(ctx *commands.Context) error {
 	return ctx.Respond(embed.Success("✏️ Renamed", "Ticket channel is now **#"+name+"**."))
 }
 
+// closeTicketModal decides whether /close must first prompt for a reason.
+// Returns true when it has answered the interaction with a modal, in which
+// case the dispatcher skips Execute and the modal-submit handler performs the
+// close. Permission is checked HERE (before prompting) and again on submit.
+func (m *TicketsModule) closeTicketModal(ctx *commands.Context) bool {
+	if ctx.Modal == nil || ctx.GuildID == "" {
+		return false
+	}
+	tk := m.ticketFromChannel(ctx)
+	if tk == nil || tk.Status != "open" {
+		return false // let Execute explain why
+	}
+	userID := ctx.Author.ID.String()
+	isOpener := userID == tk.OpenerID
+	if isOpener && !m.openerMayClose(tk) {
+		return false // Execute reports "ask a helper"
+	}
+	if !isOpener && !m.isHelper(ctx, tk, userID) {
+		return false // Execute reports the permission error
+	}
+	if !m.typeAsksCloseReason(tk.GuildID, tk.EffectiveType()) {
+		return false // no prompt configured: immediate close in Execute
+	}
+	if err := ctx.Modal(buildCloseModal(tk.ID)); err != nil {
+		m.ctx.Logger.Warn("Tickets: failed to send /close modal for %s: %v", tk.ID, err)
+		// Nothing was answered, so fall through — Execute closes immediately
+		// rather than leaving the user with a dead interaction.
+		return false
+	}
+	return true
+}
+
 // closeTicketCommand is shared by the /close slash command: the ticket is
 // resolved from the channel topic, so it takes no arguments.
 func (m *TicketsModule) closeTicketCommand(ctx *commands.Context) error {
@@ -217,7 +249,7 @@ func (m *TicketsModule) closeTicketCommand(ctx *commands.Context) error {
 	if !isOpener && !m.isHelper(ctx, tk, userID) {
 		return ctx.Respond(embed.Error("❌ Error", "Only helpers or the ticket opener can close."))
 	}
-	if err := m.CloseTicket(ctx.GuildID, tk.ID, userID); err != nil {
+	if err := m.CloseTicket(ctx.GuildID, tk.ID, userID, ""); err != nil {
 		return ctx.Respond(embed.Error("❌ Error", "Failed to close: "+err.Error()))
 	}
 	return ctx.Respond(embed.Success("🔒 Ticket closed", "`"+tk.ID+"` — transcript saved to the log channel and dashboard."))

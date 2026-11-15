@@ -77,6 +77,7 @@ func typeDetail(t *TypeConfig) modules.TypeDetail {
 		ButtonEmoji:    t.ButtonEmoji,
 		Color:          int(t.Color),
 		AllowClose:     t.AllowCloseOn(),
+		CloseReason:    t.CloseReasonOn(),
 	}
 }
 
@@ -140,6 +141,7 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 		ButtonEmoji: emoji,
 		Color:       colorValue(in.Color),
 		AllowClose:  boolPtr(in.AllowClose),
+		CloseReason: boolPtr(in.CloseReason),
 	}
 	if prev != nil {
 		t.Seq = prev.Seq

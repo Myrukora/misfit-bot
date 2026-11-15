@@ -723,14 +723,19 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		args = commands.SlashArgs(*scmd, slashData)
 	}
 
-	// Defer the interaction FIRST: slash commands may do slow REST work
-	// (e.g. cleanup's bulk deletes) and Discord only allows ~3 seconds for
-	// the initial callback. All responses below go out as follow-up messages
-	// on the deferred "thinking" response; error embeds are auto-deleted by
-	// removing their follow-up message after the usual delay.
-	if err := event.DeferCreateMessage(false); err != nil {
-		Log.Error("Failed to defer slash command /%s: %v", cmdName, err)
-		return
+	// Deferral is LAZY: a modal is only valid as the interaction's INITIAL
+	// response, so a command that prompts (RawModal) must answer before we
+	// defer. Every other path defers at the same point as before — the helper
+	// is idempotent, so callers below simply "ensure deferred" before replying.
+	deferred := false
+	ensureDeferred := func() {
+		if deferred {
+			return
+		}
+		deferred = true
+		if err := event.DeferCreateMessage(false); err != nil {
+			Log.Error("Failed to defer slash command /%s: %v", cmdName, err)
+		}
 	}
 
 	// Auto-delete: only error-colored (red) embeds vanish, after 7s. Every
@@ -750,7 +755,12 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		GuildID:   guildID,
 		Author:    user,
 		Args:      args,
+		// Modal answers as the initial response; only valid before deferral.
+		// Cleared once we defer so a late call fails loudly in review rather
+		// than being silently accepted by Discord.
+		Modal: func(modal discord.ModalCreate) error { return event.Modal(modal) },
 		Respond: func(embeds ...discord.Embed) error {
+			ensureDeferred()
 			msg, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{Embeds: embeds})
 			if err != nil {
 				Log.Error("Slash command respond failed for /%s: %v", cmdName, err)
@@ -761,6 +771,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 		},
 		ReplyText: func(text string) error {
 			// Plain-text replies aren't error embeds, so they never auto-delete.
+			ensureDeferred()
 			_, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{
 				Content: text,
 			})
@@ -770,6 +781,7 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 			return err
 		},
 		RespondWithFiles: func(files []*discord.File, embeds ...discord.Embed) error {
+			ensureDeferred()
 			msg, err := Client.Rest.CreateFollowupMessage(event.Client().ApplicationID, event.Token(), discord.MessageCreate{
 				Embeds: embeds,
 				Files:  files,
@@ -820,6 +832,22 @@ func onSlashCommand(event *events.ApplicationCommandInteractionCreate) {
 			return
 		}
 	}
+
+	// Modal hook: a command that prompts (e.g. /close asking for a reason)
+	// answers here, BEFORE the lazy deferral, because Discord only accepts a
+	// modal as the interaction's initial response. Returning true means the
+	// interaction is already answered, so Execute must not run.
+	if scmd.RawModal != nil && scmd.RawModal(ctx) {
+		return
+	}
+	// From here on the interaction is message-based: deferral may already have
+	// happened, so a modal would be rejected. Drop the responder so a stray
+	// call fails visibly instead of racing Discord's validation.
+	ctx.Modal = nil
+	// Guarantee an ack before running the body: deferral used to be
+	// unconditional here, and a command that returns without responding must
+	// not leave Discord showing "application did not respond" after 3s.
+	ensureDeferred()
 
 	if err := scmd.Execute(ctx); err != nil {
 		Log.Error("Slash command /%s failed: %v", cmdName, err)

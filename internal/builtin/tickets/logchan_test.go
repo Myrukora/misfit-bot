@@ -48,7 +48,7 @@ func TestFinalizeTicketChannelDeleted(t *testing.T) {
 		t.Fatalf("save: %v", err)
 	}
 
-	if !m.markClosed(tk, "", "", "channel_deleted") {
+	if !m.markClosed(tk, "", "", "channel_deleted", "") {
 		t.Fatal("markClosed should return true for an open ticket")
 	}
 	m.finalizeTicket(tk, TypeConfig{}, "", "channel_deleted", closeOptions{skipLock: true, skipHistory: true}, false)

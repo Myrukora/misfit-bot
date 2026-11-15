@@ -6,6 +6,8 @@ import (
 
 	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/events"
+
+	"github.com/misfit/bot/modules"
 )
 
 // answer is one answered open-time question (label + free-text value).
@@ -16,6 +18,27 @@ type answer struct {
 
 // modalCustomIDPrefix marks the open-question modal's custom_id.
 const modalCustomIDPrefix = "tickets:openmodal:"
+
+// closeModalCustomIDPrefix marks the close-reason modal's custom_id. The
+// ticket ID rides in the custom_id because a modal submit carries no link back
+// to the message it came from.
+const closeModalCustomIDPrefix = "tickets:closemodal:"
+
+// closeReasonFieldID is the custom_id of the single text input in the close
+// modal.
+const closeReasonFieldID = "reason"
+
+// maxCloseReason caps the stored free-text close reason. Discord's own modal
+// input cap is 4000; the log embed only shows the first 1000.
+const maxCloseReason = 1000
+
+// buildCloseModal constructs the close-reason modal for one ticket.
+func buildCloseModal(ticketID string) discord.ModalCreate {
+	input := discord.NewTextInput(closeReasonFieldID, discord.TextInputStyleParagraph)
+	input = input.WithPlaceholder("Why is this ticket being closed?").WithRequired(true)
+	return discord.NewModalCreate(closeModalCustomIDPrefix+ticketID, "Close ticket").
+		AddLabel("Reason for closing", input)
+}
 
 // buildOpenModal constructs the Discord modal for a panel's open-time
 // questions. The title is the panel's ModalTitle, falling back to the panel
@@ -68,10 +91,11 @@ func (m *TicketsModule) panelUsesModal(guildID, panelName string) bool {
 }
 
 // HandlesRawComponent reports whether this module wants the raw (un-deferred)
-// component event for e — i.e. an open button whose panel uses a modal. The
-// dispatcher defers the interaction only when no loaded module handles it
-// raw. MUST return false when the module is not loaded so an unload can never
-// leave a component unacknowledged.
+// component event for e — an open button whose panel uses a modal, or a close
+// button whose type asks for a close reason. The dispatcher defers the
+// interaction only when no loaded module handles it raw. MUST return false
+// when the module is not loaded so an unload can never leave a component
+// unacknowledged.
 func (m *TicketsModule) HandlesRawComponent(e *events.ComponentInteractionCreate) bool {
 	if m.ctx == nil || !m.isLoaded() {
 		return false
@@ -80,16 +104,33 @@ func (m *TicketsModule) HandlesRawComponent(e *events.ComponentInteractionCreate
 	if !ok {
 		return false
 	}
-	const prefix = "tickets:open:"
-	if !strings.HasPrefix(data.CustomID(), prefix) {
-		return false
-	}
-	panelName := strings.TrimPrefix(data.CustomID(), prefix)
 	guildID := guildIDOf(e)
 	if guildID == "" {
 		return false
 	}
-	return m.panelUsesModal(guildID, panelName)
+	customID := data.CustomID()
+	const openPrefix = "tickets:open:"
+	if strings.HasPrefix(customID, openPrefix) {
+		return m.panelUsesModal(guildID, strings.TrimPrefix(customID, openPrefix))
+	}
+	const closePrefix = "tickets:close:"
+	if strings.HasPrefix(customID, closePrefix) {
+		ticketID := strings.TrimPrefix(customID, closePrefix)
+		tk, err := m.store.load(guildID, ticketID)
+		if err != nil || tk == nil || tk.Status != "open" {
+			return false
+		}
+		return m.typeAsksCloseReason(tk.GuildID, tk.EffectiveType())
+	}
+	return false
+}
+
+// typeAsksCloseReason reports whether a type prompts for a reason before
+// closing. A vanished type means no prompt (fail closed to the historical
+// immediate-close flow).
+func (m *TicketsModule) typeAsksCloseReason(guildID, typeKey string) bool {
+	g, ok := m.typeOf(guildID, typeKey)
+	return ok && g.CloseReasonOn()
 }
 
 // onOpenButtonWithModal sends the open-question modal for the panel. If the
@@ -114,12 +155,94 @@ func (m *TicketsModule) onOpenButtonWithModal(e *events.ComponentInteractionCrea
 	}
 }
 
-// registerModal subscribes the modal-submit hook for open-question modals.
+// registerModal subscribes the modal-submit hook for open-question and
+// close-reason modals.
 func (m *TicketsModule) registerModal() {
 	m.ctx.Events.AddModalSubmit(func(e *events.ModalSubmitInteractionCreate) {
 		defer m.recoverLog("modal-submit")
+		if strings.HasPrefix(e.Data.CustomID, closeModalCustomIDPrefix) {
+			m.onCloseModalSubmit(e)
+			return
+		}
 		m.onOpenModalSubmit(e)
 	})
+}
+
+// canCloseAsUser is the interaction-free twin of canCloseTicket, for paths
+// that have no ComponentInteractionCreate (modal submits). It mirrors the same
+// rules: the opener may close while the type allows it; everyone else needs a
+// helper role, Manage Messages, or bot owner/elevated. Everything here is
+// REST-based, so it works without the Server Members intent.
+func (m *TicketsModule) canCloseAsUser(tk *modules.Ticket, userID string) bool {
+	if userID == "" {
+		return false
+	}
+	if userID == tk.OpenerID {
+		return m.openerMayClose(tk)
+	}
+	if m.ctx.Bot != nil && (m.ctx.Bot.IsOwner(userID) || m.ctx.Bot.IsElevated(userID)) {
+		return true
+	}
+	if isHelperByType(m, tk, userID) {
+		return true
+	}
+	if perms, ok := m.memberPermissions(tk.GuildID, userID); ok && perms.Has(discord.PermissionManageMessages) {
+		return true
+	}
+	return false
+}
+
+// onCloseModalSubmit handles a submitted close-reason modal: it closes the
+// ticket with the typed reason and updates the deferred reply. Permission is
+// re-checked here even though the button that opened the modal was already
+// authorized: the submit is a SEPARATE interaction, and the closer may have
+// lost their helper role (or the opener may have lost the right) in between.
+func (m *TicketsModule) onCloseModalSubmit(e *events.ModalSubmitInteractionCreate) {
+	ticketID := strings.TrimPrefix(e.Data.CustomID, closeModalCustomIDPrefix)
+	if e.GuildID() == nil {
+		_ = e.CreateMessage(discord.MessageCreate{
+			Content: "Tickets only work inside a server.",
+			Flags:   discord.MessageFlagEphemeral,
+		})
+		return
+	}
+	guildID := e.GuildID().String()
+	_ = e.DeferCreateMessage(true)
+
+	updateResult := func(content string) {
+		if _, err := m.ctx.Rest.UpdateInteractionResponse(e.ApplicationID(), e.Token(), discord.MessageUpdate{
+			Content: new(content),
+		}); err != nil {
+			m.ctx.Logger.Warn("Tickets: failed to update close result: %v", err)
+		}
+	}
+
+	tk, err := m.store.load(guildID, ticketID)
+	if err != nil || tk == nil || tk.Status != "open" {
+		updateResult("This ticket is already closed.")
+		return
+	}
+	userID := e.User().ID.String()
+	if !m.canCloseAsUser(tk, userID) {
+		updateResult("Only helpers or the ticket opener can close tickets.")
+		return
+	}
+	note := strings.TrimSpace(e.Data.Text(closeReasonFieldID))
+	if note == "" {
+		// Discord's "required" only rejects an empty box, so whitespace slips
+		// through. Refuse rather than closing with a blank reason, which would
+		// defeat the point of asking.
+		updateResult("A reason is required to close this ticket — press Close and enter one.")
+		return
+	}
+	if runes := []rune(note); len(runes) > maxCloseReason {
+		note = string(runes[:maxCloseReason])
+	}
+	if err := m.closeTicketFromInteraction(guildID, ticketID, userID, note); err != nil {
+		updateResult("Failed to close: " + err.Error())
+		return
+	}
+	updateResult("Ticket **" + ticketID + "** closed — transcript is being saved.")
 }
 
 // onOpenModalSubmit handles a submitted open-question modal: it defers an

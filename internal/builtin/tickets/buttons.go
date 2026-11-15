@@ -127,9 +127,22 @@ func (m *TicketsModule) onCloseButton(e *events.ComponentInteractionCreate, tick
 		m.ephemeralErr(e, "Only helpers or the ticket opener can close tickets.")
 		return
 	}
+	// Permission passed: if the type wants a reason, prompt for it. The modal
+	// is the interaction's initial response, so the dispatcher left this
+	// interaction un-deferred (HandlesRawComponent claimed it), and the actual
+	// close happens in the modal-submit handler.
+	if m.typeAsksCloseReason(tk.GuildID, tk.EffectiveType()) {
+		if err := e.Modal(buildCloseModal(ticketID)); err != nil {
+			m.ctx.Logger.Warn("Tickets: failed to send close modal for %s: %v", ticketID, err)
+			// Still unanswered, so answer it: a prompt that never appears must
+			// not leave the user staring at a dead button.
+			m.ephemeralErr(e, "Could not open the close form — please press Close again.")
+		}
+		return
+	}
 	// Acknowledge FIRST (3s interaction deadline), then run the close; the
 	// transcript pipeline continues in the background inside CloseTicket.
-	if err := m.closeTicketFromInteraction(guildID, ticketID, e.User().ID.String()); err != nil {
+	if err := m.closeTicketFromInteraction(guildID, ticketID, e.User().ID.String(), ""); err != nil {
 		m.ephemeralErr(e, "Failed to close: "+err.Error())
 		return
 	}
@@ -165,15 +178,16 @@ func (m *TicketsModule) canCloseTicket(e *events.ComponentInteractionCreate, tk 
 }
 
 // closeTicketFromInteraction runs CloseTicket with panic recovery so a close
-// failure never takes down the interaction handler.
-func (m *TicketsModule) closeTicketFromInteraction(guildID, ticketID, userID string) (err error) {
+// failure never takes down the interaction handler. reasonNote is the free-text
+// reason the closer supplied (empty when the type does not ask for one).
+func (m *TicketsModule) closeTicketFromInteraction(guildID, ticketID, userID, reasonNote string) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			m.ctx.Logger.Error("Tickets: panic closing %s: %v", ticketID, r)
 			err = fmt.Errorf("internal error")
 		}
 	}()
-	return m.CloseTicket(guildID, ticketID, userID)
+	return m.CloseTicket(guildID, ticketID, userID, reasonNote)
 }
 
 // canManage checks ManageMessages (in-guild member perms) OR bot-level

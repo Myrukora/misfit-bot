@@ -396,10 +396,10 @@ func TestMarkClosedIdempotent(t *testing.T) {
 		loaded: true,
 	}
 	tk := mkTicket("staff-0001", "g1", "staff")
-	if !m.markClosed(tk, "42", "tester", "user") {
+	if !m.markClosed(tk, "42", "tester", "user", "") {
 		t.Fatal("first markClosed should return true")
 	}
-	if m.markClosed(tk, "42", "tester", "user") {
+	if m.markClosed(tk, "42", "tester", "user", "") {
 		t.Fatal("second markClosed should return false")
 	}
 	for _, e := range tk.Log {
