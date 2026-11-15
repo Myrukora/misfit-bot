@@ -1,6 +1,7 @@
 package tickets
 
 import (
+	"bytes"
 	"fmt"
 	"html"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/misfit/bot/internal/safehttp"
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
 
@@ -83,7 +85,7 @@ func (m *TicketsModule) finalizeTicket(tk *modules.Ticket, g TypeConfig, closedB
 		m.ctx.Logger.Warn("Tickets: mirror mkdir %s: %v", filesDir, err)
 	}
 	client := safehttp.NewClient(60 * time.Second)
-	fixes := planTicketMedia(client, tk, filesDir, dataDir, m.ctx.Logger)
+	fixes := planTicketMedia(client, m.store.key, tk, filesDir, dataDir, m.ctx.Logger)
 
 	// 3) Merge history + media fixes + the close fields onto the stored copy.
 	// The close fields are re-asserted because the caller's copy may never
@@ -207,7 +209,7 @@ func (m *TicketsModule) renderTranscriptToDiskLocked(guildID, ticketID string) (
 	if err := ensurePrivateDir(filepath.Dir(htmlPath)); err != nil {
 		return nil, "", nil, err
 	}
-	if err := writePrivateFile(htmlPath, []byte(htmlStr)); err != nil {
+	if err := writePrivateFile(htmlPath, m.store.seal([]byte(htmlStr))); err != nil {
 		return nil, "", nil, err
 	}
 	// Persist the path RELATIVE to DataDir (the dashboard serves it that way);
@@ -350,7 +352,7 @@ func sortLogByTime(log []modules.LogEntry) {
 	})
 }
 
-func downloadAttachment(client *http.Client, url, dir, prefix, filename string, maxBytes int64) (string, error) {
+func downloadAttachment(client *http.Client, key *securefile.Key, url, dir, prefix, filename string, maxBytes int64) (string, error) {
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", err
@@ -373,14 +375,22 @@ func downloadAttachment(client *http.Client, url, dir, prefix, filename string, 
 		return "", err
 	}
 	path := filepath.Join(dir, name)
-	n, err := io.Copy(f, io.LimitReader(resp.Body, maxBytes+1))
+	// Buffer through memory (bounded by maxBytes) so the bytes can be sealed
+	// before they ever touch disk: a mirrored ticket attachment is API Data.
+	var buf bytes.Buffer
+	n, err := io.Copy(&buf, io.LimitReader(resp.Body, maxBytes+1))
 	closeErr := f.Close()
 	if err != nil {
+		_ = os.Remove(path)
 		return "", err
 	}
 	if n > maxBytes {
 		_ = os.Remove(path)
 		return "", fmt.Errorf("attachment exceeds %d bytes", maxBytes)
+	}
+	if writeErr := writePrivateFile(path, key.Seal(buf.Bytes())); writeErr != nil {
+		_ = os.Remove(path)
+		return "", writeErr
 	}
 	return path, closeErr
 }
@@ -584,11 +594,17 @@ func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeCon
 	if err != nil {
 		return
 	}
-	f, err := os.Open(htmlPath)
+	// The file on disk is encrypted at rest, so it cannot be streamed
+	// straight to Discord: read + decrypt, then upload the plaintext HTML.
+	rawHTML, err := os.ReadFile(htmlPath)
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	plain, err := m.store.open(rawHTML)
+	if err != nil {
+		m.ctx.Logger.Warn("Tickets: transcript decrypt for upload failed: %v", err)
+		return
+	}
 	label := g.Label
 	if label == "" {
 		label = tk.EffectiveType()
@@ -597,7 +613,7 @@ func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeCon
 	create := discord.MessageCreate{
 		Content: fmt.Sprintf("📜 Transcript of **%s** (`%s`)", label, tk.ID),
 		Embeds:  []discord.Embed{embedInfo(title, desc)},
-		Files:   []*discord.File{{Name: "ticket-" + tk.ID + ".html", Reader: f}},
+		Files:   []*discord.File{{Name: "ticket-" + tk.ID + ".html", Reader: bytes.NewReader(plain)}},
 	}
 	if _, err := m.ctx.Rest.CreateMessage(chID, create); err != nil {
 		m.ctx.Logger.Warn("Tickets: transcript upload failed: %v", err)

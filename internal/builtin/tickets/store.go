@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
 
@@ -21,6 +22,9 @@ import (
 type store struct {
 	mu      sync.RWMutex
 	dataDir string
+	// key encrypts ticket JSON at rest. Nil disables encryption (tests, and
+	// any caller that has not provisioned a key).
+	key *securefile.Key
 	// tickets[guildID][ticketID] — open tickets only; closed ones are read
 	// from disk on demand so memory stays small.
 	tickets map[string]map[string]*modules.Ticket
@@ -37,7 +41,14 @@ func ticketsRoot(dataDir string) string {
 // loaded too (they are few) and then dropped from the live map — GetTicket
 // reads them from disk.
 func openStore(dataDir string) (*store, error) {
-	s := &store{dataDir: dataDir, tickets: map[string]map[string]*modules.Ticket{}, reserved: map[string]bool{}}
+	return openStoreWithKey(dataDir, nil)
+}
+
+// openStoreWithKey is openStore with at-rest encryption. A nil key keeps the
+// historical plaintext behaviour, which also keeps the existing tests (and
+// any deployment that has not provisioned a key) working unchanged.
+func openStoreWithKey(dataDir string, key *securefile.Key) (*store, error) {
+	s := &store{dataDir: dataDir, key: key, tickets: map[string]map[string]*modules.Ticket{}, reserved: map[string]bool{}}
 	root := ticketsRoot(dataDir)
 	guilds, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
@@ -59,7 +70,7 @@ func openStore(dataDir string) (*store, error) {
 			if f.IsDir() || f.Name() == "index.json" || filepath.Ext(f.Name()) != ".json" {
 				continue
 			}
-			tk, err := readTicketFile(filepath.Join(root, guildID, f.Name()))
+			tk, err := s.readTicketFile(filepath.Join(root, guildID, f.Name()))
 			if err != nil || tk == nil {
 				continue // corrupt file: skip, never block startup
 			}
@@ -74,8 +85,18 @@ func openStore(dataDir string) (*store, error) {
 	return s, nil
 }
 
+// seal encrypts derived state (transcript HTML) with the store's key. Nil-key
+// stores get plaintext, matching the ticket JSON behaviour.
+func (s *store) seal(data []byte) []byte { return s.key.Seal(data) }
+
+// open decrypts derived state written by seal. Legacy plaintext passes
+// through unchanged so transcripts written by older builds still read.
+func (s *store) open(data []byte) ([]byte, error) { return s.key.Open(data) }
+
 // readTicketFile decodes one ticket JSON; returns (nil, nil) on absence.
-func readTicketFile(path string) (*modules.Ticket, error) {
+// The file may be encrypted (see securefile), in which case it is decrypted
+// first; legacy plaintext files load unchanged.
+func (s *store) readTicketFile(path string) (*modules.Ticket, error) {
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -83,8 +104,12 @@ func readTicketFile(path string) (*modules.Ticket, error) {
 	if err != nil {
 		return nil, err
 	}
+	plain, err := s.key.Open(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt ticket file %s: %w", path, err)
+	}
 	var tk modules.Ticket
-	if err := json.Unmarshal(raw, &tk); err != nil {
+	if err := json.Unmarshal(plain, &tk); err != nil {
 		return nil, fmt.Errorf("corrupt ticket file %s: %w", path, err)
 	}
 	return &tk, nil
@@ -158,7 +183,9 @@ func (s *store) saveLocked(tk *modules.Ticket) error {
 		return err
 	}
 	path := filepath.Join(dir, cp.ID+".json")
-	if err := writePrivateFile(path, out); err != nil {
+	// Seal before the atomic write: ticket JSON carries the conversation, so
+	// at-rest encryption has to happen here, not at the filesystem layer.
+	if err := writePrivateFile(path, s.key.Seal(out)); err != nil {
 		return err
 	}
 	if s.tickets[cp.GuildID] == nil {
@@ -184,7 +211,7 @@ func (s *store) load(guildID, ticketID string) (*modules.Ticket, error) {
 		}
 	}
 	s.mu.RUnlock()
-	tk, err := readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
+	tk, err := s.readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
 	if err != nil || tk == nil {
 		return tk, err
 	}
@@ -213,7 +240,7 @@ func (s *store) mutateLocked(guildID, ticketID string, fn func(tk *modules.Ticke
 	}
 	if tk == nil {
 		var err error
-		tk, err = readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
+		tk, err = s.readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, ticketID+".json"))
 		if err != nil || tk == nil {
 			return nil, false, err
 		}
@@ -306,7 +333,7 @@ func (s *store) deleteArchivedTicket(guildID, ticketID string) error {
 	defer s.mu.Unlock()
 	base := filepath.Join(ticketsRoot(s.dataDir), guildID)
 	jsonPath := filepath.Join(base, ticketID+".json")
-	tk, err := readTicketFile(jsonPath)
+	tk, err := s.readTicketFile(jsonPath)
 	if err != nil {
 		return err
 	}
@@ -350,7 +377,7 @@ func (s *store) listClosed(guildID string) ([]modules.TicketSummary, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || e.Name() == "index.json" {
 			continue
 		}
-		tk, err := readTicketFile(filepath.Join(dir, e.Name()))
+		tk, err := s.readTicketFile(filepath.Join(dir, e.Name()))
 		if err != nil || tk == nil || tk.Status != "closed" {
 			continue
 		}
@@ -386,7 +413,7 @@ func (s *store) openIDsLocked(guildID string) []string {
 		if e.IsDir() || name == "index.json" || !strings.HasSuffix(name, ".json") {
 			continue
 		}
-		tk, err := readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, name))
+		tk, err := s.readTicketFile(filepath.Join(ticketsRoot(s.dataDir), guildID, name))
 		if err == nil && tk != nil && tk.Status == "open" {
 			ids = append(ids, tk.ID)
 		}
@@ -579,7 +606,7 @@ func (s *store) pruneClosed(retentionDays int) int {
 			if e.IsDir() || name == "index.json" || filepath.Ext(name) != ".json" {
 				continue
 			}
-			tk, err := readTicketFile(filepath.Join(base, name))
+			tk, err := s.readTicketFile(filepath.Join(base, name))
 			if err != nil || tk == nil || tk.Status != "closed" || tk.ClosedAt.After(cutoff) {
 				continue
 			}
@@ -601,7 +628,7 @@ func (s *store) pruneClosed(retentionDays int) int {
 	for _, sc := range scans {
 		s.mu.Lock()
 		for _, c := range sc.cands {
-			tk, err := readTicketFile(c.json)
+			tk, err := s.readTicketFile(c.json)
 			if err != nil || tk == nil || tk.Status != "closed" || tk.ClosedAt.After(cutoff) {
 				continue
 			}

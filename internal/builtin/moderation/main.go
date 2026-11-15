@@ -12,8 +12,14 @@ import (
 	"github.com/disgoorg/snowflake/v2"
 
 	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
+
+// dataKeyFile is the per-module encryption key for case records, created on
+// first load at 0600. It lives beside the module's data, never in config.yml
+// or .env, so it can be backed up (and restricted) independently.
+const dataKeyFile = "data.key"
 
 // ModerationModule provides ban/kick/timeout/warn commands, a persistent case
 // audit trail, warn notifications and automatic escalation rules. Every setting
@@ -47,7 +53,14 @@ func (m *ModerationModule) OnLoad(ctx *modules.Context) error {
 	if err != nil {
 		return err
 	}
-	cases, err := openCaseStore(filepath.Join(ctx.DataDir, "cases"))
+	// At-rest encryption for case records (they name targets, staff and
+	// reasons). Provisioned once beside the module's data at 0600; a failure
+	// aborts the load rather than silently writing readable case files.
+	key, err := securefile.LoadOrCreateKey(filepath.Join(ctx.DataDir, dataKeyFile))
+	if err != nil {
+		return fmt.Errorf("moderation: load data key: %w", err)
+	}
+	cases, err := openCaseStoreWithKey(filepath.Join(ctx.DataDir, "cases"), key)
 	if err != nil {
 		return err
 	}

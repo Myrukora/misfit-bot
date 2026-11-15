@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -560,17 +561,6 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(full)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
 	// Ticket attachments are attacker-uploaded. Serve only known media
 	// extensions inline; everything else is a download with an inert type, and
 	// every ticketfile response is sandboxed so an uploaded HTML/JS/SVG file
@@ -581,6 +571,29 @@ func (m *DashboardModule) serveTicketFile(w http.ResponseWriter, r *http.Request
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
 			"filename": filepath.Base(filename),
 		}))
+	}
+	// Mirrored media is encrypted at rest, so prefer the reader that hands us
+	// plaintext bytes. The path-based branch only serves modules that store
+	// media unencrypted (older code, stubs, tests).
+	if tr, ok := tp.(modules.TicketFileReader); ok {
+		plain, cerr := tr.TicketFileContent(guildID, ticketID, filename)
+		if cerr != nil {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeContent(w, r, filename, time.Time{}, bytes.NewReader(plain))
+		return
+	}
+	f, err := os.Open(full)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
 	}
 	http.ServeContent(w, r, filename, st.ModTime(), f)
 }

@@ -65,7 +65,7 @@ func TestPlanEntryMediaAndApplyFixes(t *testing.T) {
 
 	client := srv.Client()
 	logs := []modules.LogEntry{entry}
-	fixes := planEntryMedia(client, &logs[0], filesDir, dataDir, testLogger{})
+	fixes := planEntryMedia(client, nil, &logs[0], filesDir, dataDir, testLogger{})
 	if len(fixes) != 1 || !applyFixesToLog(logs, fixes) {
 		t.Fatalf("plan/apply reported no change: %d fixes", len(fixes))
 	}
@@ -83,7 +83,7 @@ func TestPlanEntryMediaAndApplyFixes(t *testing.T) {
 
 	// Re-run: already mirrored → no fixes planned, nothing applied.
 	logs = []modules.LogEntry{entry}
-	if fixes := planEntryMedia(client, &logs[0], filesDir, dataDir, testLogger{}); len(fixes) != 0 {
+	if fixes := planEntryMedia(client, nil, &logs[0], filesDir, dataDir, testLogger{}); len(fixes) != 0 {
 		t.Fatalf("second plan produced %d fixes, want 0", len(fixes))
 	}
 	if applyFixesToLog(logs, nil) {
@@ -233,7 +233,7 @@ func TestMirrorApplyKeepsConcurrentAppend(t *testing.T) {
 		if err := os.MkdirAll(filesDir, 0755); err != nil {
 			t.Fatalf("mkdir files: %v", err)
 		}
-		fixes := planTicketMedia(&http.Client{Timeout: 60 * time.Second}, snap, filesDir, dataDir, testLogger{})
+		fixes := planTicketMedia(&http.Client{Timeout: 60 * time.Second}, nil, snap, filesDir, dataDir, testLogger{})
 		if len(fixes) != 1 {
 			t.Fatalf("planned %d fixes, want 1", len(fixes))
 		}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/misfit/bot/internal/safehttp"
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
 
@@ -77,7 +78,7 @@ func (q *mirrorQueue) run(dataDir string, st *store, stop <-chan struct{}) {
 				q.logger.Warn("Tickets: mirror mkdir %s: %v", filesDir, err)
 				continue
 			}
-			fixes := planTicketMedia(client, tk, filesDir, dataDir, q.logger)
+			fixes := planTicketMedia(client, st.key, tk, filesDir, dataDir, q.logger)
 			if len(fixes) == 0 {
 				continue
 			}
@@ -120,13 +121,13 @@ type mediaFix struct {
 // planEntryMedia downloads every non-link media item in the entry that has a
 // URL and no LocalPath yet, returning the fixes to apply. No store lock is
 // held and no ticket state is touched: the downloads are pure I/O.
-func planEntryMedia(client *http.Client, entry *modules.LogEntry, filesDir, dataDir string, log modules.Logger) []mediaFix {
+func planEntryMedia(client *http.Client, key *securefile.Key, entry *modules.LogEntry, filesDir, dataDir string, log modules.Logger) []mediaFix {
 	var fixes []mediaFix
 	download := func(kind string, med *modules.Media, j int, prefix string) {
 		if med.URL == "" || med.LocalPath != "" || med.Kind == "link" {
 			return
 		}
-		local, err := downloadAttachment(client, med.URL, filesDir, prefix, med.Filename, maxAttachmentBytes)
+		local, err := downloadAttachment(client, key, med.URL, filesDir, prefix, med.Filename, maxAttachmentBytes)
 		if err != nil {
 			log.Warn("Tickets: mirror %s failed: %v", med.Filename, err)
 			return
@@ -152,10 +153,10 @@ func planEntryMedia(client *http.Client, entry *modules.LogEntry, filesDir, data
 // planTicketMedia plans the media downloads for every entry in a ticket
 // SNAPSHOT. The snapshot is only read; the returned fixes are applied to the
 // current stored copy with applyMediaFixes.
-func planTicketMedia(client *http.Client, tk *modules.Ticket, filesDir, dataDir string, log modules.Logger) []mediaFix {
+func planTicketMedia(client *http.Client, key *securefile.Key, tk *modules.Ticket, filesDir, dataDir string, log modules.Logger) []mediaFix {
 	var fixes []mediaFix
 	for i := range tk.Log {
-		fixes = append(fixes, planEntryMedia(client, &tk.Log[i], filesDir, dataDir, log)...)
+		fixes = append(fixes, planEntryMedia(client, key, &tk.Log[i], filesDir, dataDir, log)...)
 	}
 	return fixes
 }

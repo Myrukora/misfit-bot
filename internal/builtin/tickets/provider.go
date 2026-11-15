@@ -477,6 +477,26 @@ func (m *TicketsModule) TicketFilePath(guildID, ticketID, name string) (string, 
 	return p, nil
 }
 
+// TicketFileContent implements modules.TicketFileReader: it returns one
+// mirrored media file's PLAINTEXT, decrypting when the file is sealed. The
+// dashboard uses this instead of TicketFilePath so encrypted archives still
+// preview.
+func (m *TicketsModule) TicketFileContent(guildID, ticketID, name string) ([]byte, error) {
+	p, err := m.TicketFilePath(guildID, ticketID, name)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("read media file: %w", err)
+	}
+	plain, err := m.store.open(raw)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt media file: %w", err)
+	}
+	return plain, nil
+}
+
 // ListPanels returns the guild's panels with their open-time question forms.
 func (m *TicketsModule) ListPanels(guildID string) ([]modules.PanelSummary, error) {
 	if !m.isLoaded() {

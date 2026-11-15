@@ -1,14 +1,22 @@
 package tickets
 
 import (
+	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/disgoorg/disgo/discord"
 
 	"github.com/misfit/bot/commands"
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
+
+// dataKeyFile is the per-module encryption key for ticket state, created on
+// first load at 0600. It lives beside the module's data, never in config.yml
+// or .env, so it can be backed up (and restricted) independently.
+const dataKeyFile = "data.key"
 
 // TicketsModule is the plugin entry struct. All mutable state is guarded by
 // mu: the store is touched from gateway event goroutines, component-interaction
@@ -92,7 +100,16 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	if err != nil {
 		return err
 	}
-	st, err := openStore(ctx.DataDir)
+	// At-rest encryption for ticket state. The key is provisioned on first run
+	// beside the module's own data (0600) and never enters config.yml or .env.
+	// A failure here must abort OnLoad rather than fall back to plaintext: the
+	// deployment promises encrypted transcripts, so silently writing readable
+	// ones would be worse than refusing to start.
+	key, err := securefile.LoadOrCreateKey(filepath.Join(ctx.DataDir, dataKeyFile))
+	if err != nil {
+		return fmt.Errorf("tickets: load data key: %w", err)
+	}
+	st, err := openStoreWithKey(ctx.DataDir, key)
 	if err != nil {
 		return err
 	}

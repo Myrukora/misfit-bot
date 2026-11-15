@@ -290,6 +290,17 @@ type PanelQuestion struct {
 	Value       string `json:"value,omitempty"` // prefill, <=4000 chars
 }
 
+// TicketFileReader is the OPTIONAL companion to TicketProvider for encrypted
+// state. When a module encrypts mirrored media at rest it must hand the
+// dashboard plaintext bytes rather than a filesystem path, because the path
+// would expose ciphertext. The dashboard prefers this method and falls back to
+// TicketFilePath for modules (or stubs) that do not implement it.
+type TicketFileReader interface {
+	// TicketFileContent returns one mirrored media file's plaintext bytes,
+	// with the same ID/filename validation as TicketFilePath.
+	TicketFileContent(guildID, ticketID, name string) ([]byte, error)
+}
+
 // TicketTranscript is the OPTIONAL interface a ticket module implements so
 // the dashboard can regenerate a ticket's HTML transcript from the stored
 // log on demand. The on-disk transcript is a CACHE of the stored log: it is

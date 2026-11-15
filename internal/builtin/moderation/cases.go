@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/misfit/bot/internal/securefile"
 	"github.com/misfit/bot/modules"
 )
 
@@ -25,14 +26,22 @@ type caseFile struct {
 type caseStore struct {
 	mu    sync.Mutex
 	dir   string
+	key   *securefile.Key
 	cache map[string]*caseFile
 }
 
 func openCaseStore(dir string) (*caseStore, error) {
+	return openCaseStoreWithKey(dir, nil)
+}
+
+// openCaseStoreWithKey is openCaseStore with at-rest encryption. Moderation
+// records name targets, staff and reasons, so they get the same treatment as
+// ticket state. A nil key keeps plaintext behaviour (tests, unprovisioned).
+func openCaseStoreWithKey(dir string, key *securefile.Key) (*caseStore, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create moderation case dir: %w", err)
 	}
-	return &caseStore{dir: dir, cache: map[string]*caseFile{}}, nil
+	return &caseStore{dir: dir, key: key, cache: map[string]*caseFile{}}, nil
 }
 
 func (s *caseStore) path(guildID string) (string, error) {
@@ -54,7 +63,11 @@ func (s *caseStore) loadLocked(guildID string) (*caseFile, error) {
 	f := &caseFile{NextID: 1}
 	raw, err := os.ReadFile(path)
 	if err == nil {
-		if err := json.Unmarshal(raw, f); err != nil {
+		plain, derr := s.key.Open(raw)
+		if derr != nil {
+			return nil, fmt.Errorf("decrypt moderation cases for guild %s: %w", guildID, derr)
+		}
+		if err := json.Unmarshal(plain, f); err != nil {
 			return nil, fmt.Errorf("corrupt moderation cases for guild %s: %w", guildID, err)
 		}
 	} else if !os.IsNotExist(err) {
@@ -77,7 +90,8 @@ func (s *caseStore) saveLocked(guildID string, f *caseFile) error {
 		return fmt.Errorf("encode moderation cases: %w", err)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+	// Seal before writing: case files name targets, staff and reasons.
+	if err := os.WriteFile(tmp, s.key.Seal(raw), 0o600); err != nil {
 		return fmt.Errorf("write moderation cases: %w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
