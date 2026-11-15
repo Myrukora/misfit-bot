@@ -64,6 +64,14 @@ func (m *ModerationModule) OnLoad(ctx *modules.Context) error {
 	if err != nil {
 		return err
 	}
+	// Sweep existing plaintext case files once at startup: a save-only
+	// migration would leave never-touched records readable indefinitely.
+	if res, mErr := securefile.Migrate(filepath.Join(ctx.DataDir, "cases"), key, 0); mErr != nil {
+		ctx.Logger.Warn("Moderation: encryption migration failed: %v", mErr)
+	} else if res.Encrypted > 0 || res.Failed > 0 {
+		ctx.Logger.Info("Moderation: encrypted %d existing case file(s), %d skipped, %d failed",
+			res.Encrypted, res.Skipped, res.Failed)
+	}
 	m.cfgStore = cfgStore
 	m.cases = cases
 	ctx.Logger.Info("Moderation module loaded")

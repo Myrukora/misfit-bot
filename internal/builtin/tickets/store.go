@@ -397,9 +397,13 @@ func (s *store) openIDsLocked(guildID string) []string {
 	idxPath := filepath.Join(ticketsRoot(s.dataDir), guildID, "index.json")
 	raw, err := os.ReadFile(idxPath)
 	if err == nil {
-		var ids []string
-		if json.Unmarshal(raw, &ids) == nil {
-			return ids
+		// index.json is encrypted like every other file under ticketsRoot; it
+		// holds ticket IDs, which are API data too.
+		if plain, derr := s.key.Open(raw); derr == nil {
+			var ids []string
+			if json.Unmarshal(plain, &ids) == nil {
+				return ids
+			}
 		}
 	}
 	// Rebuild from directory scan (single optional migration).
@@ -424,7 +428,7 @@ func (s *store) openIDsLocked(guildID string) []string {
 	// never leave a truncated index.json behind. This is a cache rebuild: a
 	// failed rewrite only costs another directory scan on the next load, so it
 	// stays best-effort instead of failing the read.
-	_ = writePrivateFile(idxPath, out)
+	_ = writePrivateFile(idxPath, s.key.Seal(out))
 	return ids
 }
 
@@ -440,7 +444,7 @@ func (s *store) writeIndexLocked(guildID string) error {
 		return err
 	}
 	path := filepath.Join(ticketsRoot(s.dataDir), guildID, "index.json")
-	return writePrivateFile(path, out)
+	return writePrivateFile(path, s.key.Seal(out))
 }
 
 // nextSeq returns the next per-guild+group sequence number under the WRITE

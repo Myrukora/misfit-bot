@@ -113,6 +113,15 @@ func (m *TicketsModule) OnLoad(ctx *modules.Context) error {
 	if err != nil {
 		return err
 	}
+	// Lazy migration only covers files the bot re-saves. Closed tickets are
+	// written once and never touched again, so sweep the tree once at startup
+	// or their conversations would stay readable forever.
+	if res, mErr := securefile.Migrate(ticketsRoot(ctx.DataDir), key, maxAttachmentBytes); mErr != nil {
+		ctx.Logger.Warn("Tickets: encryption migration failed: %v", mErr)
+	} else if res.Encrypted > 0 || res.Failed > 0 {
+		ctx.Logger.Info("Tickets: encrypted %d existing file(s), %d already encrypted, %d failed",
+			res.Encrypted, res.Skipped, res.Failed)
+	}
 	// Tighten modes left by older builds; best-effort and symlink-safe.
 	hardenTicketTree(ticketsRoot(ctx.DataDir), ctx.Logger)
 
