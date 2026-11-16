@@ -162,20 +162,22 @@ func TestFinalizeDeletedTicketAlreadyClosed(t *testing.T) {
 func TestOpenLogEmbed(t *testing.T) {
 	opened := time.Unix(1763128800, 0).UTC()
 	tk := &modules.Ticket{
-		ID: "222", GuildID: "111", ChannelID: "333", OpenerID: "999",
-		PanelName: "help-desk", OpenedAt: opened,
+		ID: "staff-0001", GuildID: "111", ChannelID: "333", OpenerID: "999",
+		ChannelName: "nikapoy-11-14", PanelName: "staff", OpenedAt: opened,
 	}
 	g := TypeConfig{Key: "support", Label: "Support"}
 	opener := discord.User{ID: 999, Username: "nikapoy", Discriminator: "0"}
 
-	e := openedLogEmbed(tk, g, opener)
+	e := openedLogEmbed(tk, g, opener, nil)
 	if e.Title != "Ticket Opened" {
 		t.Fatalf("title = %q, want Ticket Opened", e.Title)
 	}
 	for _, want := range []string{
-		"Ticket created by **nikapoy** (`222`) in <#333>.",
-		"**Panel:** `help-desk`",
-		fmt.Sprintf("**Opened on:** <t:%d:F>", opened.Unix()),
+		"**Created By:** nikapoy",
+		"**User ID:** 999",
+		fmt.Sprintf("**Opened:** <t:%d:R>", opened.Unix()),
+		"**Ticket:** nikapoy-11-14",
+		"**Panel Name:** staff",
 	} {
 		if !strings.Contains(e.Description, want) {
 			t.Fatalf("desc missing %q: %q", want, e.Description)
@@ -184,20 +186,67 @@ func TestOpenLogEmbed(t *testing.T) {
 	if e.Color != logColorOpened {
 		t.Fatalf("color = %#x, want %#x", e.Color, logColorOpened)
 	}
+	if e.Thumbnail == nil || e.Thumbnail.URL == "" {
+		t.Fatal("opened record should carry the opener avatar thumbnail")
+	}
+	// No questions, no answer block, and none of the old affordances.
+	if strings.Contains(e.Description, "\n\n") {
+		t.Fatalf("desc should be a tight label block: %q", e.Description)
+	}
+	for _, banned := range []string{"Jump", "Join", "<#"} {
+		if strings.Contains(e.Description, banned) {
+			t.Fatalf("desc must not carry %q: %q", banned, e.Description)
+		}
+	}
 
-	// An opener that cannot be resolved falls back to the raw mention, and a
-	// ticket with no panel falls back to its type key.
-	e = openedLogEmbed(tk, g, discord.User{})
-	if !strings.Contains(e.Description, "Ticket created by <@999>") {
-		t.Fatalf("desc missing the opener mention: %q", e.Description)
+	// Unresolved opener and missing channel name fall back to a mention and the
+	// ticket id; a ticket with no panel falls back to its type key.
+	noExtras := *tk
+	noExtras.ChannelName = ""
+	noExtras.PanelName = ""
+	e = openedLogEmbed(&noExtras, g, discord.User{}, nil)
+	for _, want := range []string{
+		"**Created By:** <@999>",
+		"**Ticket:** staff-0001",
+		"**Panel Name:** support",
+	} {
+		if !strings.Contains(e.Description, want) {
+			t.Fatalf("desc missing %q: %q", want, e.Description)
+		}
 	}
-	if !strings.Contains(e.Description, "**Panel:** `help-desk`") {
-		t.Fatalf("panel line should still come from the ticket: %q", e.Description)
+}
+
+// TestOpenLogEmbedAnswers pins the modal answers block: bold question, answer
+// underneath, blank line between entries, empty answers skipped, and a hard
+// clamp at Discord's description cap instead of a failed post.
+func TestOpenLogEmbedAnswers(t *testing.T) {
+	tk := &modules.Ticket{
+		ID: "apply-0002", GuildID: "111", OpenerID: "999", ChannelName: "olive-ass",
+		PanelName: "room_apply", OpenedAt: time.Unix(1763128800, 0).UTC(),
 	}
-	noPanel := *tk
-	noPanel.PanelName = ""
-	if e = openedLogEmbed(&noPanel, g, opener); !strings.Contains(e.Description, "**Panel:** `support`") {
-		t.Fatalf("panel line should fall back to the type key: %q", e.Description)
+	g := TypeConfig{Key: "apply"}
+
+	e := openedLogEmbed(tk, g, discord.User{}, []answer{
+		{Label: "Enter your Jai Profile name and link.", Value: "0liv3\nhttps://example.test/p"},
+		{Label: "Optional question", Value: "   "},
+		{Label: "Enter other Discord servers you advertise in.", Value: "https://discord.gg/x"},
+	})
+	if !strings.Contains(e.Description, "**Enter your Jai Profile name and link.**\n0liv3\nhttps://example.test/p") {
+		t.Fatalf("desc missing the first question block: %q", e.Description)
+	}
+	if strings.Contains(e.Description, "Optional question") {
+		t.Fatalf("an empty answer must be skipped: %q", e.Description)
+	}
+	if !strings.Contains(e.Description, "\n\n**Enter other Discord servers you advertise in.**\nhttps://discord.gg/x") {
+		t.Fatalf("entries must be separated by a blank line: %q", e.Description)
+	}
+
+	e = openedLogEmbed(tk, g, discord.User{}, []answer{{Label: "Essay", Value: strings.Repeat("x", 5000)}})
+	if got := len([]rune(e.Description)); got != maxEmbedDescription {
+		t.Fatalf("clamped length = %d, want %d", got, maxEmbedDescription)
+	}
+	if !strings.HasSuffix(e.Description, "…") {
+		t.Fatal("clamped description should end with an ellipsis")
 	}
 }
 

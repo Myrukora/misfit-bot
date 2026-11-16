@@ -241,7 +241,7 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 	// Log-channel "opened" record. The message ID is kept on the ticket: the
 	// close tail deletes this post and puts the closed record (transcript
 	// attached) in its place, so the log channel holds one entry per ticket.
-	if logID := m.postLogEmbed(guildID, openedLogEmbed(ticket, g, fresh)); logID != "" {
+	if logID := m.postLogEmbed(guildID, openedLogEmbed(ticket, g, fresh, answers)); logID != "" {
 		if _, _, err := m.store.mutate(guildID, ticket.ID, func(cur *modules.Ticket) bool {
 			if cur.LogMsgID == logID {
 				return false

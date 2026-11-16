@@ -136,20 +136,78 @@ func logThumbnail(opener discord.User) string {
 	return opener.EffectiveAvatarURL(discord.WithSize(128))
 }
 
-// openedLogEmbed renders the "Ticket Opened" record. It gets deleted and
-// replaced by closedLogEmbed when the ticket closes, so it carries the live
-// channel link the closed record cannot.
-func openedLogEmbed(tk *modules.Ticket, g TypeConfig, opener discord.User) discord.Embed {
-	desc := logCreatorLine(tk, opener)
-	if tk.ChannelID != "" {
-		desc += " in <#" + tk.ChannelID + ">"
+// maxEmbedDescription is Discord's description cap. Records clamp to it so a
+// long open-time answer cannot make the whole log post fail.
+const maxEmbedDescription = 4096
+
+// clampDescription truncates to Discord's embed description limit, marking the
+// cut so a clamped answer is visible as clamped rather than silently missing.
+func clampDescription(s string) string {
+	r := []rune(s)
+	if len(r) <= maxEmbedDescription {
+		return s
 	}
-	desc += ".\n" + logPanelLine(tk, g) +
-		"\n**Opened on:** " + discordTime(tk.OpenedAt, "F")
-	return discord.NewEmbed().
+	return string(r[:maxEmbedDescription-1]) + "…"
+}
+
+// answersBlock renders open-time modal answers the way the previous bot's logs
+// showed them: the question in bold, the answer underneath, one blank line
+// between entries. Unanswered optional questions are skipped.
+func answersBlock(answers []answer) string {
+	var b strings.Builder
+	for _, a := range answers {
+		label := strings.TrimSpace(a.Label)
+		value := strings.TrimSpace(a.Value)
+		if label == "" || value == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString("**" + label + "**\n" + value)
+	}
+	return b.String()
+}
+
+// openedLogEmbed renders the "Ticket Opened" record in the label/value layout
+// the previous bot used (created by, user id, opened, ticket, panel), with the
+// modal answers appended when the panel asked any. Deliberately no jump link
+// and no join button: neither is usable here.
+func openedLogEmbed(tk *modules.Ticket, g TypeConfig, opener discord.User, answers []answer) discord.Embed {
+	name := ""
+	if opener.ID != 0 {
+		name = strings.TrimSpace(opener.EffectiveName())
+	}
+	if name == "" {
+		name = mentionOrID(tk.OpenerID)
+	}
+	ticketName := tk.ChannelName
+	if ticketName == "" {
+		ticketName = tk.ID
+	}
+	panel := tk.PanelName
+	if panel == "" {
+		panel = g.Key
+	}
+	if panel == "" {
+		panel = tk.EffectiveType()
+	}
+	desc := "**Created By:** " + name +
+		"\n**User ID:** " + tk.OpenerID +
+		"\n**Opened:** " + discordTime(tk.OpenedAt, "R") +
+		"\n**Ticket:** " + ticketName +
+		"\n**Panel Name:** " + panel
+	if block := answersBlock(answers); block != "" {
+		desc += "\n\n" + block
+	}
+	e := discord.NewEmbed().
 		WithTitle("Ticket Opened").
-		WithDescription(desc).
+		WithDescription(clampDescription(desc)).
 		WithColor(logColorOpened)
+	if thumb := logThumbnail(opener); thumb != "" {
+		e = e.WithThumbnail(thumb)
+	}
+	return e
 }
 
 // closedLogEmbed renders the "Ticket Closed" record in the layout the previous
