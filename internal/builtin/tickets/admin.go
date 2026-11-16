@@ -75,6 +75,7 @@ func typeDetail(t *TypeConfig) modules.TypeDetail {
 		EmbedBody:      t.EmbedBody,
 		ButtonLabel:    t.ButtonLabel,
 		ButtonEmoji:    t.ButtonEmoji,
+		ButtonStyle:    t.ButtonStyle,
 		Color:          int(t.Color),
 		AllowClose:     t.AllowCloseOn(),
 		CloseReason:    t.CloseReasonOn(),
@@ -126,6 +127,10 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 	if !validEmoji(emoji) {
 		return TypeConfig{}, fmt.Errorf("button emoji is not a unicode emoji or <:name:id>")
 	}
+	style := strings.ToLower(strings.TrimSpace(in.ButtonStyle))
+	if !validButtonStyle(style) {
+		return TypeConfig{}, fmt.Errorf("button color must be primary, secondary, success or danger")
+	}
 	t := TypeConfig{
 		Key:         key,
 		Label:       label,
@@ -139,6 +144,7 @@ func typeConfigFrom(key string, in modules.TypeDetail, prev *TypeConfig) (TypeCo
 		EmbedBody:   in.EmbedBody,
 		ButtonLabel: button,
 		ButtonEmoji: emoji,
+		ButtonStyle: style,
 		Color:       colorValue(in.Color),
 		AllowClose:  boolPtr(in.AllowClose),
 		CloseReason: boolPtr(in.CloseReason),

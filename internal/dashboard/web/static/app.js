@@ -726,6 +726,7 @@
       typeHelper = byId("tk-type-helper"), typeAccess = byId("tk-type-access"),
       typeWelcome = byId("tk-type-welcome"), typeBody = byId("tk-type-body"),
       typeButton = byId("tk-type-button"), typeEmoji = byId("tk-type-emoji"),
+      typeStyle = byId("tk-type-style"),
       typeColor = byId("tk-type-color"), typeEnabled = byId("tk-type-enabled"),
       typeAllowClose = byId("tk-type-allowclose"),
       typeAskReason = byId("tk-type-closereason"),
@@ -763,6 +764,9 @@
       typeBody.value = t ? t.embed_body || "" : "";
       typeButton.value = t ? t.button_label || "" : "";
       typeEmoji.value = t ? t.button_emoji || "" : "";
+      // Empty means the historical grey button; the server applies the same
+      // default, so the select just mirrors it.
+      typeStyle.value = (t && t.button_style) || "secondary";
       typeColor.value = typeColorHex(t ? t.color : 0x5865f2);
       typeEnabled.checked = t ? !!t.enabled : true;
       typeAllowClose.checked = !t || t.allow_close;
@@ -809,6 +813,7 @@
           embed_body: typeBody.value,
           button_label: typeButton.value.trim(),
           button_emoji: typeEmoji.value.trim(),
+          button_style: typeStyle.value,
           color: typeColorInt(typeColor.value),
           allow_close: typeAllowClose.checked,
           close_reason: typeAskReason.checked

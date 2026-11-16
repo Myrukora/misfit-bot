@@ -432,7 +432,8 @@ func (m *TicketsModule) ListTypes(guildID string) ([]modules.TypeSummary, error)
 		out[i] = modules.TypeSummary{
 			Key: t.Key, Label: t.Label, Enabled: t.Enabled,
 			ButtonLabel: t.ButtonLabel, ButtonEmoji: t.ButtonEmoji,
-			Color: int(t.Color),
+			ButtonStyle: t.ButtonStyle,
+			Color:       int(t.Color),
 		}
 	}
 	return out, nil

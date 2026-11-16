@@ -23,7 +23,10 @@ const (
 	maxQuestionValue       = 4000
 )
 
-// TypeConfig is one ticket type (v2 replacement of GroupConfig).
+// TypeConfig is one ticket type (v2 replacement of GroupConfig). ButtonStyle
+// (primary | secondary | success | danger) is the panel Open button's Discord
+// style; empty renders secondary, the grey button panels used before the field
+// existed, so older configs keep their look.
 type TypeConfig struct {
 	Key         string     `yaml:"key"`
 	Label       string     `yaml:"label"`
@@ -37,6 +40,7 @@ type TypeConfig struct {
 	EmbedBody   string     `yaml:"embed_body"`
 	ButtonLabel string     `yaml:"button_label"`
 	ButtonEmoji string     `yaml:"button_emoji"`
+	ButtonStyle string     `yaml:"button_style,omitempty"`
 	Color       colorValue `yaml:"color"`
 	AllowClose  *bool      `yaml:"allow_close"`
 	// CloseReason prompts the closer for a free-text reason before closing.
@@ -305,6 +309,30 @@ func validPanelName(name string) bool {
 
 // validTypeKey applies the same charset rules to type keys.
 func validTypeKey(key string) bool { return validPanelName(key) }
+
+// buttonStyles is the accepted set for TypeConfig.ButtonStyle. It covers the
+// four Discord button styles that need no external URL or boost, which is the
+// whole usable range for a panel's Open button.
+var buttonStyles = map[string]bool{
+	"primary": true, "secondary": true, "success": true, "danger": true,
+}
+
+// validButtonStyle reports whether s names a configurable button style. Empty
+// is accepted and means "default" (secondary).
+func validButtonStyle(s string) bool {
+	s = strings.ToLower(strings.TrimSpace(s))
+	return s == "" || buttonStyles[s]
+}
+
+// buttonStyleOrDefault normalizes a stored style name, falling back to
+// secondary so a hand-edited or pre-field config still renders.
+func buttonStyleOrDefault(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	if buttonStyles[s] {
+		return s
+	}
+	return "secondary"
+}
 
 // validEmoji accepts unicode emoji or <:name:id> / :name:id: custom forms.
 func validEmoji(e string) bool {

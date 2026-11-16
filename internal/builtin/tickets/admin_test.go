@@ -47,7 +47,7 @@ func TestAdminTypesCRUD(t *testing.T) {
 		Key: "Support", Label: "Support", Category: "222333444555666777", Enabled: true,
 		PingRoles: []string{"9"}, HelperRoles: []string{"8", "8"}, AccessRoles: []string{"7"},
 		WelcomeMessage: "hi", EmbedBody: "body",
-		ButtonLabel: "Open", ButtonEmoji: "🎫", Color: 0x5865F2,
+		ButtonLabel: "Open", ButtonEmoji: "🎫", ButtonStyle: "danger", Color: 0x5865F2,
 		AllowClose: true,
 	})
 	if err != nil {
@@ -58,6 +58,9 @@ func TestAdminTypesCRUD(t *testing.T) {
 	}
 	if len(created.HelperRoles) != 1 {
 		t.Errorf("helper roles = %v, want deduped [8]", created.HelperRoles)
+	}
+	if created.ButtonStyle != "danger" {
+		t.Errorf("button style = %q, want danger", created.ButtonStyle)
 	}
 	if got, err := m.GetType(gid, "support"); err != nil || got.Label != "Support" {
 		t.Fatalf("GetType = %+v, %v", got, err)
@@ -75,13 +78,16 @@ func TestAdminTypesCRUD(t *testing.T) {
 	updated, err := m.UpdateType(gid, "support", modules.TypeDetail{
 		Label: "Help desk", Category: "333444555666777888", Enabled: false,
 		PingRoles: []string{"5"}, AccessRoles: []string{}, Color: 0x00FF00,
-		AllowClose: true,
+		ButtonStyle: "Success", AllowClose: true,
 	})
 	if err != nil {
 		t.Fatalf("UpdateType: %v", err)
 	}
 	if updated.Key != "support" || updated.Label != "Help desk" || updated.Enabled {
 		t.Fatalf("updated = %+v", updated)
+	}
+	if updated.ButtonStyle != "success" {
+		t.Errorf("button style = %q, want success (normalized)", updated.ButtonStyle)
 	}
 	if !updated.AllowClose {
 		t.Errorf("allow close = %v, want true", updated.AllowClose)
@@ -118,6 +124,7 @@ func TestAdminTypeValidation(t *testing.T) {
 		{"bad color", func(d *modules.TypeDetail) { d.Color = 0x1000000 }, "color"},
 		{"long button", func(d *modules.TypeDetail) { d.ButtonLabel = strings.Repeat("x", 81) }, "button label"},
 		{"bad emoji", func(d *modules.TypeDetail) { d.ButtonEmoji = "<:broken" }, "emoji"},
+		{"bad button color", func(d *modules.TypeDetail) { d.ButtonStyle = "purple" }, "button color"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

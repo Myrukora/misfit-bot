@@ -168,6 +168,7 @@ type TypeSummary struct {
 	Description string `json:"description,omitempty"`
 	ButtonLabel string `json:"button_label,omitempty"`
 	ButtonEmoji string `json:"button_emoji,omitempty"`
+	ButtonStyle string `json:"button_style,omitempty"`
 	Color       int    `json:"color,omitempty"`
 }
 
@@ -249,6 +250,7 @@ type TypeDetail struct {
 	EmbedBody      string   `json:"embed_body"`
 	ButtonLabel    string   `json:"button_label"`
 	ButtonEmoji    string   `json:"button_emoji"`
+	ButtonStyle    string   `json:"button_style"`
 	Color          int      `json:"color"`
 	AllowClose     bool     `json:"allow_close"`
 	// CloseReason prompts the closer for a free-text reason in a modal before

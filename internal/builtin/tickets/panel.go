@@ -41,7 +41,7 @@ func buildPanelRows(p PanelConfig, t TypeConfig) []discord.LayoutComponent {
 	}
 	disabled := p.Suspended || !t.Enabled
 	btn := discord.ButtonComponent{
-		Style:    discord.ButtonStylePrimary,
+		Style:    buttonStyleOf(t.ButtonStyle),
 		Label:    label,
 		CustomID: "tickets:open:" + p.Name,
 		Disabled: disabled,
@@ -50,6 +50,22 @@ func buildPanelRows(p PanelConfig, t TypeConfig) []discord.LayoutComponent {
 		btn.Emoji = e
 	}
 	return []discord.LayoutComponent{discord.NewActionRow(btn)}
+}
+
+// buttonStyleOf maps the stored style name to a disgo button style. Unknown
+// or empty values render secondary, the grey Discord button this bot used
+// before the field existed.
+func buttonStyleOf(raw string) discord.ButtonStyle {
+	switch buttonStyleOrDefault(raw) {
+	case "primary":
+		return discord.ButtonStylePrimary
+	case "success":
+		return discord.ButtonStyleSuccess
+	case "danger":
+		return discord.ButtonStyleDanger
+	default:
+		return discord.ButtonStyleSecondary
+	}
 }
 
 // parseButtonEmoji converts user config ("👍" or "<:name:id>"/":name:id:")

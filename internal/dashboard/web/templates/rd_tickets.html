@@ -252,8 +252,18 @@
               <div class="field-grid">
                 <div class="field"><label class="field-label" for="tk-type-button">Button label</label><input class="field-input" id="tk-type-button" maxlength="80" placeholder="Support"></div>
                 <div class="field"><label class="field-label" for="tk-type-emoji">Button emoji</label><input class="field-input" id="tk-type-emoji" placeholder="🎫 or &lt;:name:id&gt;"></div>
-                <div class="field"><label class="field-label" for="tk-type-color">Color</label><input class="field-input" type="color" id="tk-type-color" value="#5865f2"></div>
+                <div class="field">
+                  <label class="field-label" for="tk-type-style">Button color</label>
+                  <select class="field-input" id="tk-type-style">
+                    <option value="secondary">Gray</option>
+                    <option value="primary">Blue</option>
+                    <option value="success">Green</option>
+                    <option value="danger">Red</option>
+                  </select>
+                </div>
+                <div class="field"><label class="field-label" for="tk-type-color">Embed color</label><input class="field-input" type="color" id="tk-type-color" value="#5865f2"></div>
               </div>
+              <p class="muted field-help">Button color styles the Open button on every panel bound to this type. Embed color tints the panel and the ticket's opening embed.</p>
 
               <h5 class="gear-section-title">Behavior</h5>
               <div class="field-grid">
