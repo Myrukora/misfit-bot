@@ -252,6 +252,13 @@ func TestCloseLogEmbed(t *testing.T) {
 	if !strings.Contains(e.Description, "**Closed by:** unknown") {
 		t.Fatalf("desc missing the unknown-closer fallback: %q", e.Description)
 	}
+
+	// A closer value that is not a snowflake is printed as-is (the raw-ID
+	// fallback), never as a broken mention.
+	e = closedLogEmbed(&del, g, "bob#0001", opener)
+	if !strings.Contains(e.Description, "**Closed by:** bob#0001") {
+		t.Fatalf("desc missing the raw closer fallback: %q", e.Description)
+	}
 }
 
 // TestPostTranscriptReplacesOpenedRecord pins the single-entry log flow: the

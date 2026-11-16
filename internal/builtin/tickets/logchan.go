@@ -72,16 +72,32 @@ func (m *TicketsModule) lookupUser(userID string) discord.User {
 
 // ── record embeds (pure; shared with tests) ───────────────────────────────
 
+// mentionOrID renders a user reference the way the log records want it: a
+// mention when the value is a real snowflake (Discord resolves it to the
+// username on its own, no intents needed), the raw value otherwise, and
+// "unknown" when there is nothing at all. The raw-ID branch is the same
+// fallback the previous bot hit when it could not resolve members.
+func mentionOrID(id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "unknown"
+	}
+	if _, err := snowflake.Parse(id); err != nil {
+		return id
+	}
+	return "<@" + id + ">"
+}
+
 // logCreatorLine is the first line of both records: "Ticket created by X
-// (`staff-0001`)". A resolved opener is named in bold, otherwise the raw
-// mention keeps the line from going anonymous.
+// (`staff-0001`)". A resolved opener is named in bold, otherwise the mention
+// (or the raw id) keeps the line from going anonymous.
 func logCreatorLine(tk *modules.Ticket, opener discord.User) string {
 	name := ""
 	if opener.ID != 0 {
 		name = strings.TrimSpace(opener.EffectiveName())
 	}
 	if name == "" {
-		name = "<@" + tk.OpenerID + ">"
+		name = mentionOrID(tk.OpenerID)
 	} else {
 		name = "**" + name + "**"
 	}
@@ -150,10 +166,8 @@ func closedLogEmbed(tk *modules.Ticket, g TypeConfig, closedBy string, opener di
 	switch {
 	case tk.CloseReason == "channel_deleted":
 		desc += "\n**Closed by:** channel deleted"
-	case strings.TrimSpace(closedBy) != "":
-		desc += "\n**Closed by:** <@" + strings.TrimSpace(closedBy) + ">"
 	default:
-		desc += "\n**Closed by:** unknown"
+		desc += "\n**Closed by:** " + mentionOrID(closedBy)
 	}
 	reason := strings.TrimSpace(tk.CloseReasonNote)
 	if reason == "" {
