@@ -194,11 +194,9 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 
 	guildName := m.resolveGuildName(guildID)
 	fresh := m.fetchOpenerUser(guildID, ticket.OpenerID, opener)
-	welcome := renderTemplate(
-		firstNonEmpty(g.WelcomeMsg, "Welcome {user.mention}! Please describe your issue."),
-		ticket, groupFromType(g), fresh, guildName)
+	welcome := renderTemplate(g.WelcomeMsg, ticket, groupFromType(g), fresh, guildName)
 	create := discord.MessageCreate{
-		Content:    buildPingLine(g.PingRoles, ticket.OpenerID) + "\n" + welcome,
+		Content:    openMessageContent(buildPingLine(g.PingRoles, ticket.OpenerID), welcome),
 		Embeds:     []discord.Embed{buildOpenEmbed(ticket, g, fresh, guildName)},
 		Components: ticketButtons(ticket, g),
 	}
@@ -272,4 +270,19 @@ func buildPingLine(pingRoles []string, openerID string) string {
 	}
 	b.WriteString("<@" + openerID + ">")
 	return b.String()
+}
+
+// openMessageContent joins the ping line and the rendered welcome text. An
+// empty (or whitespace-only) welcome posts the pings alone: no default greeting
+// is invented, matching the dashboard's "empty means nothing" config.
+func openMessageContent(pings, welcome string) string {
+	welcome = strings.TrimSpace(welcome)
+	switch {
+	case welcome == "":
+		return pings
+	case pings == "":
+		return welcome
+	default:
+		return pings + "\n" + welcome
+	}
 }

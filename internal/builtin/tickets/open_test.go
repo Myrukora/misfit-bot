@@ -15,6 +15,35 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
+// TestOpenMessageContent pins the "empty welcome means no text" rule: an empty
+// or whitespace-only config value posts the pings alone, and the old built-in
+// greeting is never injected in its place.
+func TestOpenMessageContent(t *testing.T) {
+	const pings = "<@&5> <@42>"
+	cases := []struct {
+		name    string
+		welcome string
+		want    string
+	}{
+		{"welcome set", "hello there", pings + "\nhello there"},
+		{"empty", "", pings},
+		{"whitespace only", "  \n	 ", pings},
+		{"edges trimmed", "  hi  ", pings + "\nhi"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := openMessageContent(pings, tc.welcome); got != tc.want {
+				t.Fatalf("openMessageContent = %q, want %q", got, tc.want)
+			}
+		})
+	}
+	for _, welcome := range []string{"", "   "} {
+		if strings.Contains(openMessageContent(pings, welcome), "Please describe your issue") {
+			t.Fatal("an empty welcome must not fall back to a built-in greeting")
+		}
+	}
+}
+
 // TestFinalizeDeletesChannelAfterArchive pins the close order: the ticket is
 // archived (JSON + transcript file) before the redundant channel is deleted.
 func TestFinalizeDeletesChannelAfterArchive(t *testing.T) {
