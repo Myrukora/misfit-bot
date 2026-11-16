@@ -102,6 +102,38 @@ func TestBuildChannelNameTemplate(t *testing.T) {
 			t.Errorf("buildChannelName(%q) = %q, want %q", tmpl, got, want)
 		}
 	}
+
+	// A display name with no ASCII content must not leave the {user} segment
+	// blank ("support--15"): it falls back to the opener id.
+	if got := buildChannelName("{type}-{user}-{hh}", "Мюрукора", g, tk, at, map[string]bool{}); got != "support-42-15" {
+		t.Errorf("non-latin name = %q, want support-42-15 (id fallback)", got)
+	}
+}
+
+// TestChannelNameSource pins the identity pick behind {user}: the display name
+// wins when it survives slugging, the ASCII username rescues a Cyrillic or
+// emoji-only display name, and a later user is consulted before giving up.
+func TestChannelNameSource(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name  string
+		users []discord.User
+		want  string
+	}{
+		{"display name", []discord.User{{ID: 1, Username: "myrukora", GlobalName: str("Myrukora")}}, "Myrukora"},
+		{"cyrillic display name falls back to username", []discord.User{{ID: 1, Username: "myrukora", GlobalName: str("Мюрукора")}}, "myrukora"},
+		{"emoji-only display name", []discord.User{{ID: 1, Username: "myrukora", GlobalName: str("🐾")}}, "myrukora"},
+		{"second user consulted", []discord.User{{ID: 0}, {ID: 1, Username: "myrukora"}}, "myrukora"},
+		{"nothing usable", []discord.User{{ID: 0}}, ""},
+		{"hashtag display name survives", []discord.User{{ID: 1, Username: "olive_ass", GlobalName: str("#olive_ass")}}, "#olive_ass"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := channelNameSource(tc.users...); got != tc.want {
+				t.Fatalf("channelNameSource = %q, want %q", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestSanitizeChannelName(t *testing.T) {
@@ -111,6 +143,11 @@ func TestSanitizeChannelName(t *testing.T) {
 		"日本語user":      "user",
 		"":             "ticket",
 		"---":          "ticket",
+		// Hashtag-style display names must survive: only a real trailing
+		// "name#1234" discriminator is stripped.
+		"#olive_ass":  "olive_ass",
+		"Vixen#1234":  "vixen",
+		"#olive#1234": "olive",
 	}
 	for in, want := range cases {
 		if got := sanitizeChannelName(in); got != want {

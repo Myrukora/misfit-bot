@@ -30,9 +30,16 @@ func boolPtr(b bool) *bool { return &b }
 
 // channelSlug lowercases and strips everything Discord doesn't accept in a
 // channel name (letters, digits, dash, underscore; spaces/dots become dashes).
-// No length cap: callers truncate the assembled name once.
+// A display name made only of non-Latin characters (Cyrillic, CJK, emoji) slugs
+// to "", so callers must treat "" as "no usable name" and fall back to the
+// username or the id. No length cap: callers truncate the assembled name once.
 func channelSlug(name string) string {
-	base := strings.ToLower(strings.SplitN(name, "#", 2)[0])
+	// Strip a legacy "name#1234" discriminator, but keep a hashtag-style display
+	// name ("#olive_ass"), which a blind split at "#" would erase entirely.
+	if i := strings.LastIndexByte(name, '#'); i > 0 && len(name)-i-1 == 4 && isDigits(name[i+1:]) {
+		name = name[:i]
+	}
+	base := strings.ToLower(name)
 	var clean strings.Builder
 	for _, r := range base {
 		switch {
@@ -43,6 +50,30 @@ func channelSlug(name string) string {
 		}
 	}
 	return strings.Trim(clean.String(), "-")
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+// channelNameSource picks the first opener identity that survives channel
+// slugging: display name first, then username. Discord usernames are ASCII, so
+// they are the reliable fallback when the display name is Cyrillic, CJK or an
+// emoji-only name. Returns "" only when nothing usable exists.
+func channelNameSource(users ...discord.User) string {
+	for _, u := range users {
+		for _, cand := range []string{u.EffectiveName(), u.Username} {
+			if channelSlug(cand) != "" {
+				return cand
+			}
+		}
+	}
+	return ""
 }
 
 // sanitizeChannelName makes a full channel name safe: slug + collapsed dashes
@@ -77,10 +108,17 @@ func buildChannelName(tmpl, openerName string, g TypeConfig, tk *modules.Ticket,
 	if tk != nil {
 		openerID, ticketID = tk.OpenerID, tk.ID
 	}
+	// A name with no ASCII content slugs to "", which would silently leave a
+	// hole in the template ("{type}-{user}-{hh}" -> "type-18"). The id keeps the
+	// segment present and unique instead.
+	userSlug := channelSlug(openerName)
+	if userSlug == "" && openerID != "" {
+		userSlug = openerID
+	}
 	repl := strings.NewReplacer(
 		"{user.id}", openerID,
-		"{user.name}", channelSlug(openerName),
-		"{user}", channelSlug(openerName),
+		"{user.name}", userSlug,
+		"{user}", userSlug,
 		"{type.label}", g.Label,
 		"{group.label}", g.Label,
 		"{type}", g.Key,
@@ -178,7 +216,13 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 		return nil, fmt.Errorf("you don't have permission to open this type of ticket")
 	}
 
-	name := buildChannelName(g.ChannelName, opener.EffectiveName(), g, ticket, time.Now(), m.takenChannelNames())
+	guildName := m.resolveGuildName(guildID)
+	// Resolve the opener once, up front: both the channel name and the opening
+	// embed's author use this identity, so a name that survives slugging can be
+	// chosen from the freshest data (display name, then username).
+	fresh := m.fetchOpenerUser(guildID, ticket.OpenerID, opener)
+
+	name := buildChannelName(g.ChannelName, channelNameSource(fresh, opener), g, ticket, time.Now(), m.takenChannelNames())
 	ticket.ChannelName = name
 	ch, err := m.ctx.Rest.CreateGuildChannel(snowflake.MustParse(guildID), discord.GuildTextChannelCreate{
 		Name:                 name,
@@ -192,8 +236,6 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 	}
 	ticket.ChannelID = ch.ID().String()
 
-	guildName := m.resolveGuildName(guildID)
-	fresh := m.fetchOpenerUser(guildID, ticket.OpenerID, opener)
 	welcome := renderTemplate(g.WelcomeMsg, ticket, groupFromType(g), fresh, guildName)
 	create := discord.MessageCreate{
 		Content:    openMessageContent(buildPingLine(g.PingRoles, ticket.OpenerID), welcome),
