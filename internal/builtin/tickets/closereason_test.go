@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
+
 	"github.com/misfit/bot/modules"
 )
 
@@ -79,8 +81,8 @@ func TestTypeCloseReasonDefaultsOffForLegacyConfig(t *testing.T) {
 	}
 }
 
-// TestCloseLogEmbedShowsReasonNote pins that the typed reason reaches the log
-// embed, and that an empty note adds nothing (no stray quote line).
+// TestCloseLogEmbedShowsReasonNote pins that the typed reason replaces the
+// "None" on the record's Reason line.
 func TestCloseLogEmbedShowsReasonNote(t *testing.T) {
 	g := TypeConfig{Key: "support", Label: "Support"}
 	base := &modules.Ticket{
@@ -89,22 +91,18 @@ func TestCloseLogEmbedShowsReasonNote(t *testing.T) {
 		CloseReason: "user",
 	}
 
-	// No note: no quote line. (Check for a NEWLINE-prefixed quote: the
-	// timestamp token "<t:...:R> by" already contains a bare "> ".)
-	_, desc := closeLogEmbed(base, g, "777")
-	if strings.Contains(desc, "\n> ") {
-		t.Fatalf("desc has a quote line without a note: %q", desc)
-	}
-	if !strings.Contains(desc, " · closed by <@777>") {
-		t.Fatalf("desc missing closed-by: %q", desc)
+	// No note: the line reads None instead of disappearing.
+	e := closedLogEmbed(base, g, "777", discord.User{})
+	if !strings.Contains(e.Description, "**Reason:** None") {
+		t.Fatalf("desc missing the None reason: %q", e.Description)
 	}
 
-	// With a note it appears as a quoted line, below the metadata.
+	// With a note it replaces None on the same line.
 	withNote := *base
 	withNote.CloseReasonNote = "resolved by explaining the rules"
-	_, desc = closeLogEmbed(&withNote, g, "777")
-	if !strings.Contains(desc, "> resolved by explaining the rules") {
-		t.Fatalf("desc missing the note: %q", desc)
+	e = closedLogEmbed(&withNote, g, "777", discord.User{})
+	if !strings.Contains(e.Description, "**Reason:** resolved by explaining the rules") {
+		t.Fatalf("desc missing the note: %q", e.Description)
 	}
 }
 

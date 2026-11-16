@@ -238,9 +238,20 @@ func (m *TicketsModule) openTicket(g TypeConfig, opener discord.User, guildID, p
 		return nil, fmt.Errorf("failed to persist ticket: %w", err)
 	}
 
-	// Log-channel "opened" event.
-	title, desc := openLogEmbed(ticket, g, panelName)
-	m.postLogEvent(guildID, title, desc, 0x57F287)
+	// Log-channel "opened" record. The message ID is kept on the ticket: the
+	// close tail deletes this post and puts the closed record (transcript
+	// attached) in its place, so the log channel holds one entry per ticket.
+	if logID := m.postLogEmbed(guildID, openedLogEmbed(ticket, g, fresh)); logID != "" {
+		if _, _, err := m.store.mutate(guildID, ticket.ID, func(cur *modules.Ticket) bool {
+			if cur.LogMsgID == logID {
+				return false
+			}
+			cur.LogMsgID = logID
+			return true
+		}); err != nil {
+			m.ctx.Logger.Warn("Tickets: storing the opened log message for %s failed: %v", ticket.ID, err)
+		}
+	}
 	return ticket, nil
 }
 

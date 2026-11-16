@@ -605,17 +605,16 @@ func (m *TicketsModule) postTranscriptToLogChannel(tk *modules.Ticket, g TypeCon
 		m.ctx.Logger.Warn("Tickets: transcript decrypt for upload failed: %v", err)
 		return
 	}
-	label := g.Label
-	if label == "" {
-		label = tk.EffectiveType()
-	}
-	title, desc := closeLogEmbed(tk, g, closedBy)
+	// One message carries both the transcript file and the closed record, the
+	// way the previous bot's logs looked. The opened record is deleted only
+	// after this post succeeds, so a failed upload still leaves a log entry.
 	create := discord.MessageCreate{
-		Content: fmt.Sprintf("📜 Transcript of **%s** (`%s`)", label, tk.ID),
-		Embeds:  []discord.Embed{embedInfo(title, desc)},
-		Files:   []*discord.File{{Name: "ticket-" + tk.ID + ".html", Reader: bytes.NewReader(plain)}},
+		Embeds: []discord.Embed{closedLogEmbed(tk, g, closedBy, m.lookupUser(tk.OpenerID))},
+		Files:  []*discord.File{{Name: "ticket-" + tk.ID + ".html", Reader: bytes.NewReader(plain)}},
 	}
 	if _, err := m.ctx.Rest.CreateMessage(chID, create); err != nil {
 		m.ctx.Logger.Warn("Tickets: transcript upload failed: %v", err)
+		return
 	}
+	m.deleteOpenedLogRecord(tk, chID)
 }

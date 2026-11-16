@@ -40,13 +40,17 @@ type TicketProvider interface {
 // mirrored into <DataDir>/tickets/<guildID>/<ticketID>/files/ at close so
 // transcripts survive Discord CDN expiry.
 type Ticket struct {
-	ID             string    `json:"id"` // "<type>-<seq>", e.g. "staff-0007"
-	Type           string    `json:"type"`
-	Group          string    `json:"group"` // legacy alias of Type (v1 stores)
-	GuildID        string    `json:"guild_id"`
-	ChannelID      string    `json:"channel_id"`             // private text channel holding the conversation
-	ChannelName    string    `json:"channel_name,omitempty"` // stored at creation for collision detection
-	MessageID      string    `json:"message_id"`             // in-channel embed carrying the Close button
+	ID          string `json:"id"` // "<type>-<seq>", e.g. "staff-0007"
+	Type        string `json:"type"`
+	Group       string `json:"group"` // legacy alias of Type (v1 stores)
+	GuildID     string `json:"guild_id"`
+	ChannelID   string `json:"channel_id"`             // private text channel holding the conversation
+	ChannelName string `json:"channel_name,omitempty"` // stored at creation for collision detection
+	MessageID   string `json:"message_id"`             // in-channel embed carrying the Close button
+	// LogMsgID is the log-channel "Ticket Opened" message. The close tail
+	// deletes it and posts one closed record (transcript attached) in its
+	// place, so the log channel keeps a single entry per ticket.
+	LogMsgID       string    `json:"log_msg_id,omitempty"`
 	PanelName      string    `json:"panel_name,omitempty"`
 	OpenerID       string    `json:"opener_id"`
 	OpenedAt       time.Time `json:"opened_at"`

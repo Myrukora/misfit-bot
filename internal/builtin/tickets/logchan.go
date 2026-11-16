@@ -15,58 +15,188 @@ import (
 	"github.com/misfit/bot/modules"
 )
 
-// postLogEvent posts a single embed to the guild's configured log channel.
-// No-op when no log channel is set.
-func (m *TicketsModule) postLogEvent(guildID, title, desc string, color int) {
+// Log-channel record colors: opened is neutral blurple, closed is Discord
+// green, matching the status wording the dashboard uses.
+const (
+	logColorOpened = 0x5865F2
+	logColorClosed = 0x57F287
+)
+
+// postLogEmbed posts one embed to the guild's log channel and returns the new
+// message's ID. Callers that replace the post later (the opened record) store
+// that ID on the ticket. "" means no log channel is configured or the post
+// failed.
+func (m *TicketsModule) postLogEmbed(guildID string, embed discord.Embed) string {
 	cfg := m.guildConfig(guildID)
 	m.mu.RLock()
 	logCh := cfg.LogChannel
 	m.mu.RUnlock()
 	if logCh == "" {
-		return
+		return ""
 	}
 	chID, err := snowflake.Parse(logCh)
 	if err != nil {
+		return ""
+	}
+	msg, err := m.ctx.Rest.CreateMessage(chID, discord.MessageCreate{Embeds: []discord.Embed{embed}})
+	if err != nil {
+		m.ctx.Logger.Warn("Tickets: failed to post log event for %s: %v", guildID, err)
+		return ""
+	}
+	if msg == nil {
+		return ""
+	}
+	return msg.ID.String()
+}
+
+// postLogEvent posts a plain title/description notice (archive maintenance
+// events). Fire-and-forget: the message ID is discarded.
+func (m *TicketsModule) postLogEvent(guildID, title, desc string, color int) {
+	m.postLogEmbed(guildID, discord.NewEmbed().WithTitle(title).WithDescription(desc).WithColor(color))
+}
+
+// lookupUser resolves a user ID for display in a log record. Failures (and a
+// nil REST client) yield the zero user, so the record falls back to a mention
+// instead of blocking the close.
+func (m *TicketsModule) lookupUser(userID string) discord.User {
+	uid, err := snowflake.Parse(strings.TrimSpace(userID))
+	if err != nil || m.ctx.Rest == nil {
+		return discord.User{}
+	}
+	u, err := m.ctx.Rest.GetUser(uid)
+	if err != nil || u == nil {
+		return discord.User{}
+	}
+	return *u
+}
+
+// ── record embeds (pure; shared with tests) ───────────────────────────────
+
+// logCreatorLine is the first line of both records: "Ticket created by X
+// (`staff-0001`)". A resolved opener is named in bold, otherwise the raw
+// mention keeps the line from going anonymous.
+func logCreatorLine(tk *modules.Ticket, opener discord.User) string {
+	name := ""
+	if opener.ID != 0 {
+		name = strings.TrimSpace(opener.EffectiveName())
+	}
+	if name == "" {
+		name = "<@" + tk.OpenerID + ">"
+	} else {
+		name = "**" + name + "**"
+	}
+	return fmt.Sprintf("Ticket created by %s (`%s`)", name, tk.ID)
+}
+
+// logPanelLine names the panel that produced the ticket, falling back to the
+// type key so tickets posted before panels existed still say what they are.
+func logPanelLine(tk *modules.Ticket, g TypeConfig) string {
+	panel := tk.PanelName
+	if panel == "" {
+		panel = g.Key
+	}
+	if panel == "" {
+		panel = tk.EffectiveType()
+	}
+	return "**Panel:** `" + panel + "`"
+}
+
+// discordTime renders a Discord timestamp token. Style "F" is the long form
+// ("Saturday, November 14, 2026 at 1:00 PM") the previous bot's logs showed.
+func discordTime(t time.Time, style string) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	return fmt.Sprintf("<t:%d:%s>", t.Unix(), style)
+}
+
+// logThumbnail points at the opener's avatar, the way the previous bot's
+// closed record did. Empty for an unknown opener, and for a partial user with
+// no discriminator (disgo's default-avatar URL needs one, so it returns "").
+func logThumbnail(opener discord.User) string {
+	if opener.ID == 0 {
+		return ""
+	}
+	return opener.EffectiveAvatarURL(discord.WithSize(128))
+}
+
+// openedLogEmbed renders the "Ticket Opened" record. It gets deleted and
+// replaced by closedLogEmbed when the ticket closes, so it carries the live
+// channel link the closed record cannot.
+func openedLogEmbed(tk *modules.Ticket, g TypeConfig, opener discord.User) discord.Embed {
+	desc := logCreatorLine(tk, opener)
+	if tk.ChannelID != "" {
+		desc += " in <#" + tk.ChannelID + ">"
+	}
+	desc += ".\n" + logPanelLine(tk, g) +
+		"\n**Opened on:** " + discordTime(tk.OpenedAt, "F")
+	return discord.NewEmbed().
+		WithTitle("Ticket Opened").
+		WithDescription(desc).
+		WithColor(logColorOpened)
+}
+
+// closedLogEmbed renders the "Ticket Closed" record in the layout the previous
+// bot used: creator line, then panel, opened, closed, closed-by and reason on
+// their own lines, with the opener's avatar as the thumbnail.
+func closedLogEmbed(tk *modules.Ticket, g TypeConfig, closedBy string, opener discord.User) discord.Embed {
+	closedAt := tk.ClosedAt
+	if closedAt.IsZero() {
+		closedAt = time.Now().UTC()
+	}
+	desc := logCreatorLine(tk, opener) + " has been closed.\n" + logPanelLine(tk, g) +
+		"\n**Opened on:** " + discordTime(tk.OpenedAt, "F") +
+		"\n**Closed on:** " + discordTime(closedAt, "F")
+	switch {
+	case tk.CloseReason == "channel_deleted":
+		desc += "\n**Closed by:** channel deleted"
+	case strings.TrimSpace(closedBy) != "":
+		desc += "\n**Closed by:** <@" + strings.TrimSpace(closedBy) + ">"
+	default:
+		desc += "\n**Closed by:** unknown"
+	}
+	reason := strings.TrimSpace(tk.CloseReasonNote)
+	if reason == "" {
+		reason = "None"
+	}
+	desc += "\n**Reason:** " + truncateRunes(reason, 1000)
+	e := discord.NewEmbed().
+		WithTitle("Ticket Closed").
+		WithDescription(desc).
+		WithColor(logColorClosed)
+	if thumb := logThumbnail(opener); thumb != "" {
+		e = e.WithThumbnail(thumb)
+	}
+	return e
+}
+
+// deleteOpenedLogRecord removes the "Ticket Opened" log message now that the
+// closed record replaced it, then clears the stored ID so a retried close tail
+// cannot delete an unrelated message. An already-gone message counts as
+// deleted; any other failure leaves the two records side by side, which is what
+// the log looked like before this existed.
+func (m *TicketsModule) deleteOpenedLogRecord(tk *modules.Ticket, logCh snowflake.ID) {
+	if tk.LogMsgID == "" {
 		return
 	}
-	embed := discord.NewEmbed().WithTitle(title).WithDescription(desc).WithColor(color)
-	if _, err := m.ctx.Rest.CreateMessage(chID, discord.MessageCreate{Embeds: []discord.Embed{embed}}); err != nil {
-		m.ctx.Logger.Warn("Tickets: failed to post log event for %s: %v", guildID, err)
+	mid, err := snowflake.Parse(tk.LogMsgID)
+	if err != nil {
+		return
 	}
-}
-
-// openLogEmbed builds the "Ticket opened" log-channel embed text (pure;
-// shared by the open path and tests).
-func openLogEmbed(tk *modules.Ticket, g TypeConfig, panelName string) (title, desc string) {
-	title = "🎫 Ticket opened"
-	desc = fmt.Sprintf("**%s** (`%s`) · <#%s> · opened by <@%s>", g.Label, tk.ID, tk.ChannelID, tk.OpenerID)
-	if panelName != "" {
-		desc += "\nPanel: `" + panelName + "`"
+	if err := m.ctx.Rest.DeleteMessage(logCh, mid); err != nil {
+		var rerr *rest.Error
+		if !errors.As(err, &rerr) || rerr.Code != rest.JSONErrorCodeUnknownMessage {
+			m.ctx.Logger.Warn("Tickets: deleting the opened log record for %s failed: %v", tk.ID, err)
+			return
+		}
 	}
-	return title, desc
-}
-
-// closeLogEmbed builds the "Ticket closed" log-channel embed text (pure;
-// shared by the close path and tests).
-func closeLogEmbed(tk *modules.Ticket, g TypeConfig, closedBy string) (title, desc string) {
-	title = "Ticket closed"
-	label := g.Label
-	if label == "" {
-		label = tk.EffectiveType()
-	}
-	reasonLine := " · closed by <@" + closedBy + ">"
-	if tk.CloseReason == "channel_deleted" {
-		reasonLine = " · channel deleted"
-	}
-	desc = fmt.Sprintf("**%s** (`%s`) · opened <t:%d:R> by <@%s>%s",
-		label, tk.ID, tk.OpenedAt.Unix(), tk.OpenerID, reasonLine)
-	// The free-text reason the closer typed. Truncated generously: the embed
-	// description caps at 4096 chars and the label/IDs above are short, but a
-	// pasted essay is still possible.
-	if note := strings.TrimSpace(tk.CloseReasonNote); note != "" {
-		desc += "\n> " + truncateRunes(note, 1000)
-	}
-	return title, desc
+	_, _, _ = m.store.mutate(tk.GuildID, tk.ID, func(cur *modules.Ticket) bool {
+		if cur.LogMsgID == "" {
+			return false
+		}
+		cur.LogMsgID = ""
+		return true
+	})
 }
 
 // registerChannels subscribes the guild-channel-delete hook so a deleted

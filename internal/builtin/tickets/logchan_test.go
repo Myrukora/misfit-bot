@@ -1,15 +1,18 @@
 package tickets
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/disgoorg/disgo/discord"
 	"github.com/disgoorg/disgo/rest"
 	"github.com/misfit/bot/modules"
 )
@@ -157,65 +160,177 @@ func TestFinalizeDeletedTicketAlreadyClosed(t *testing.T) {
 }
 
 func TestOpenLogEmbed(t *testing.T) {
+	opened := time.Unix(1763128800, 0).UTC()
 	tk := &modules.Ticket{
 		ID: "222", GuildID: "111", ChannelID: "333", OpenerID: "999",
+		PanelName: "help-desk", OpenedAt: opened,
 	}
 	g := TypeConfig{Key: "support", Label: "Support"}
+	opener := discord.User{ID: 999, Username: "nikapoy", Discriminator: "0"}
 
-	// With panel name.
-	title, desc := openLogEmbed(tk, g, "help-desk")
-	if title != "🎫 Ticket opened" {
-		t.Fatalf("title = %q, want 🎫 Ticket opened", title)
+	e := openedLogEmbed(tk, g, opener)
+	if e.Title != "Ticket Opened" {
+		t.Fatalf("title = %q, want Ticket Opened", e.Title)
 	}
-	want := "**Support** (`222`) · <#333> · opened by <@999>\nPanel: `help-desk`"
-	if desc != want {
-		t.Fatalf("desc = %q, want %q", desc, want)
+	for _, want := range []string{
+		"Ticket created by **nikapoy** (`222`) in <#333>.",
+		"**Panel:** `help-desk`",
+		fmt.Sprintf("**Opened on:** <t:%d:F>", opened.Unix()),
+	} {
+		if !strings.Contains(e.Description, want) {
+			t.Fatalf("desc missing %q: %q", want, e.Description)
+		}
+	}
+	if e.Color != logColorOpened {
+		t.Fatalf("color = %#x, want %#x", e.Color, logColorOpened)
 	}
 
-	// Without panel name.
-	title, desc = openLogEmbed(tk, g, "")
-	if title != "🎫 Ticket opened" {
-		t.Fatalf("title = %q, want 🎫 Ticket opened", title)
+	// An opener that cannot be resolved falls back to the raw mention, and a
+	// ticket with no panel falls back to its type key.
+	e = openedLogEmbed(tk, g, discord.User{})
+	if !strings.Contains(e.Description, "Ticket created by <@999>") {
+		t.Fatalf("desc missing the opener mention: %q", e.Description)
 	}
-	want = "**Support** (`222`) · <#333> · opened by <@999>"
-	if desc != want {
-		t.Fatalf("desc = %q, want %q", desc, want)
+	if !strings.Contains(e.Description, "**Panel:** `help-desk`") {
+		t.Fatalf("panel line should still come from the ticket: %q", e.Description)
+	}
+	noPanel := *tk
+	noPanel.PanelName = ""
+	if e = openedLogEmbed(&noPanel, g, opener); !strings.Contains(e.Description, "**Panel:** `support`") {
+		t.Fatalf("panel line should fall back to the type key: %q", e.Description)
 	}
 }
 
 func TestCloseLogEmbed(t *testing.T) {
+	opened := time.Unix(1763128800, 0).UTC()
+	closed := opened.Add(68 * time.Minute)
 	tk := &modules.Ticket{
-		ID: "222", GuildID: "111", OpenerID: "999",
-		OpenedAt: time.Now().UTC(),
+		ID: "222", GuildID: "111", OpenerID: "999", PanelName: "staff-contact",
+		OpenedAt: opened, ClosedAt: closed, CloseReason: "user",
 	}
-	g := TypeConfig{Key: "support", Label: "Support"}
+	g := TypeConfig{Key: "staff", Label: "Staff"}
+	opener := discord.User{ID: 999, Username: "nikapoy", Discriminator: "0"}
 
-	// Normal close (closed by user).
-	title, desc := closeLogEmbed(tk, g, "777")
-	if title != "Ticket closed" {
-		t.Fatalf("title = %q, want Ticket closed", title)
+	e := closedLogEmbed(tk, g, "777", opener)
+	if e.Title != "Ticket Closed" {
+		t.Fatalf("title = %q, want Ticket Closed", e.Title)
 	}
-	if !strings.Contains(desc, "**Support** (`222`)") {
-		t.Fatalf("desc missing label: %q", desc)
+	for _, want := range []string{
+		"Ticket created by **nikapoy** (`222`) has been closed.",
+		"**Panel:** `staff-contact`",
+		fmt.Sprintf("**Opened on:** <t:%d:F>", opened.Unix()),
+		fmt.Sprintf("**Closed on:** <t:%d:F>", closed.Unix()),
+		"**Closed by:** <@777>",
+		"**Reason:** None",
+	} {
+		if !strings.Contains(e.Description, want) {
+			t.Fatalf("desc missing %q: %q", want, e.Description)
+		}
 	}
-	if !strings.Contains(desc, " · closed by <@777>") {
-		t.Fatalf("desc missing closed-by: %q", desc)
+	if e.Color != logColorClosed {
+		t.Fatalf("color = %#x, want %#x", e.Color, logColorClosed)
+	}
+	if e.Thumbnail == nil || e.Thumbnail.URL == "" {
+		t.Fatal("closed record should carry the opener avatar thumbnail")
 	}
 
-	// Channel-deleted close.
-	tk2 := &modules.Ticket{
-		ID: "222", GuildID: "111", OpenerID: "999",
-		OpenedAt:    time.Now().UTC(),
-		CloseReason: "channel_deleted",
+	// A channel-deleted close names the cause instead of a closer.
+	del := *tk
+	del.CloseReason = "channel_deleted"
+	e = closedLogEmbed(&del, g, "", opener)
+	if !strings.Contains(e.Description, "**Closed by:** channel deleted") {
+		t.Fatalf("desc missing channel-deleted wording: %q", e.Description)
 	}
-	title, desc = closeLogEmbed(tk2, g, "")
-	if title != "Ticket closed" {
-		t.Fatalf("title = %q, want Ticket closed", title)
+	if strings.Contains(e.Description, "<@") {
+		t.Fatalf("channel-deleted record should not mention a closer: %q", e.Description)
 	}
-	if !strings.Contains(desc, " · channel deleted") {
-		t.Fatalf("desc missing channel-deleted: %q", desc)
+
+	// No closer ID and no channel-delete cause: say unknown, never a dangling
+	// empty mention.
+	del.CloseReason = "user"
+	e = closedLogEmbed(&del, g, "", opener)
+	if !strings.Contains(e.Description, "**Closed by:** unknown") {
+		t.Fatalf("desc missing the unknown-closer fallback: %q", e.Description)
 	}
-	if strings.Contains(desc, "closed by") {
-		t.Fatalf("desc should not contain 'closed by' for channel_deleted: %q", desc)
+}
+
+// TestPostTranscriptReplacesOpenedRecord pins the single-entry log flow: the
+// closed record and the transcript go out as ONE message, and the earlier
+// "Ticket Opened" message is deleted afterwards with its stored ID cleared.
+func TestPostTranscriptReplacesOpenedRecord(t *testing.T) {
+	dataDir := t.TempDir()
+	var mu sync.Mutex
+	var creates, deletes []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/messages"):
+			creates = append(creates, r.URL.Path)
+			w.Header().Set("content-type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"9001","channel_id":"555"}`))
+		case r.Method == http.MethodDelete:
+			deletes = append(deletes, r.URL.Path)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "not found", http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	st, err := openStore(dataDir)
+	if err != nil {
+		t.Fatalf("openStore: %v", err)
+	}
+	m := &TicketsModule{
+		ctx: &modules.Context{
+			DataDir: dataDir, Logger: testLogger{},
+			Rest: rest.New(rest.NewClient("fake-token", rest.WithURL(srv.URL))),
+		},
+		store:  st,
+		module: &ModuleConfig{Version: configVersion},
+		guilds: map[string]*Config{
+			"111": {Version: configVersion, Types: map[string]*TypeConfig{}, Panels: map[string]PanelConfig{}},
+		},
+		loaded: true,
+	}
+	cfg := m.guildConfig("111")
+	m.mu.Lock()
+	cfg.LogChannel = "555"
+	m.mu.Unlock()
+
+	tk := &modules.Ticket{
+		ID: "222", GuildID: "111", OpenerID: "999", LogMsgID: "444",
+		OpenedAt: time.Now().UTC(), ClosedAt: time.Now().UTC(), CloseReason: "user",
+	}
+	if err := st.save(tk); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	htmlPath := filepath.Join(dataDir, "tickets", "111", "222.html")
+	if err := os.MkdirAll(filepath.Dir(htmlPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(htmlPath, []byte("<html>transcript</html>"), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	m.postTranscriptToLogChannel(tk, TypeConfig{Key: "staff", Label: "Staff"}, htmlPath, "777")
+
+	mu.Lock()
+	gotCreates := append([]string{}, creates...)
+	gotDeletes := append([]string{}, deletes...)
+	mu.Unlock()
+	if len(gotCreates) != 1 || !strings.HasSuffix(gotCreates[0], "/channels/555/messages") {
+		t.Fatalf("creates = %v, want one post to the log channel", gotCreates)
+	}
+	if len(gotDeletes) != 1 || !strings.HasSuffix(gotDeletes[0], "/messages/444") {
+		t.Fatalf("deletes = %v, want the opened record (444) removed", gotDeletes)
+	}
+	stored, err := st.load("111", "222")
+	if err != nil || stored == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if stored.LogMsgID != "" {
+		t.Fatalf("LogMsgID = %q, want cleared after the delete", stored.LogMsgID)
 	}
 }
