@@ -91,11 +91,14 @@
                 <span class="file-drop-text"><span class="file-drop-cta">Click to choose</span> or drop images</span>
                 <input type="file" id="if-upload" accept="image/*" multiple>
               </div>
+              <!-- Selection accumulates: several picks/drops queue up and go out
+                   in one Add press, so a fifteen-image purge is one request. -->
+              <p class="field-hint">Select several files at once, or add them in passes. Nothing is sent until you press Add.</p>
               <ul class="file-chips" id="if-files" hidden></ul>
             </div>
             <div class="field" style="flex:3">
-              <label class="field-label" for="if-url">…or paste a Discord CDN URL</label>
-              <input class="field-input" type="url" id="if-url" placeholder="https://cdn.discordapp.com/attachments/…">
+              <label class="field-label" for="if-url">…or paste Discord CDN URLs</label>
+              <textarea class="field-input" id="if-url" rows="2" placeholder="https://cdn.discordapp.com/attachments/…&#10;One per line, or comma separated"></textarea>
             </div>
             <button class="btn btn-primary" id="if-add" disabled>Add</button>
           </div>

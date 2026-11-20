@@ -1,8 +1,11 @@
 package dashboard
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,6 +29,9 @@ type stubImageFilter struct {
 	mu        sync.Mutex
 	calls     []string
 	enableErr error
+	// addErr fails AddImageFromBytes for a matching filename, so a batch can be
+	// driven into partial success (one bad file among good ones).
+	addErr map[string]error
 }
 
 func (s *stubImageFilter) record(call string) {
@@ -73,7 +79,10 @@ func (s *stubImageFilter) ListImages(guildID string) ([]string, error) {
 	return []string{"a.png"}, nil
 }
 func (s *stubImageFilter) AddImageFromBytes(guildID string, data []byte, filename string) (string, error) {
-	s.record("AddImageFromBytes:" + guildID)
+	s.record("AddImageFromBytes:" + guildID + "/" + filename)
+	if err, ok := s.addErr[filename]; ok {
+		return "", err
+	}
 	return filename, nil
 }
 func (s *stubImageFilter) AddImageFromURL(guildID, url string) (string, error) {
@@ -263,6 +272,161 @@ func TestImageFilterCSRFAndAuthGates(t *testing.T) {
 	}
 	if n := admin.callCount(); n != 0 {
 		t.Errorf("admin calls = %d, want 0 before the guards pass: %v", n, admin.calls)
+	}
+}
+
+// ── Batch blacklist uploads ──────────────────────────────────────────────
+
+// postMultipartUpload drives one multipart "file" batch through the full
+// middleware chain (valid cookie + CSRF), the way the dashboard's Add button
+// does when a whole selection is queued.
+func postMultipartUpload(t *testing.T, m *DashboardModule, cookie, gid string, files map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	for name, content := range files {
+		fw, err := mw.CreateFormFile("file", name)
+		if err != nil {
+			t.Fatalf("create form file: %v", err)
+		}
+		if _, err := fw.Write([]byte(content)); err != nil {
+			t.Fatalf("write form file: %v", err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatalf("close multipart writer: %v", err)
+	}
+	r := httptest.NewRequest(http.MethodPost, "/api/guilds/"+gid+"/imagefilter/images", &body)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	r.AddCookie(&http.Cookie{Name: sessionCookie, Value: cookie})
+	r.Header.Set(csrfHeader, "tok")
+	w := httptest.NewRecorder()
+	m.buildHandler().ServeHTTP(w, r)
+	return w
+}
+
+// TestImageFilterBatchUploadPartialSuccess pins the batch contract: one bad
+// file must NOT discard the files that already landed. Before this, the handler
+// returned on the first per-file error, so a 15-image purge with a single
+// unreadable file stored a prefix of the batch, reported an error, and left the
+// operator unable to tell what made it in.
+func TestImageFilterBatchUploadPartialSuccess(t *testing.T) {
+	admin := &stubImageFilter{addErr: map[string]error{"bad.png": errors.New("not a decodable image")}}
+	m, cookie := filterTestModule(t, admin)
+
+	w := postMultipartUpload(t, m, cookie, "123456789", map[string]string{
+		"one.png": "a",
+		"bad.png": "b",
+		"two.png": "c",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	bodyStr := w.Body.String()
+	for _, want := range []string{`"one.png"`, `"two.png"`, `"bad.png: not a decodable image"`} {
+		if !strings.Contains(bodyStr, want) {
+			t.Errorf("body %s missing %s", bodyStr, want)
+		}
+	}
+	// All three reached the module: the loop continues past a failure.
+	admin.mu.Lock()
+	n := 0
+	for _, c := range admin.calls {
+		if strings.HasPrefix(c, "AddImageFromBytes:") {
+			n++
+		}
+	}
+	admin.mu.Unlock()
+	if n != 3 {
+		t.Errorf("AddImageFromBytes calls = %d, want 3 (one per file): %v", n, admin.calls)
+	}
+}
+
+// TestImageFilterBatchUploadAllFailed: a batch where nothing lands is a 400
+// (the dashboard must not report success), but the response still enumerates
+// every failure so the operator sees all of them, not just the first.
+func TestImageFilterBatchUploadAllFailed(t *testing.T) {
+	admin := &stubImageFilter{addErr: map[string]error{
+		"a.png": errors.New("not a decodable image"),
+		"b.png": errors.New("image too large: 99999x99999 (>25MP)"),
+	}}
+	m, cookie := filterTestModule(t, admin)
+
+	w := postMultipartUpload(t, m, cookie, "123456789", map[string]string{"a.png": "x", "b.png": "y"})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (body %s)", w.Code, w.Body.String())
+	}
+	// Decode rather than substring-match: encoding/json escapes ">" as \u003e,
+	// so the raw body does not contain the literal bomb-guard text.
+	var got struct {
+		Added  []string `json:"added"`
+		Failed []string `json:"failed"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode body: %v (body %s)", err, w.Body.String())
+	}
+	if len(got.Added) != 0 {
+		t.Errorf("added = %v, want empty", got.Added)
+	}
+	joined := strings.Join(got.Failed, " | ")
+	for _, want := range []string{"not a decodable image", ">25MP"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("failed = %q, missing %q", joined, want)
+		}
+	}
+}
+
+// TestSplitURLList: the URL box accepts a pasted column of CDN links.
+func TestSplitURLList(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{"single", "https://cdn.discordapp.com/a.png", []string{"https://cdn.discordapp.com/a.png"}},
+		{"newline separated", "https://x/a.png\nhttps://x/b.png", []string{"https://x/a.png", "https://x/b.png"}},
+		{"comma separated", "https://x/a.png, https://x/b.png", []string{"https://x/a.png", "https://x/b.png"}},
+		{"mixed with blank lines", "\n https://x/a.png \n\n , https://x/b.png\n", []string{"https://x/a.png", "https://x/b.png"}},
+		{"empty", "   \n ", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitURLList(tc.in)
+			if len(got) != len(tc.want) {
+				t.Fatalf("splitURLList(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("splitURLList(%q)[%d] = %q, want %q", tc.in, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+// TestImageFilterBatchURLs: a multi-URL paste is stored one by one, and one bad
+// link does not drop the rest.
+func TestImageFilterBatchURLs(t *testing.T) {
+	admin := &stubImageFilter{}
+	m, cookie := filterTestModule(t, admin)
+
+	w := doAPI(m, cookie, http.MethodPost, "/api/guilds/123456789/imagefilter/images",
+		`{"url":"https://x/a.png\nhttps://x/b.png"}`)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", w.Code, w.Body.String())
+	}
+	admin.mu.Lock()
+	urlCalls := 0
+	for _, c := range admin.calls {
+		if strings.HasPrefix(c, "AddImageFromURL:") {
+			urlCalls++
+		}
+	}
+	admin.mu.Unlock()
+	if urlCalls != 2 {
+		t.Errorf("AddImageFromURL calls = %d, want 2: %v", urlCalls, admin.calls)
+	}
+	if !strings.Contains(w.Body.String(), `"x.png"`) {
+		t.Errorf("body %s missing the added list", w.Body.String())
 	}
 }
 

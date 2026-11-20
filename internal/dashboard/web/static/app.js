@@ -35,6 +35,126 @@
 
   function byId(id) { return document.getElementById(id); }
 
+  /* ---------- number fields: themed step buttons ---------- */
+  /* The native spinner is an OS-rendered widget: it ignores the dark theme and
+     its two ~10px arrows are a fiddly mouse target. Every number field gets a
+     pair of themed - / + buttons instead (hold to repeat), while the input
+     keeps its own arrow-key stepping. Decoration is idempotent and also covers
+     rows inserted later (leveling rewards, moderation rules). */
+  function stepDecimals(step) {
+    if (!step || step === "any") return 0;
+    var s = String(step);
+    var dot = s.indexOf(".");
+    return dot === -1 ? 0 : Math.min(6, s.length - dot - 1);
+  }
+
+  function stepOnce(input, dir) {
+    var step = parseFloat(input.step);
+    if (!isFinite(step) || step <= 0) step = 1;
+    var dec = stepDecimals(input.step);
+    var v = parseFloat(input.value);
+    if (!isFinite(v)) v = parseFloat(input.min);
+    if (!isFinite(v)) v = 0;
+    var lo = parseFloat(input.min);
+    var hi = parseFloat(input.max);
+    v = v + dir * step;
+    if (isFinite(hi) && v > hi) v = hi;
+    if (isFinite(lo) && v < lo) v = lo;
+    input.value = v.toFixed(dec);
+    // Page code listens for these (welcome auto-delete and friends); native
+    // arrow keys fire them too, so a stepper click behaves like typing.
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  /* Rows cloned from a <template> (leveling rewards, moderation rules) copy the
+     stepper MARKUP but never the listeners, which would leave a dead button
+     pair. Tracking decorated inputs in a WeakSet lets a cloned input be rebuilt
+     while never re-decorating a live one (which would loop via the observer). */
+  var steppedInputs = typeof WeakSet === "function" ? new WeakSet() : null;
+
+  function decorateStepper(input) {
+    if (!input || !input.parentNode) return;
+    if (steppedInputs && steppedInputs.has(input)) return;
+    if (input.disabled || input.readOnly) return;
+    if (steppedInputs) steppedInputs.add(input);
+
+    var wrap = input.closest(".num-step");
+    if (wrap) {
+      // Cloned wrapper: drop the copied (inert) buttons and build fresh ones.
+      var stale = wrap.querySelector(".num-step-btns");
+      if (stale) stale.remove();
+    } else {
+      wrap = document.createElement("span");
+      wrap.className = "num-step";
+      input.parentNode.insertBefore(wrap, input);
+      wrap.appendChild(input);
+    }
+
+    var buttons = document.createElement("span");
+    buttons.className = "num-step-btns";
+    // Stacked top-to-bottom: [up] increases, [down] decreases.
+    [1, -1].forEach(function (dir) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "num-step-btn";
+      b.tabIndex = -1; // the input's arrow keys are the keyboard path
+      b.setAttribute("aria-hidden", "true");
+      b.title = dir < 0 ? "Decrease" : "Increase";
+      b.setAttribute("aria-label", dir < 0 ? "Decrease" : "Increase");
+      // Vertical chevrons, the shape a number field is expected to have: the
+      // pair sits stacked inside the input's right edge, where the native
+      // (unthemeable) spinner used to be.
+      b.innerHTML = dir < 0
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+
+      var timer = null, delay = null;
+      function stop() {
+        if (delay) { clearTimeout(delay); delay = null; }
+        if (timer) { clearInterval(timer); timer = null; }
+      }
+      b.addEventListener("pointerdown", function (e) {
+        if (e.button !== 0) return;
+        e.preventDefault();
+        stepOnce(input, dir);
+        delay = setTimeout(function () {
+          timer = setInterval(function () { stepOnce(input, dir); }, 90);
+        }, 420);
+      });
+      ["pointerup", "pointercancel", "pointerleave", "blur"].forEach(function (evt) {
+        b.addEventListener(evt, stop);
+      });
+      // Pointer clicks already stepped on pointerdown; e.detail === 0 is the
+      // keyboard-entered click, which must still work.
+      b.addEventListener("click", function (e) {
+        if (e.detail === 0) stepOnce(input, dir);
+      });
+      buttons.appendChild(b);
+    });
+    wrap.appendChild(buttons);
+  }
+
+  function initNumberSteppers(root) {
+    var nodes = (root || document).querySelectorAll('input[type="number"].field-input');
+    Array.prototype.forEach.call(nodes, decorateStepper);
+  }
+
+  initNumberSteppers(document);
+  if (window.MutationObserver) {
+    new MutationObserver(function (records) {
+      for (var i = 0; i < records.length; i++) {
+        var added = records[i].addedNodes;
+        for (var j = 0; j < added.length; j++) {
+          var n = added[j];
+          if (n.nodeType !== 1) continue;
+          if (n.matches && n.matches('input[type="number"].field-input')) decorateStepper(n);
+          else if (n.querySelectorAll) initNumberSteppers(n);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+
   /* ---------- user dropdown (hover handled in CSS; click toggles too) ---------- */
   var avatar = document.querySelector(".user-avatar");
   if (avatar) {
@@ -383,6 +503,11 @@
     var dropEl = byId("if-drop");
     var chipsEl = byId("if-files");
     var addBtn = byId("if-add");
+    // pending is the source of truth for the batch: picks and drops ACCUMULATE
+    // here (reassigning input.files on every drop silently discarded the
+    // previous selection, which forced one Add per image).
+    var pending = [];
+    var MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
     function fmtSize(n) {
       if (n < 1024) return n + " B";
@@ -390,40 +515,77 @@
       return (n / 1024 / 1024).toFixed(1) + " MB";
     }
 
+    /* URL box accepts a pasted list: whitespace or comma separated. */
+    function urlValues() {
+      var el = byId("if-url");
+      if (!el) return [];
+      return el.value.split(/[\s,]+/).filter(function (s) { return s !== ""; });
+    }
+
     function refreshAddState() {
       if (!addBtn) return;
-      var urlEl = byId("if-url");
-      var hasUrl = !!(urlEl && urlEl.value.trim());
-      addBtn.disabled = !uploadEl || (uploadEl.files.length === 0 && !hasUrl);
+      var n = pending.length;
+      addBtn.disabled = n === 0 && urlValues().length === 0;
+      addBtn.textContent = n > 1 ? "Add " + n + " images" : "Add";
+    }
+
+    function fileKey(f) { return f.name + ":" + f.size + ":" + f.lastModified; }
+
+    function syncInput() {
+      if (!uploadEl) return;
+      try {
+        var dt = new DataTransfer();
+        for (var i = 0; i < pending.length; i++) dt.items.add(pending[i]);
+        uploadEl.files = dt.files;
+      } catch (err) { /* very old browser: the queued files are sent regardless */ }
+    }
+
+    /* Merge a FileList into the batch (dedupe + client-side sanity check, so an
+       oversized or non-image file is skipped instead of failing the request). */
+    function addFiles(list) {
+      var skipped = 0;
+      Array.prototype.forEach.call(list || [], function (f) {
+        if ((f.type && f.type.indexOf("image/") !== 0) || f.size > MAX_UPLOAD_BYTES) {
+          skipped++;
+          return;
+        }
+        var key = fileKey(f);
+        for (var i = 0; i < pending.length; i++) if (fileKey(pending[i]) === key) return;
+        pending.push(f);
+      });
+      syncInput();
+      renderChips();
+      refreshAddState();
+      if (skipped) {
+        toast(skipped + (skipped === 1 ? " file skipped" : " files skipped") +
+          " - only images up to 50 MiB are accepted", true);
+      }
     }
 
     function renderChips() {
-      if (!uploadEl || !chipsEl) return;
+      if (!chipsEl) return;
       chipsEl.innerHTML = "";
-      var files = uploadEl.files;
-      if (!files || !files.length) { chipsEl.hidden = true; return; }
+      if (!pending.length) { chipsEl.hidden = true; return; }
       chipsEl.hidden = false;
-      for (var i = 0; i < files.length; i++) {
+      for (var i = 0; i < pending.length; i++) {
         var li = document.createElement("li");
         li.className = "file-chip";
         var name = document.createElement("span");
         name.className = "file-chip-name";
-        name.textContent = files[i].name;
-        name.title = files[i].name;
+        name.textContent = pending[i].name;
+        name.title = pending[i].name;
         var size = document.createElement("span");
         size.className = "file-chip-size";
-        size.textContent = fmtSize(files[i].size);
+        size.textContent = fmtSize(pending[i].size);
         var rm = document.createElement("button");
         rm.type = "button";
         rm.className = "file-chip-remove";
-        rm.setAttribute("aria-label", "Remove " + files[i].name);
+        rm.setAttribute("aria-label", "Remove " + pending[i].name);
         rm.textContent = "×";
         rm.addEventListener("click", function (idx) {
           return function () {
-            var dl = uploadEl;
-            var dt = dl instanceof DataTransfer ? dl : new DataTransfer();
-            for (var k = 0; k < dl.files.length; k++) if (k !== idx) dt.items.add(dl.files[k]);
-            uploadEl.files = dt.files;
+            pending.splice(idx, 1);
+            syncInput();
             renderChips();
             refreshAddState();
           };
@@ -437,11 +599,18 @@
 
     if (uploadEl) {
       uploadEl.addEventListener("change", function () {
-        renderChips();
-        refreshAddState();
+        addFiles(uploadEl.files);
       });
     }
     if (dropEl && uploadEl) {
+      // Clicking the zone itself opens the picker. Without this the only way
+      // in was the small "Upload images" label, because the real input is
+      // hidden with pointer-events:none. The guard matters: input.click()
+      // fires a click that bubbles back here, and re-entering would recurse.
+      dropEl.addEventListener("click", function (e) {
+        if (e.target === uploadEl || e.target.closest("input,button")) return;
+        uploadEl.click();
+      });
       // Keyboard activation (the hidden input cannot be focused directly).
       dropEl.addEventListener("keydown", function (e) {
         if (e.key === "Enter" || e.key === " ") {
@@ -463,9 +632,7 @@
       });
       dropEl.addEventListener("drop", function (e) {
         if (!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return;
-        try { uploadEl.files = e.dataTransfer.files; } catch (err) { /* older browsers */ }
-        renderChips();
-        refreshAddState();
+        addFiles(e.dataTransfer.files);
       });
     }
     var urlInput = byId("if-url");
@@ -476,25 +643,59 @@
 
     if (addBtn) {
       addBtn.addEventListener("click", function () {
-        var files = (byId("if-upload") || {}).files;
-        var urlEl = byId("if-url");
+        var files = pending.slice();
+        var urls = urlValues();
+        if (!files.length && !urls.length) return;
+
+        addBtn.disabled = true;
+        addBtn.textContent = "Adding…";
+
+        var added = 0;
+        var failures = [];
+        // Uploads and URLs run SEQUENTIALLY: the module serialises writes to the
+        // guild's reference dir anyway, and one request at a time keeps the
+        // per-guild count/size budget honest instead of racing it.
         var work = Promise.resolve();
 
-        if (files && files.length) {
+        if (files.length) {
           var fd = new FormData();
           for (var i = 0; i < files.length; i++) fd.append("file", files[i]);
           work = work.then(function () {
             return api("POST", "/api/guilds/" + guildID + "/imagefilter/images", fd);
+          }).then(function (res) {
+            added += ((res && res.added) || []).length;
+            failures = failures.concat((res && res.failed) || []);
           });
         }
-        if (urlEl && urlEl.value.trim()) {
-          var u = urlEl.value.trim();
+        urls.forEach(function (u) {
           work = work.then(function () {
             return api("POST", "/api/guilds/" + guildID + "/imagefilter/images", { url: u });
+          }).then(function (res) {
+            added += ((res && res.added) || []).length;
+            failures = failures.concat((res && res.failed) || []);
+          }, function (e) {
+            failures.push(u + ": " + e.message);
           });
-        }
-        work.then(function () { location.reload(); })
-          .catch(function (e) { toast(e.message, true); });
+        });
+
+        work.then(function () {
+          if (!added && !failures.length) {
+            toast("Nothing was added", true);
+            addBtn.disabled = false;
+            addBtn.textContent = "Add";
+            return;
+          }
+          if (failures.length) {
+            toast(added + " added, " + failures.length + " failed: " + failures[0], true);
+          } else {
+            toast(added === 1 ? "Image added to the blacklist" : added + " images added to the blacklist");
+          }
+          location.reload();
+        }).catch(function (e) {
+          toast(e.message, true);
+          addBtn.disabled = false;
+          addBtn.textContent = "Add";
+        });
       });
     }
 

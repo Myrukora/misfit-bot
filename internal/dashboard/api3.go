@@ -3,7 +3,9 @@ package dashboard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -270,13 +272,29 @@ func writeImageFilterOverview(w http.ResponseWriter, adm modules.ImageFilterAdmi
 }
 
 // apiImageFilterAddImages handles the two add paths: multipart upload (field
-// "file", one or more) or JSON {"url": "..."}.
+// "file", one or more) or JSON {"url": "..."} (a comma/whitespace separated
+// list is accepted too, so a pasted column of CDN links is one request).
+//
+// A batch is PARTIAL-SUCCESS aware: one undecodable file must not discard the
+// files that already landed, so per-file failures are collected into "failed"
+// instead of aborting the request. Only a structurally unusable request (no
+// files at all) is a 400.
 func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http.Request, adm modules.ImageFilterAdmin, gid string) {
 	ct := r.Header.Get("Content-Type")
 	ctBase := strings.TrimSpace(strings.Split(ct, ";")[0])
 	switch ctBase {
 	case "multipart/form-data":
+		// A batch is many files in one request, so the body cap has to cover a
+		// whole guild budget rather than one image. Without it a single request
+		// could stream unbounded data while ParseMultipartForm spills to disk.
+		r.Body = http.MaxBytesReader(w, r.Body, maxImageFilterBatchBytes)
 		if err := r.ParseMultipartForm(55 << 20); err != nil {
+			var tooBig *http.MaxBytesError
+			if errors.As(err, &tooBig) {
+				writeError(w, http.StatusRequestEntityTooLarge,
+					fmt.Sprintf("batch exceeds %d MiB", maxImageFilterBatchBytes>>20))
+				return
+			}
 			writeError(w, http.StatusBadRequest, "invalid multipart form")
 			return
 		}
@@ -285,31 +303,28 @@ func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http
 			writeError(w, http.StatusBadRequest, "no files uploaded (field \"file\")")
 			return
 		}
-		var added []string
+		added := []string{}
+		failed := []string{}
 		for _, fh := range form.File["file"] {
-			f, err := fh.Open()
+			name, err := storeUploadedImage(adm, gid, fh)
 			if err != nil {
-				writeError(w, http.StatusBadRequest, "cannot read upload "+fh.Filename)
-				return
-			}
-			data, err := io.ReadAll(io.LimitReader(f, maxImageFilterBytes+1))
-			f.Close()
-			if err != nil {
-				writeError(w, http.StatusBadRequest, "cannot read upload "+fh.Filename)
-				return
-			}
-			if len(data) > maxImageFilterBytes {
-				writeError(w, http.StatusRequestEntityTooLarge, fh.Filename+" exceeds 50 MiB")
-				return
-			}
-			name, err := adm.AddImageFromBytes(gid, data, fh.Filename)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, fh.Filename+": "+err.Error())
-				return
+				// Keep going: the rest of the batch is still worth storing.
+				failed = append(failed, fh.Filename+": "+err.Error())
+				continue
 			}
 			added = append(added, name)
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "added": added})
+		// 200 whenever at least one file landed, so the dashboard can report
+		// "N added, M failed" instead of an error for a usable batch.
+		status := http.StatusOK
+		if len(added) == 0 {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{
+			"ok":     len(added) > 0,
+			"added":  added,
+			"failed": failed,
+		})
 
 	default:
 		var body struct {
@@ -319,17 +334,76 @@ func (m *DashboardModule) apiImageFilterAddImages(w http.ResponseWriter, r *http
 			writeError(w, http.StatusBadRequest, "expected multipart upload or JSON {\"url\": \"...\"}")
 			return
 		}
-		name, err := adm.AddImageFromURL(gid, body.URL)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+		urls := splitURLList(body.URL)
+		if len(urls) == 0 {
+			writeError(w, http.StatusBadRequest, "no URLs given")
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "added": []string{name}})
+		added := []string{}
+		failed := []string{}
+		for _, u := range urls {
+			name, err := adm.AddImageFromURL(gid, u)
+			if err != nil {
+				failed = append(failed, u+": "+err.Error())
+				continue
+			}
+			added = append(added, name)
+		}
+		status := http.StatusOK
+		if len(added) == 0 {
+			// A single URL keeps the historical shape: the error IS the body.
+			if len(urls) == 1 {
+				writeError(w, http.StatusBadRequest, failed[0])
+				return
+			}
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]any{
+			"ok":     len(added) > 0,
+			"added":  added,
+			"failed": failed,
+		})
 	}
+}
+
+// storeUploadedImage reads, size-checks and stores one multipart file part.
+func storeUploadedImage(adm modules.ImageFilterAdmin, gid string, fh *multipart.FileHeader) (string, error) {
+	f, err := fh.Open()
+	if err != nil {
+		return "", errors.New("cannot read upload")
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxImageFilterBytes+1))
+	if err != nil {
+		return "", errors.New("cannot read upload")
+	}
+	if len(data) > maxImageFilterBytes {
+		return "", fmt.Errorf("exceeds %d MiB", maxImageFilterBytes>>20)
+	}
+	return adm.AddImageFromBytes(gid, data, fh.Filename)
+}
+
+// splitURLList accepts one URL, or a pasted list separated by commas and/or
+// whitespace (a column of CDN links is the common case).
+func splitURLList(raw string) []string {
+	out := []string{}
+	for _, f := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '\n' || r == '\r' || r == '\t' || r == ' '
+	}) {
+		if u := strings.TrimSpace(f); u != "" {
+			out = append(out, u)
+		}
+	}
+	return out
 }
 
 // maxImageFilterBytes is the per-file read cap (mirrors the module's 50 MiB).
 const maxImageFilterBytes = 50 * 1024 * 1024
+
+// maxImageFilterBatchBytes caps one upload request. It is the module's
+// per-guild byte budget (250 MiB) plus multipart framing slack, so a batch that
+// could never be accepted is refused before it is read.
+const maxImageFilterBatchBytes = 250*1024*1024 + 8*1024*1024
 
 // validGuildID mirrors the module's own directory-name rule: a canonical,
 // non-zero Discord snowflake. "null" must be rejected explicitly because

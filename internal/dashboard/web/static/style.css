@@ -722,6 +722,14 @@ body {
     font-weight: 600;
 }
 
+/* Small helper line under a control (what the field does, or a caveat). */
+.field-hint {
+    margin: 0;
+    color: #71717a;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .field-input {
     background: #0d0d0d;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -737,6 +745,123 @@ body {
     outline: none;
     border-color: rgba(255, 255, 255, 0.6);
     box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12);
+}
+
+/* Number fields: the native spinner is an OS widget that ignores the dark
+   theme and offers a ~10px arrow pair as the only mouse target. app.js wraps
+   every number input in .num-step and builds a bigger, themed up/down pair in
+   the same corner; the native arrows are suppressed so there is one control. */
+.num-step {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    width: 100%;
+    /* Lets the container query below shrink the reserve for the narrow fields
+       (leveling reward levels, moderation rule thresholds) that sit in tight
+       grid cells. Wide fields are unaffected. */
+    container-type: inline-size;
+}
+
+.num-step .field-input {
+    width: 100%;
+    /* Room for the stacked arrow pair, which sits in the input's right edge. */
+    padding-right: 34px;
+    /* Native spin buttons: suppressed in every engine that has its own switch
+       (Firefox has no ::-webkit-*, Chrome has no -moz-*). */
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.num-step .field-input::-webkit-outer-spin-button,
+.num-step .field-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    appearance: none;
+    margin: 0;
+}
+
+/* The pair occupies the field's right edge, split into two half-height
+   targets: up on top, down below. Sized so each half is a comfortable click
+   target (>=17px) while the whole block still reads as part of the input. */
+.num-step-btns {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    width: 30px;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 0 7px 7px 0;
+    overflow: hidden;
+}
+
+.num-step-btn {
+    flex: 1 1 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    background: rgba(255, 255, 255, 0.05);
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    /* An arrow is tapped repeatedly: no text selection, no double-tap zoom. */
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+}
+
+.num-step-btn + .num-step-btn {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.num-step-btn svg {
+    width: 13px;
+    height: 13px;
+    pointer-events: none;
+}
+
+.num-step-btn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: white;
+}
+
+.num-step-btn:active {
+    background: rgba(255, 255, 255, 0.26);
+    color: white;
+}
+
+/* Narrow cell: a slimmer reserve keeps 3-4 digit values fully visible. */
+@container (max-width: 190px) {
+    .num-step .field-input {
+        padding-right: 28px;
+        font-size: 14px;
+    }
+
+    .num-step-btns {
+        width: 26px;
+    }
+
+    .num-step-btn svg {
+        width: 11px;
+        height: 11px;
+    }
+}
+
+/* The buttons are mouse affordances (tabIndex=-1); the input's arrow keys are
+   the keyboard path, so only a real focus ring on the input is advertised. */
+
+/* The filter is disabled: the value is still readable, just not editable. */
+.num-step .field-input:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.num-step:has(.field-input:disabled) .num-step-btn {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 
 /* A native <select> ignores the dark theme until its platform appearance is
@@ -968,6 +1093,14 @@ textarea.field-input {
 .add-row .field {
     flex: 1;
     margin-top: 0;
+}
+
+/* The URL box holds a pasted LIST, so it is a textarea — but it sits beside a
+   single-line dropzone, and the generic 90px minimum makes the row towering.
+   Two rows of text is enough to show that more lines are accepted. */
+.add-row textarea.field-input {
+    min-height: 72px;
+    font-size: 14px;
 }
 
 /* ================= LOG VIEWER (logs) ================= */
