@@ -204,12 +204,14 @@ func TestClientIP(t *testing.T) {
 		remote   string
 		xff      string
 		realIP   string
+		cfIP     string
 		expected string
 	}{
-		{"direct public", "198.51.100.9:1234", "10.0.0.1", "", "198.51.100.9"},
-		{"trusted loopback with xff", "127.0.0.1:1234", "203.0.113.5, 10.0.0.1", "", "203.0.113.5"},
-		{"trusted private with real ip", "192.168.1.5:1234", "", "203.0.113.6", "203.0.113.6"},
-		{"invalid xff ignored", "127.0.0.1:1234", "not-an-ip", "", "127.0.0.1"},
+		{"direct public", "198.51.100.9:1234", "10.0.0.1", "", "", "198.51.100.9"},
+		{"trusted loopback with xff", "127.0.0.1:1234", "203.0.113.5, 10.0.0.1", "", "", "203.0.113.5"},
+		{"trusted loopback with cf connecting ip", "127.0.0.1:1234", "10.0.0.1", "", "203.0.113.7", "203.0.113.7"},
+		{"trusted private with real ip", "192.168.1.5:1234", "", "203.0.113.6", "", "203.0.113.6"},
+		{"invalid xff ignored", "127.0.0.1:1234", "not-an-ip", "", "", "127.0.0.1"},
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -219,6 +221,9 @@ func TestClientIP(t *testing.T) {
 		}
 		if tc.realIP != "" {
 			r.Header.Set("X-Real-IP", tc.realIP)
+		}
+		if tc.cfIP != "" {
+			r.Header.Set("CF-Connecting-IP", tc.cfIP)
 		}
 		if got := clientIP(r); got != tc.expected {
 			t.Errorf("%s: clientIP = %q, want %q", tc.name, got, tc.expected)

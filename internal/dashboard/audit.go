@@ -388,6 +388,12 @@ func clientIP(r *http.Request) string {
 	}
 	ip := net.ParseIP(host)
 	if ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified()) {
+		// Cloudflare Tunnel overwrites CF-Connecting-IP with the real client
+		// address; prefer it over X-Forwarded-For, whose first entry a client
+		// can spoof. Only trusted for loopback/private peers (the tunnel).
+		if cf := strings.TrimSpace(r.Header.Get("CF-Connecting-IP")); cf != "" && net.ParseIP(cf) != nil {
+			return cf
+		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			first := strings.TrimSpace(strings.Split(xff, ",")[0])
 			if net.ParseIP(first) != nil {
@@ -485,8 +491,6 @@ func mutationDetail(path string) string {
 		return "Permissions update"
 	case path == "/api/backups":
 		return "Backup action"
-	case path == "/api/exec":
-		return "Dashboard command execution"
 	case path == "/api/restart":
 		return "Bot restart"
 	case path == "/api/shutdown":

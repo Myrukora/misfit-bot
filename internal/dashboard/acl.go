@@ -285,3 +285,42 @@ func (m *DashboardModule) requireGuild(guildID string, next http.HandlerFunc) ht
 		next(w, r)
 	}
 }
+
+// isGuildModuleSubtree reports whether name is a guild-scoped module API
+// subtree under /api/guilds/<gid>/.
+func isGuildModuleSubtree(name string) bool {
+	switch name {
+	case "reactionroles", "moderation", "welcome", "imagefilter", "leveling":
+		return true
+	}
+	return false
+}
+
+// guildAPIGuard is the single authorization gate for guild-scoped module APIs.
+// It enforces an authenticated session, a real guild id, management rights on
+// that guild, and a CSRF token on mutating methods. The route dispatcher calls
+// it once before handing off to a module router, so a newly added endpoint
+// cannot be reached without the gate even if its handler forgets a check.
+func (m *DashboardModule) guildAPIGuard(w http.ResponseWriter, r *http.Request, guildID string) (*userSession, bool) {
+	us := sessionOf(r)
+	if us == nil {
+		writeError(w, http.StatusUnauthorized, "authentication required")
+		return nil, false
+	}
+	if !validGuildID(guildID) {
+		writeError(w, http.StatusBadRequest, "invalid guild id")
+		return nil, false
+	}
+	if !m.allowed(guildID) || !m.canManageGuild(us, guildID) {
+		writeError(w, http.StatusForbidden, "insufficient permissions")
+		return nil, false
+	}
+	switch r.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		if !m.checkCSRF(r) {
+			writeError(w, http.StatusForbidden, "invalid CSRF token")
+			return nil, false
+		}
+	}
+	return us, true
+}

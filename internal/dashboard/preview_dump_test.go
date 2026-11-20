@@ -256,12 +256,12 @@ func TestPreviewDumpRedesign(t *testing.T) {
 		{"commands.html", "gcommands", "rd_commands", map[string]any{
 			"groups": []moduleGroup{
 				{Module: "core", Categories: []catGroup{{Name: "general", Commands: []cmdView{
-					{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usage: "ping", Usable: true, CanExec: true},
-					{Name: "ban", Description: "ban a member", Category: "moderation", ModuleOwner: "core", Usage: "ban <user> [reason]", Usable: true, CanExec: true, RequiredPerm: "Ban Members"},
+					{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usage: "ping", Usable: true},
+					{Name: "ban", Description: "ban a member", Category: "moderation", ModuleOwner: "core", Usage: "ban <user> [reason]", Usable: true, RequiredPerm: "Ban Members"},
 					{Name: "owner-only-cmd", Description: "owner only", Category: "moderation", ModuleOwner: "core", OwnerOnly: true, Usable: false},
 				}}}},
 				{Module: "cleanup", Categories: []catGroup{{Name: "cleanup", Commands: []cmdView{
-					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Usage: "cleanup <n>", Usable: true, CanExec: true},
+					{Name: "cleanup", Description: "clean messages", Category: "cleanup", ModuleOwner: "cleanup", Usage: "cleanup <n>", Usable: true},
 				}}}},
 			},
 			"guild": "1", "selectedTab": "core", "count": 4,

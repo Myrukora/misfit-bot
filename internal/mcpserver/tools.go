@@ -392,9 +392,8 @@ type RunCommandIn struct {
 // bot's internal dispatcher with a virtual context. MCP acts as the bot owner
 // (the bearer token IS the owner's credential).
 //
-// NOTE: MCP deliberately does NOT consult the dashboard's exec allowlist —
-// the bearer token is the security boundary, not an allowlist. Do not "fix"
-// this by adding an allowlist check later.
+// NOTE: MCP deliberately does NOT consult a command allowlist — the bearer
+// token is the security boundary. Do not "fix" this by adding one later.
 func (s *Server) runCommand(ctx context.Context, req *mcp.CallToolRequest, in *RunCommandIn) (*mcp.CallToolResult, any, error) {
 	res, err := s.deps.Bot.ExecuteCommand(in.Command, in.Args, in.GuildID, in.ChannelID, s.deps.Bot.GetOwnerID())
 	if err != nil {

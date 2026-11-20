@@ -2,7 +2,6 @@ package dashboard
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,7 +27,7 @@ import (
 func (m *DashboardModule) webCfg(name string) (modules.WebConfigurable, bool) {
 	// The dashboard is no longer a module — it IS the control surface. Its
 	// own settings panel renders from its WebConfigurable implementation
-	// directly (client_id, session_secret, allowed_guilds, exec_allowlist).
+	// directly (client_id, session_secret, allowed_guilds).
 	if name == "dashboard" {
 		return m, true
 	}
@@ -442,87 +441,6 @@ func (m *DashboardModule) logFileBase() (string, string) {
 	return filepath.Dir(fp), strings.TrimSuffix(filepath.Base(fp), ".log")
 }
 
-// ── /api/exec — universal command execution ─────────────────────────────
-
-// apiExec runs any command the requesting dashboard user may use, exactly as
-// the Discord dispatcher would gate it: SuperOwnerOnly is always blocked
-// (server-side, in ExecuteCommand), OwnerOnly requires owner/elevated, and
-// RequiredPerm commands check the user's cached perms for the given guild.
-// The response is the captured embed/text, never raw process output.
-//
-// The exec allowlist (DashboardConfig.ExecAllowlist) is the security
-// boundary: when non-empty, any command not in the list is refused before
-// ExecuteCommand is called, so an owner can lock the dashboard to a safe
-// subset even if it's reachable on the network.
-func (m *DashboardModule) apiExec(w http.ResponseWriter, r *http.Request, us *userSession) {
-	if !m.checkCSRF(r) {
-		writeError(w, http.StatusForbidden, "invalid CSRF token")
-		return
-	}
-	var body struct {
-		Command string   `json:"command"`
-		Args    []string `json:"args"`
-		Guild   string   `json:"guild"`
-		Channel string   `json:"channel"`
-	}
-	if err := readJSON(r.Body, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if body.Command == "" {
-		writeError(w, http.StatusBadRequest, "command required")
-		return
-	}
-	if !m.execAllowed(body.Command) {
-		writeError(w, http.StatusForbidden, "this command is not enabled for the dashboard")
-		return
-	}
-	res, err := m.bot.ExecuteCommand(body.Command, body.Args, body.Guild, body.Channel, us.userID.String())
-	if err != nil {
-		code := http.StatusBadRequest
-		if errors.Is(err, commands.ErrWebForbidden) ||
-			errors.Is(err, commands.ErrInsufficientPerm) ||
-			errors.Is(err, commands.ErrCommandDisabled) {
-			code = http.StatusForbidden
-		}
-		writeError(w, code, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"title": res.Title, "description": res.Description, "color": res.Color, "text": res.Text,
-	})
-}
-
-// execAllowed reports whether a command name may be run via the dashboard's
-// Run button. The allowlist is the sole security boundary for /api/exec: an
-// EMPTY allowlist means NOTHING is runnable (opt-in only, per the plan), and a
-// non-empty allowlist permits only its entries.
-func (m *DashboardModule) execAllowed(name string) bool {
-	allowlist := m.execAllowlist()
-	if len(allowlist) == 0 {
-		return false
-	}
-	for _, allowed := range allowlist {
-		if allowed == name {
-			return true
-		}
-	}
-	return false
-}
-
-// execAllowlist returns a copy of the configured exec allowlist, read under
-// the config lock so it stays consistent with cfg swaps.
-func (m *DashboardModule) execAllowlist() []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cfg == nil {
-		return nil
-	}
-	out := make([]string, len(m.cfg.ExecAllowlist))
-	copy(out, m.cfg.ExecAllowlist)
-	return out
-}
-
 // ── /api/cmdcfg/toggle ──────────────────────────────────────────────────────
 // Command overrides are per-guild: the request must name a guild, and the
 // caller must manage it (staff/owner/elevated). There is no bot-wide scope —
@@ -816,7 +734,7 @@ func knownAPIPath(parts []string) bool {
 	switch parts[0] {
 	case "me", "metrics", "commands", "guilds", "guild", "modules", "settings",
 		"tickets", "imagefilter", "ticketfiles", "backups", "nickname",
-		"presence", "permissions", "logs", "exec", "cmdcfg", "ratelimit",
+		"presence", "permissions", "logs", "cmdcfg", "ratelimit",
 		"updater", "shutdown", "restart":
 		return true
 	}
@@ -847,6 +765,15 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 			return
 		}
 	case "guilds":
+		// Guild-scoped module APIs share one authorization gate: session,
+		// management rights, and CSRF on mutations. Module routers still
+		// re-check internally (defense in depth), but no handler under this
+		// prefix can be reached without the gate.
+		if len(parts) >= 3 && isGuildModuleSubtree(parts[2]) {
+			if _, ok := m.guildAPIGuard(w, r, parts[1]); !ok {
+				return
+			}
+		}
 		// Guild-scoped module subtrees (e.g. /api/guilds/<gid>/imagefilter…)
 		// live in their own dispatcher; must be checked before the GET-only
 		// listing below, so POST/DELETE reach it too.
@@ -1013,16 +940,6 @@ func (m *DashboardModule) routeAPI(w http.ResponseWriter, r *http.Request, parts
 				return
 			}
 			m.apiLogs(w, r)
-			return
-		}
-	case "exec":
-		if meth == "POST" {
-			us := sessionOf(r)
-			if us == nil {
-				writeError(w, http.StatusForbidden, "not logged in")
-				return
-			}
-			m.apiExec(w, r, us)
 			return
 		}
 	case "cmdcfg":

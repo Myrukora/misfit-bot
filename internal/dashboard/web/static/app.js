@@ -1287,23 +1287,6 @@
     });
   }
 
-  /* Run button: executes via the universal web exec endpoint */
-  document.querySelectorAll(".run-cmd").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var name = btn.dataset.name;
-      var guild = btn.dataset.guild || "";
-      var label = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = "Running…";
-      api("POST", "/api/exec", { command: name, args: [], guild: guild })
-        .then(function (r) {
-          toast((r.title ? "[" + r.title + "] " : "") + (r.text || r.description || "ok"));
-        })
-        .catch(function (e) { toast(name + ": " + e.message, true); })
-        .finally(function () { btn.textContent = label; btn.disabled = false; });
-    });
-  });
-
   /* Row enable/disable toggle: flips the per-guild disabled override,
      preserving the command's mod-only + channel/role allowlists. */
   document.querySelectorAll("input[data-rowtoggle]").forEach(function (inp) {

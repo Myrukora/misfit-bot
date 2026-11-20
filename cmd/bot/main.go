@@ -1526,19 +1526,17 @@ func (b *botAdapter) ResetRateLimit(userID string) {
 
 // ExecuteCommand runs a registered slash command (core or any loaded module)
 // with a virtual context whose responses are captured instead of posted to
-// Discord. This is how the web dashboard executes commands — core, Go module,
-// Python module and Lua module alike (Lua routes respond/reply_text through
-// the context; Python via SendCommandFromWeb).
+// Discord. The MCP server uses it for its run_command tool (Lua routes
+// respond/reply_text through the context; Python via SendCommandFromWeb).
 //
 // Permission mapping (mirrors the Discord dispatcher):
-//   - SuperOwnerOnly → ALWAYS denied from the web
+//   - SuperOwnerOnly → ALWAYS denied remotely
 //   - OwnerOnly → the requesting user must be owner or elevated (CanUse)
 //   - RequiredPerm → CanUse with the user's cached perms; with no guild
 //     context, only owner/elevated pass (everyone else has 0 perms)
 //
-// The Discord rate limiter is intentionally NOT applied here: the web already
-// has auth + CSRF + per-command permission checks, and sharing the command
-// budget between Discord and the web would let Discord spam block the UI.
+// The Discord rate limiter is intentionally NOT applied here: MCP is
+// bearer-token authenticated and owner-equivalent.
 func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (commands.CommandResult, error) {
 	var res commands.CommandResult
 	if asUserID == "" {
@@ -1585,11 +1583,11 @@ func (b *botAdapter) ExecuteCommand(name string, args []string, guildID, channel
 		return res, fmt.Errorf("unknown command: %s", name)
 	}
 
-	// Permission gate — web execution is never granted for SuperOwnerOnly
+	// Permission gate — remote execution is never granted for SuperOwnerOnly
 	// commands, and everything else mirrors the Discord dispatcher's checks.
 	userPerms := b.GetUserPermissions(asUserID, guildID)
 	guildOwnerID := b.GetGuildOwnerID(guildID)
-	if err := commands.CanExecuteWeb(
+	if err := commands.CanExecuteRemote(
 		PermMgr.IsOwner(asUserID), PermMgr.IsElevated(asUserID), asUserID == guildOwnerID,
 		userPerms, ci.superOwnerOnly, ci.ownerOnly, ci.requiredPerm,
 	); err != nil {

@@ -38,16 +38,16 @@ type Context struct {
 	GuildID   string
 	Author    discord.User
 	Args      []string
-	Web       bool // true: invoked from the web dashboard (virtual context)
+	Web       bool // true: invoked outside Discord (MCP virtual context; historically the web dashboard)
 	Respond   func(embeds ...discord.Embed) error
 	ReplyText func(text string) error
 	// RespondWithFiles sends a follow-up with attachments (and optional
-	// embeds). Nil for web-executed commands, which cannot attach files;
+	// embeds). Nil for MCP-executed commands, which cannot attach files;
 	// callers must fall back to Respond.
 	RespondWithFiles func(files []*discord.File, embeds ...discord.Embed) error
 	// Modal sends a modal as the interaction's INITIAL response. It is only
 	// valid inside RawModal (the dispatcher has not deferred yet); it is nil
-	// everywhere else, including Execute and web execution. Callers that want
+	// everywhere else, including Execute and MCP execution. Callers that want
 	// to prompt must check for nil rather than assuming it exists.
 	Modal func(modal discord.ModalCreate) error
 }
@@ -139,8 +139,8 @@ type Interface interface {
 	// ExecuteCommand runs a registered slash command (core or any loaded
 	// module) with a virtual context whose responses are captured instead of
 	// posted to Discord. Permission checks mirror the Discord dispatcher:
-	// SuperOwnerOnly commands are ALWAYS denied from the web; OwnerOnly
-	// requires the requesting user to be owner or elevated.
+	// SuperOwnerOnly commands are ALWAYS denied remotely; OwnerOnly requires
+	// the requesting user to be owner or elevated.
 	// channelID is optional ("" = no channel context); when set it must be a
 	// cached channel of guildID.
 	ExecuteCommand(name string, args []string, guildID, channelID, asUserID string) (CommandResult, error)

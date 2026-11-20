@@ -27,16 +27,17 @@ import (
 // core config.yml (dashboard:/oauth: sections) plus a small 0600 file for
 // per-installation secrets (session_secret, client_id, allowed_guilds).
 type DashboardModule struct {
-	bot      commands.Interface
-	botName  string
-	cfg      *DashboardConfig
-	client   *bot.Client // cached *bot.Client from bot.GetClient()
-	oauth    *oauth2.Client
-	stateCtl oauth2.StateController // reused across oauth2.Client rebuilds so in-flight logins survive secret changes
-	sessions *sessionStore
-	tmpl     *templateBundle
-	mcp      http.Handler // optional MCP server handler mounted at /mcp (bearer-token auth)
-	audit    *auditLog    // login/page/mutation audit (30-day retention)
+	bot          commands.Interface
+	botName      string
+	cfg          *DashboardConfig
+	client       *bot.Client // cached *bot.Client from bot.GetClient()
+	oauth        *oauth2.Client
+	stateCtl     oauth2.StateController // reused across oauth2.Client rebuilds so in-flight logins survive secret changes
+	sessions     *sessionStore
+	loginLimiter *loginLimiter
+	tmpl         *templateBundle
+	mcp          http.Handler // optional MCP server handler mounted at /mcp (bearer-token auth)
+	audit        *auditLog    // login/page/mutation audit (30-day retention)
 
 	srv       *http.Server
 	running   bool
@@ -81,12 +82,13 @@ type Deps struct {
 // client cache).
 func New(deps Deps) *DashboardModule {
 	m := &DashboardModule{
-		bot:      deps.Bot,
-		botName:  deps.BotName,
-		dataDir:  deps.DataDir,
-		logger:   deps.Logger,
-		mcp:      deps.MCP,
-		sessions: newSessionStore(),
+		bot:          deps.Bot,
+		botName:      deps.BotName,
+		dataDir:      deps.DataDir,
+		logger:       deps.Logger,
+		mcp:          deps.MCP,
+		sessions:     newSessionStore(),
+		loginLimiter: newLoginLimiter(),
 	}
 	if c, ok := deps.Bot.GetClient().(*bot.Client); ok {
 		m.client = c

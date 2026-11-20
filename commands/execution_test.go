@@ -7,9 +7,9 @@ import (
 	"github.com/disgoorg/disgo/discord"
 )
 
-// TestCanExecuteWeb pins the web execution permission gate — the exact rules
-// the dashboard's /api/exec enforces for every command.
-func TestCanExecuteWeb(t *testing.T) {
+// TestCanExecuteRemote pins the non-Discord execution permission gate — the
+// exact rules the MCP dispatcher enforces for every command.
+func TestCanExecuteRemote(t *testing.T) {
 	const admin = discord.PermissionAdministrator
 
 	cases := []struct {
@@ -35,7 +35,7 @@ func TestCanExecuteWeb(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			err := CanExecuteWeb(c.owner, c.elevated, c.guildOwner, c.userPerms,
+			err := CanExecuteRemote(c.owner, c.elevated, c.guildOwner, c.userPerms,
 				c.superOwnerOnly, c.ownerOnly, c.requiredPerm)
 			if c.wantErr {
 				if err == nil {
@@ -53,10 +53,11 @@ func TestCanExecuteWeb(t *testing.T) {
 	}
 }
 
-// TestCanExecuteWebSuperOwnerMessage pins the wording the dashboard shows.
-func TestCanExecuteWebSuperOwnerMessage(t *testing.T) {
-	err := CanExecuteWeb(true, false, false, 0, true, true, 0)
-	if err == nil || !strings.Contains(err.Error(), "cannot be executed from the web") {
+// TestCanExecuteRemoteSuperOwnerMessage pins the wording shown for a command
+// that can never run outside Discord.
+func TestCanExecuteRemoteSuperOwnerMessage(t *testing.T) {
+	err := CanExecuteRemote(true, false, false, 0, true, true, 0)
+	if err == nil || !strings.Contains(err.Error(), "cannot be executed remotely") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

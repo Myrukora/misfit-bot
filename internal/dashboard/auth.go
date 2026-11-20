@@ -247,6 +247,9 @@ func (m *DashboardModule) handleLoginPage(w http.ResponseWriter, r *http.Request
 
 // handleLoginStart begins the Discord OAuth flow.
 func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Request) {
+	if !m.loginAllowed(w, r) {
+		return
+	}
 	oa := m.oauthClient()
 	if oa == nil || !m.configured() {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -266,6 +269,9 @@ func (m *DashboardModule) handleLoginStart(w http.ResponseWriter, r *http.Reques
 
 // handleCallback completes OAuth, enforces the mutual-guild rule and issues a session.
 func (m *DashboardModule) handleCallback(w http.ResponseWriter, r *http.Request) {
+	if !m.loginAllowed(w, r) {
+		return
+	}
 	oa := m.oauthClient()
 	if oa == nil {
 		m.recordLogin(r, false, nil, "", "OAuth not configured", 0)

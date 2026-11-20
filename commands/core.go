@@ -288,7 +288,7 @@ func strOpt(name, desc string, required bool) discord.ApplicationCommandOptionSt
 }
 
 // strOptChoices builds a string option restricted to the given choices
-// (dropdown in Discord's UI and in the dashboard's command runner).
+// (dropdown in Discord's UI and in the /api/commands option schema).
 func strOptChoices(name, desc string, required bool, choices ...string) discord.ApplicationCommandOptionString {
 	opts := strOpt(name, desc, required)
 	for _, c := range choices {

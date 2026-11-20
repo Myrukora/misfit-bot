@@ -194,11 +194,9 @@ The web dashboard runs in-process (compiled into the single binary). Setup:
 3. Open the dashboard and complete the **Login with Discord** flow; register the redirect URI it shows in the Dev Portal.
 4. The default bind is `http://127.0.0.1:8080`; set `dashboard.listen` in `config.yml` if needed (expose remotely via a reverse proxy/tunnel). `dashboard.public_url` is optional and not required for the normal browser-origin redirect.
 
-Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status, commands they can actually run — filtered with the same rules as `/help`).
+Users log in via Discord OAuth2 and must share at least one server with the bot. Access is tiered: **owner** and **elevated** (everything), **staff** (manages ≥1 guild via ManageGuild/Admin/owner — guild-scoped module settings), and **regular** (status and the commands available to them, filtered with the same rules as `/help`).
 
-The dashboard **Commands** tab lists every slash command once and runs them in-process (responses are captured into the page, never posted to Discord). Execution goes through the bot's own dispatcher and runs the command's single implementation directly in the backend — no Discord round-trip.
-
-Each command card's **Run** button executes the command in-process with **no arguments** (`POST /api/exec` takes an optional `args` array; the commands tab sends an empty one). The JSON catalog (`GET /api/commands`) does expose each command's slash-option schema — subcommand groups, typed options and their choices — for tools that want to build their own argument forms, but the dashboard page itself renders no argument inputs.
+The dashboard **Commands** tab lists every slash command once, with per-server enable/disable toggles and per-command channel/role/mod-only overrides. It does **not** execute commands: no web surface runs a command or posts to Discord. The JSON catalog (`GET /api/commands`) exposes each command's slash-option schema — subcommand groups, typed options and their choices — for external tools that want to build their own argument forms.
 
 ### Terms of Service and Privacy Policy
 

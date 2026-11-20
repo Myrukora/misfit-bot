@@ -460,10 +460,9 @@ func TestScopedSidebar(t *testing.T) {
 	}
 }
 
-// TestRedesignCommandsRunAffordance pins the same Run affordance contract on
-// the redesign commands template (rd_commands): usable commands get a Run
-// button carrying the page's guild; SuperOwnerOnly and locked ones never do.
-func TestRedesignCommandsRunAffordance(t *testing.T) {
+// TestRedesignCommandsNoRunAffordance pins that the dashboard never renders a
+// Run control: command execution was removed from the web surface entirely.
+func TestRedesignCommandsNoRunAffordance(t *testing.T) {
 	b, err := loadTemplates()
 	if err != nil {
 		t.Fatalf("loadTemplates: %v", err)
@@ -471,9 +470,8 @@ func TestRedesignCommandsRunAffordance(t *testing.T) {
 	groups := []moduleGroup{{
 		Module: "core",
 		Categories: []catGroup{{Name: "general", Commands: []cmdView{
-			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usable: true, CanExec: true},
-			{Name: "secret", Description: "owner-only", Category: "core", ModuleOwner: "core", OwnerOnly: true, SuperOwnerOnly: true, Usable: true, CanExec: true},
-			{Name: "locked", Description: "x", Category: "core", ModuleOwner: "core", Usable: false},
+			{Name: "ping", Description: "pong", Category: "general", ModuleOwner: "core", Usable: true},
+			{Name: "lock", Description: "locks a channel", Category: "moderation", ModuleOwner: "core", Usable: true},
 		}}},
 	}}
 	d := mkData(lvlOwner)
@@ -481,23 +479,14 @@ func TestRedesignCommandsRunAffordance(t *testing.T) {
 	d.Page = "gcommands"
 	d.GuildID = "1"
 	d.GuildName = "My Server"
-	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 3, "canRaw": false, "canManage": true, "level": lvlOwner}
+	d.Content = map[string]any{"groups": groups, "guild": "1", "count": 2, "canRaw": false, "canManage": true, "level": lvlOwner}
 	var sb strings.Builder
 	if err := b.render(&sb, "rd_commands", d); err != nil {
 		t.Fatalf("render rd_commands: %v", err)
 	}
 	out := sb.String()
-	if !strings.Contains(out, `run-cmd" data-name="ping"`) {
-		t.Error("usable command missing Run affordance")
-	}
-	if strings.Contains(out, `run-cmd" data-name="secret"`) {
-		t.Error("SuperOwnerOnly command must never render a Run affordance")
-	}
-	if strings.Contains(out, `run-cmd" data-name="locked"`) {
-		t.Error("non-usable command must not render a Run affordance")
-	}
-	if !strings.Contains(out, `data-guild="1"`) {
-		t.Error("Run affordance must carry the page's guild context")
+	if strings.Contains(out, "run-cmd") || strings.Contains(out, ">Run<") {
+		t.Error("dashboard must not render a command Run affordance")
 	}
 }
 

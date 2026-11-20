@@ -37,9 +37,6 @@
                 </label>
                 <button type="button" class="gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-modonly="{{.ModOnly}}" data-channels="{{joinOr .AllowedChannels "," ""}}" data-roles="{{joinOr .AllowedRoles "," ""}}" aria-label="Configure {{.Name}}">⚙</button>
                 {{end}}
-                {{if and .Usable .CanExec (not .SuperOwnerOnly)}}
-                <button type="button" class="btn btn-small run-cmd" data-name="{{.Name}}" data-guild="{{$.Content.guild}}">Run</button>
-                {{end}}
               </div>
             </div>
             {{end}}

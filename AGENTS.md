@@ -48,11 +48,12 @@ Python modules remain hot-loadable at runtime.
   permission gates run (`SuperOwnerOnly`, `CanUse`, per-command overrides,
   rate limit); `Execute` responds with follow-up embeds/text. Only
   error-colored (red) embeds auto-delete, after 7 seconds.
-- **Dashboard/MCP command:** `botAdapter.ExecuteCommand` runs a registered
-  slash command with a virtual context. Responses are captured, nothing is
-  posted to Discord, and the same permission rules apply. `SuperOwnerOnly`
-  commands are never executable from the web. The dashboard additionally
-  requires the command to be on `exec_allowlist`; MCP is owner-equivalent.
+- **MCP command:** `botAdapter.ExecuteCommand` runs a registered slash command
+  with a virtual context. Responses are captured, nothing is posted to Discord,
+  and the same permission rules apply. `SuperOwnerOnly` commands are never
+  executable remotely, and the MCP token is owner-equivalent. The dashboard
+  does not execute commands at all; its Commands tab only lists and configures
+  them.
 - **Events:** disgo listeners call package handlers which fan out through
   `safeDispatchFor` to every loaded module/builtin `EventHooks`. A panic in
   one handler is recovered and logged; the rest still run. Hooks are
@@ -176,8 +177,8 @@ the runtime library or model is missing.
   `[group, sub, ...]`; absent optional options are skipped, not blanked.
 - Permission tiers: owner/elevated bypass; guild owner bypasses
   `RequiredPerm`; `OwnerOnly` blocks non-owners; `SuperOwnerOnly` is checked
-  before `CanUse` and is never web-executable. Dashboard/MCP execution must
-  mirror these rules via `CanExecuteWeb` or `ExecuteCommand`.
+  before `CanUse` and is never remotely executable. MCP execution must mirror
+  these rules via `CanExecuteRemote` or `ExecuteCommand`.
 - Respond with `embed.Success`, `embed.Error`, `embed.Info`, or
   `embed.Warning`. `WithFields` **replaces** the field slice; build one slice
   and pass it once.

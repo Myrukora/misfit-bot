@@ -31,16 +31,12 @@ type cmdView struct {
 	// gear modal's channel/role pickers. Empty = no restriction.
 	AllowedChannels []string `json:"allowed_channels"`
 	AllowedRoles    []string `json:"allowed_roles"`
-	// CanExec is true when the command is in the dashboard exec allowlist (and
-	// thus may render a Run affordance). Empty allowlist = nothing runnable.
-	CanExec bool `json:"can_exec"`
-	// Options is the click-driven argument form schema, derived from the
-	// command's slash options (the same schema Discord's UI uses). Empty =
-	// zero-argument command (Run executes directly).
+	// Options is the command's slash-option schema, exposed to API consumers
+	// (the same schema Discord's UI uses). Empty = zero-option command.
 	Options []argOpt `json:"options"`
 }
 
-// argOpt is one typed argument of a command's web Run form.
+// argOpt is one typed argument of a command's slash-option schema.
 type argOpt struct {
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
@@ -290,9 +286,6 @@ func (m *DashboardModule) fillOverrideState(c *cmdView, guildID string) {
 			c.AllowedRoles = cfg.AllowedRoles
 		}
 	}
-	// Exec allowlist is the sole gate for Run buttons. An empty allowlist means
-	// nothing is runnable (opt-in only).
-	c.CanExec = m.execAllowed(c.Name)
 }
 
 // dedupeCatalog collapses the catalog to one entry per command name, keeping
