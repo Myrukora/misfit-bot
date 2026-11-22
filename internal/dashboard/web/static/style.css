@@ -3153,11 +3153,21 @@ video.ticket-thumb {
     display: block;
 }
 
+/* The scrim is a full-viewport layer on mobile. It must not intercept taps
+ * while the drawer is closed (opacity 0 still hit-tests); it only becomes
+ * clickable once the drawer is open, where a tap closes it. */
 .sidebar-backdrop {
     display: none;
+    pointer-events: none;
 }
 
 @media (max-width: 899px) {
+    /* Measured mobile header height: 8px padding + 40px toggle + 1px border.
+       The drawer hangs below it so the opaque topbar never covers nav items. */
+    .app {
+        --topbar-h: 57px;
+    }
+
     .menu-toggle {
         display: inline-flex;
         align-items: center;
@@ -3167,7 +3177,7 @@ video.ticket-thumb {
     /* Sidebar → fixed off-canvas drawer. */
     .sidebar {
         position: fixed;
-        top: 0;
+        top: var(--topbar-h);
         left: 0;
         bottom: 0;
         width: 260px;
@@ -3194,10 +3204,15 @@ video.ticket-thumb {
 
     .sidebar-backdrop.show {
         opacity: 1;
+        pointer-events: auto;
     }
 
-    /* Topbar: compact brand so the avatar + toggle fit. */
+    /* Topbar: compact brand so the avatar + toggle fit. It also has to sit
+       above the scrim, otherwise the toggle is unclickable while the drawer
+       is open (the header stays bright and usable, the drawer hangs below it). */
     .topbar {
+        position: relative;
+        z-index: 130;
         padding: 8px 12px;
     }
 
