@@ -78,6 +78,15 @@ module_configs/
 *.local.yml
 *.local.yaml
 
+# Tool-only Node install for the unslop skill (Playwright screenshots and
+# story-video rendering): nothing from it belongs in the repo.
+node_modules/
+package.json
+package-lock.json
+unslop/
+unslop-story/
+*.mp4
+
 # Editor/OS files
 .idea/
 .vscode/
