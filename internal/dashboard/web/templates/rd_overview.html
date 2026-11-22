@@ -1,26 +1,36 @@
 {{define "rd_overview"}}{{template "rd_header" .}}
-        <!-- ===== Bot-wide live metrics ===== -->
+        <!-- ===== Live readout — the one moment on this page ===== -->
+        <section class="live-panel">
+          <span class="dot" data-status role="status" aria-label="Bot status"></span>
+          <div>
+            <div class="live-title">Gateway latency</div>
+            <div class="live-value" id="m-latency">{{.Content.Latency}}</div>
+          </div>
+          <div class="live-meta">
+            <span><b>Uptime</b><span id="m-uptime">{{.Content.Uptime}}</span></span>
+            <span><b>Memory</b><span id="m-mem">{{.Content.Runtime.alloc_mb}} MB</span></span>
+            <span><b>Sys memory</b><span id="m-sys">{{.Content.Runtime.sys_mb}} MB</span></span>
+            <span><b>Goroutines</b><span id="m-goros">{{.Content.Runtime.goroutines}}</span></span>
+          </div>
+        </section>
+
+        <!-- ===== Cached counts and inventory ===== -->
         <section class="stats-grid">
           <div class="stat-card"><div class="stat-value">{{.Content.Guilds}}</div><div class="stat-label">Servers</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.Members}}</div><div class="stat-label">Cached members</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.Channels}}</div><div class="stat-label">Cached channels</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.Roles}}</div><div class="stat-label">Cached roles</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-latency">{{.Content.Latency}}</div><div class="stat-label">Gateway latency</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-uptime">{{.Content.Uptime}}</div><div class="stat-label">Uptime</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.ModulesLoaded}}<small>/{{.Content.ModulesAvail}}</small></div><div class="stat-label">Modules loaded</div></div>
           <div class="stat-card"><div class="stat-value">{{.Content.Commands}}</div><div class="stat-label">Commands</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-mem">{{.Content.Runtime.alloc_mb}} MB</div><div class="stat-label">Memory</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-sys">{{.Content.Runtime.sys_mb}} MB</div><div class="stat-label">Sys memory</div></div>
-          <div class="stat-card"><div class="stat-value" id="m-goros">{{.Content.Runtime.goroutines}}</div><div class="stat-label">Goroutines</div></div>
           <div class="stat-card"><div class="stat-value stat-value-sm">{{versionLabel .Content.Version .Content.LatestVersion .Content.UpdateAvailable}}</div><div class="stat-label">Version</div></div>
         </section>
 
         <!-- ===== Loaded modules ===== -->
         <section class="card">
           <h2>Modules</h2>
-          <p class="muted">Currently loaded across the bot.</p>
+          <p class="muted">Loaded right now across the bot</p>
           <div class="chips">
-            {{range .Content.Modules}}<span class="chip">{{.}}</span>{{else}}<span class="muted">No modules loaded.</span>{{end}}
+            {{range .Content.Modules}}<span class="chip">{{.}}</span>{{else}}<span class="muted">No modules loaded</span>{{end}}
           </div>
         </section>
 {{template "rd_footer" .}}{{end}}

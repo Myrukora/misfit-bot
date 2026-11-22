@@ -7,7 +7,7 @@
 <title>{{.Bot}} — {{pageTitle .Page}}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cookie&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body data-level="{{.Level}}">
@@ -22,76 +22,76 @@
           <span class="server-current-name">{{.GuildName}}</span>
         </div>
         <a class="nav-item{{if eq .Page "gcommands"}} active{{end}}" href="/g/{{.GuildID}}/commands">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
           <span class="nav-label">Commands</span>
         </a>
         <a class="nav-item{{if eq .Page "gtickets"}} active{{end}}" href="/g/{{.GuildID}}/tickets">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.5a2.5 2.5 0 0 0 0 5V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.5a2.5 2.5 0 0 0 0-5z"/><line x1="14" y1="8" x2="14" y2="16" stroke-dasharray="2 2"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1.5a2.5 2.5 0 0 0 0 5V16a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1.5a2.5 2.5 0 0 0 0-5z"/><line x1="14" y1="8" x2="14" y2="16" stroke-dasharray="2 2"/></svg></span>
           <span class="nav-label">Tickets</span>
         </a>
         {{if .ShowWelcome}}
         <a class="nav-item{{if eq .Page "gwelcome"}} active{{end}}" href="/g/{{.GuildID}}/welcome">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H8l-4 3V6a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h5"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16a1 1 0 0 1 1 1v10a2 2 0 0 1-2 2H8l-4 3V6a1 1 0 0 1 1-1z"/><path d="M8 9h8M8 13h5"/></svg></span>
           <span class="nav-label">Welcome</span>
         </a>
         {{end}}
         {{if .ShowModeration}}
         <a class="nav-item{{if eq .Page "gmoderation"}} active{{end}}" href="/g/{{.GuildID}}/moderation">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3 8.2-8 9-5-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3 8.2-8 9-5-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg></span>
           <span class="nav-label">Moderation</span>
         </a>
         {{end}}
         {{if .ShowReactionRoles}}
         <a class="nav-item{{if eq .Page "greactionroles"}} active{{end}}" href="/g/{{.GuildID}}/reactionroles">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></span>
-          <span class="nav-label">Reaction Roles</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></span>
+          <span class="nav-label">Reaction roles</span>
         </a>
         {{end}}
         {{if .ShowLeveling}}
         <a class="nav-item{{if eq .Page "gleveling"}} active{{end}}" href="/g/{{.GuildID}}/leveling">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="13" width="3" height="7"/><rect x="11" y="9" width="3" height="11"/><rect x="16" y="5" width="3" height="15"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="20" y2="20"/><rect x="6" y="13" width="3" height="7"/><rect x="11" y="9" width="3" height="11"/><rect x="16" y="5" width="3" height="15"/></svg></span>
           <span class="nav-label">Leveling</span>
         </a>
         {{end}}
         <a class="nav-item{{if eq .Page "gmodules"}} active{{end}}" href="/g/{{.GuildID}}/modules">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="m2 16 10 5 10-5"/><path d="m2 12 10 5 10-5"/></svg></span>
           <span class="nav-label">Modules</span>
         </a>
         {{if .ShowImageFilter}}
         <a class="nav-item{{if eq .Page "imagefilter"}} active{{end}}" href="/g/{{.GuildID}}/imagefilter">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
-          <span class="nav-label">Image Filter</span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg></span>
+          <span class="nav-label">Image filter</span>
         </a>
         {{end}}
       {{else}}
         <!-- Global sidebar -->
         <a class="nav-item{{if eq .Page "servers"}} active{{end}}" href="/">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></span>
           <span class="nav-label">Servers</span>
         </a>
         {{if .ShowConfig}}
         <a class="nav-item{{if eq .Page "index"}} active{{end}}" href="/overview">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="20" x2="21" y2="20"/><line x1="7" y1="20" x2="7" y2="12"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="17" y1="20" x2="17" y2="9"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
           <span class="nav-label">Overview</span>
         </a>
         {{end}}
         {{if .ShowConfig}}
         <a class="nav-item{{if eq .Page "config"}} active{{end}}" href="/config">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2.5"/><circle cx="15" cy="12" r="2.5"/><circle cx="8" cy="18" r="2.5"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2.5"/><circle cx="15" cy="12" r="2.5"/><circle cx="8" cy="18" r="2.5"/></svg></span>
           <span class="nav-label">Config</span>
         </a>
         {{end}}
         {{if .ShowConfig}}
         <a class="nav-item{{if eq .Page "permissions"}} active{{end}}" href="/permissions">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M2 21c0-4 4-7 9-7"/><path d="m16 17 2 2 4-4"/></svg></span>
           <span class="nav-label">Permissions</span>
         </a>
         <a class="nav-item{{if eq .Page "logs"}} active{{end}}" href="/logs">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg></span>
           <span class="nav-label">Logs</span>
         </a>
         <a class="nav-item{{if eq .Page "audit"}} active{{end}}" href="/audit">
-          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/></svg></span>
           <span class="nav-label">Audit</span>
         </a>
         {{end}}
@@ -105,20 +105,23 @@
     <main class="main">
       <header class="topbar">
         <button class="menu-toggle" type="button" aria-label="Toggle navigation" aria-controls="sidebar">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
         </button>
         <a href="/" class="topbar-brand">
           {{if .BotAvatar}}<img src="{{.BotAvatar}}" alt="{{.Bot}}" class="logo">{{else}}<span class="logo logo-fallback">{{initial .Bot}}</span>{{end}}
           <span class="topbar-name">{{.Bot}}</span>
         </a>
+        <!-- The signature detail: the bot's live status, driven by the metrics
+           poll. It appears here and on the overview readout, nowhere else. -->
+        <span class="dot topbar-status" data-status role="status" aria-label="Bot status"></span>
         {{if .User}}
         <div class="topbar-user">
           <button class="user-avatar" aria-haspopup="true">
             {{if .User.Avatar}}<img src="{{.User.Avatar}}" alt="avatar">{{else}}<span class="user-avatar-fallback">{{initial .User.Username}}</span>{{end}}
-            <span class="user-caret">▾</span>
+            <span class="user-caret"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
           </button>
           <div class="user-menu">
-            <span class="user-menu-name">{{.User.Username}} <span class="badge lvl-{{.Level}}">{{.Level}}</span></span>
+            <span class="user-menu-name">{{.User.Username}} <span class="badge">{{.Level}}</span></span>
             <a href="/" class="user-menu-item">All servers</a>
             <a href="/logout" class="user-menu-item user-menu-logout">Log out</a>
           </div>

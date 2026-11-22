@@ -6,12 +6,12 @@
 <title>{{.Content.title}}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cookie&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body class="login-page legal-page">
   <main class="legal-card">
-    <a class="legal-back" href="/login">← Back to sign in</a>
+    <a class="legal-back" href="/login"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg>Back to sign in</a>
     <article class="markdown">{{.Content.body}}</article>
   </main>
 </body>

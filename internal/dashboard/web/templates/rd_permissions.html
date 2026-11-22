@@ -2,14 +2,14 @@
         <!-- ===== Owner (read-only) ===== -->
         <section class="card">
           <h2>Owner</h2>
-          <p class="muted">Bot owner. Full access.</p>
+          <p class="muted">Bot owner, full access</p>
           <ul class="user-list">
             <li class="user-row">
               <div class="user-identity">
                 {{with index .Content.names .Content.owner_id}}<span class="user-name">{{.}}</span>{{end}}
                 <span class="user-id muted">{{.Content.owner_id}}</span>
               </div>
-              <span class="user-badge">Owner</span>
+              <span class="badge">Owner</span>
             </li>
           </ul>
         </section>
@@ -17,7 +17,7 @@
         <!-- ===== Elevated users ===== -->
         <section class="card">
           <h2>Elevated users</h2>
-          <p class="muted">Owner-like access.</p>
+          <p class="muted">Owner-like access</p>
           {{if .Content.elevated}}
           <ul class="user-list">
             {{range .Content.elevated}}
@@ -31,7 +31,7 @@
             {{end}}
           </ul>
           {{else}}
-          <p class="muted">No elevated users.</p>
+          <p class="muted">No elevated users</p>
           {{end}}
 
           {{if .IsOwner}}
@@ -39,12 +39,12 @@
           <div class="add-row">
             <div class="field">
               <label class="field-label">Add by user ID</label>
-              <input class="field-input" type="text" id="add-elevated-id" placeholder="Discord user ID">
+              <input class="field-input" type="text" id="add-elevated-id" placeholder="User ID">
             </div>
             <button class="btn btn-primary" id="add-elevated">Add</button>
           </div>
           {{else}}
-          <p class="muted">Only the owner can manage this list.</p>
+          <p class="muted">Only the owner can manage this list</p>
           {{end}}
         </section>
 {{template "rd_footer" .}}{{end}}

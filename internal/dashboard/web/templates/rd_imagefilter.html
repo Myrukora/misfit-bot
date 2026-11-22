@@ -1,10 +1,10 @@
 {{define "rd_imagefilter"}}{{template "rd_header" .}}
         <!-- ===== Image filter: enable + model status ===== -->
         <section class="card">
-          <div class="field" style="flex-direction:row;align-items:center;justify-content:space-between">
+          <div class="head-row">
             <div>
-              <h2 style="margin:0">Image spam filter</h2>
-              <p class="muted" style="margin:4px 0 0">Detect and punish blacklisted images via CLIP (ONNX, CPU).</p>
+              <h2>Image spam filter</h2>
+              <p class="muted">Detect and punish blacklisted images with CLIP on CPU</p>
             </div>
             <label class="toggle">
               <input type="checkbox" id="if-enabled" {{if .Content.enabled}}checked{{end}}>
@@ -13,11 +13,11 @@
             </label>
           </div>
           <div class="if-model-row">
-            <span class="chip" id="if-model-state" data-provisioning="{{.Content.status.Provisioning}}">{{if .Content.status.Provisioning}}🟡 preparing model…{{else if .Content.status.Warm}}🟢 model warm{{else}}⚪ model cold{{end}}</span>
+            <span class="chip" id="if-model-state" data-provisioning="{{.Content.status.Provisioning}}"><span class="dot{{if .Content.status.Provisioning}} dot-warn{{else if .Content.status.Warm}} dot-live{{end}}" aria-hidden="true"></span><span class="chip-text">{{if .Content.status.Provisioning}}preparing model{{else if .Content.status.Warm}}model warm{{else}}model cold{{end}}</span></span>
             <span class="muted">variant <code>{{.Content.status.Variant}}</code> · {{.Content.status.EnabledGuilds}} server(s) enabled</span>
           </div>
           {{with .Content.status.ProvisionError}}
-          <p class="muted" id="if-model-error" style="margin:8px 0 0;border-left:2px solid rgba(237,66,69,.6);padding-left:8px">Model setup failed: {{.}}</p>
+          <p class="model-error" id="if-model-error">Model setup failed: {{.}}</p>
           {{end}}
         </section>
 

@@ -35,6 +35,26 @@
 
   function byId(id) { return document.getElementById(id); }
 
+  /* One icon set: a line icon built in JS must match the SVGs the templates
+     emit, so they share viewBox, stroke width and currentColor. */
+  function icon(d) {
+    var NS = "http://www.w3.org/2000/svg";
+    var svg = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.5");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    var path = document.createElementNS(NS, "path");
+    path.setAttribute("d", d);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  var ICON_X = "M18 6 6 18M6 6l12 12";
+
   /* ---------- number fields: themed step buttons ---------- */
   /* The native spinner is an OS-rendered widget: it ignores the dark theme and
      its two ~10px arrows are a fiddly mouse target. Every number field gets a
@@ -105,9 +125,7 @@
       // Vertical chevrons, the shape a number field is expected to have: the
       // pair sits stacked inside the input's right edge, where the native
       // (unthemeable) spinner used to be.
-      b.innerHTML = dir < 0
-        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>'
-        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+      b.appendChild(dir < 0 ? icon("m6 9 6 6 6-6") : icon("m6 15 6-6 6 6"));
 
       var timer = null, delay = null;
       function stop() {
@@ -210,19 +228,32 @@
     });
   }
 
-  /* ---------- overview: live metrics poll ---------- */
+  /* ---------- live status: the topbar lamp and the overview readout ---------- */
+  var statusEls = Array.prototype.slice.call(document.querySelectorAll("[data-status]"));
   var latencyEl = byId("m-latency");
-  if (latencyEl) {
-    var memEl = byId("m-mem"), sysEl = byId("m-sys"), gorosEl = byId("m-goros"), upEl = byId("m-uptime");
-    setInterval(function () {
+  if (statusEls.length || latencyEl) {
+    var upEl = byId("m-uptime"), memEl = byId("m-mem"), sysEl = byId("m-sys"), gorosEl = byId("m-goros");
+    var markStatus = function (ok) {
+      statusEls.forEach(function (el) {
+        el.classList.toggle("dot-live", ok);
+        el.classList.toggle("dot-down", !ok);
+        el.setAttribute("aria-label", "Bot status: " + (ok ? "reachable" : "not responding"));
+      });
+    };
+    var pollStatus = function () {
       api("GET", "/api/metrics").then(function (s) {
+        markStatus(true);
         if (latencyEl) latencyEl.textContent = s.gateway_latency || latencyEl.textContent;
         if (upEl) upEl.textContent = s.uptime || upEl.textContent;
         if (memEl && s.runtime) memEl.textContent = s.runtime.alloc_mb + " MB";
         if (sysEl && s.runtime) sysEl.textContent = s.runtime.sys_mb + " MB";
         if (gorosEl && s.runtime) gorosEl.textContent = s.runtime.goroutines;
-      }).catch(function () { /* transient poll errors stay silent */ });
-    }, 5000);
+      }).catch(function () {
+        markStatus(false);
+      });
+    };
+    pollStatus();
+    setInterval(pollStatus, 5000);
   }
 
   /* ---------- permissions page ---------- */
@@ -438,22 +469,18 @@
     function applyModelStatus(status) {
       if (!modelState) return false;
       modelState.dataset.provisioning = String(!!status.provisioning);
-      if (status.provisioning) {
-        modelState.textContent = "🟡 preparing model…";
-      } else if (status.warm) {
-        modelState.textContent = "🟢 model warm";
-      } else {
-        modelState.textContent = "⚪ model cold";
+      var dot = modelState.querySelector(".dot");
+      var label = modelState.querySelector(".chip-text");
+      if (dot && label) {
+        dot.className = "dot" + (status.provisioning ? " dot-warn" : status.warm ? " dot-live" : "");
+        label.textContent = status.provisioning ? "preparing model" : status.warm ? "model warm" : "model cold";
       }
       var err = byId("if-model-error");
       if (status.provision_error) {
         if (!err) {
           err = document.createElement("p");
           err.id = "if-model-error";
-          err.className = "muted";
-          err.style.margin = "8px 0 0";
-          err.style.borderLeft = "2px solid rgba(237,66,69,.6)";
-          err.style.paddingLeft = "8px";
+          err.className = "model-error";
           var anchor = modelState.closest(".if-model-row") || modelState;
           anchor.insertAdjacentElement("afterend", err);
         }
@@ -581,7 +608,7 @@
         rm.type = "button";
         rm.className = "file-chip-remove";
         rm.setAttribute("aria-label", "Remove " + pending[i].name);
-        rm.textContent = "×";
+        rm.appendChild(icon(ICON_X));
         rm.addEventListener("click", function (idx) {
           return function () {
             pending.splice(idx, 1);
@@ -849,7 +876,7 @@
       x.type = "button";
       x.className = "picker-chip-x";
       x.setAttribute("aria-label", "Remove " + name);
-      x.textContent = "×";
+      x.appendChild(icon(ICON_X));
       x.addEventListener("click", function (e) {
         e.stopPropagation();
         selected[i].checked = false;
@@ -1311,11 +1338,16 @@
         var m = Math.floor(s / 60), sec = Math.floor(s % 60);
         return m + ":" + (sec < 10 ? "0" : "") + sec;
       };
+      var showState = function (btn, state) {
+        btn.querySelectorAll("svg[data-state]").forEach(function (svg) {
+          svg.hidden = svg.dataset.state !== state;
+        });
+      };
       var sync = function () {
         var dur = media.duration || 0, cur = media.currentTime || 0;
         seek.value = dur ? Math.round((cur / dur) * 1000) : 0;
         time.textContent = fmt(cur) + " / " + fmt(dur);
-        play.textContent = media.paused ? "▶" : "❚❚";
+        showState(play, media.paused ? "play" : "pause");
         if (vol) vol.value = Math.round((media.muted ? 0 : media.volume) * 100);
       };
       var toggle = function () {
@@ -1337,14 +1369,14 @@
       });
       mute.addEventListener("click", function () {
         media.muted = !media.muted;
-        mute.textContent = media.muted ? "🔇" : "🔊";
+        showState(mute, media.muted ? "muted" : "unmuted");
         sync();
       });
       if (vol) {
         vol.addEventListener("input", function () {
           media.volume = vol.value / 100;
           media.muted = vol.value === "0";
-          mute.textContent = media.muted ? "🔇" : "🔊";
+          showState(mute, media.muted ? "muted" : "unmuted");
         });
       }
       if (full) {

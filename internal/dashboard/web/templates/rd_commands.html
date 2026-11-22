@@ -1,12 +1,12 @@
 {{define "rd_commands"}}{{template "rd_header" .}}
         <section class="card">
           <h2>Commands</h2>
-          <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} in this server.</p>
+          <p class="muted">{{.Content.count}} command{{if ne (printf "%v" .Content.count) "1"}}s{{end}} in this server</p>
 
           <!-- Toolbar: filter -->
           <div class="toolbar">
             <div class="field toolbar-search">
-              <input class="field-input" type="search" id="cmd-search" aria-label="Filter commands" placeholder="Filter commands…">
+              <input class="field-input" type="search" id="cmd-search" aria-label="Filter commands" placeholder="Filter commands">
             </div>
           </div>
 
@@ -35,7 +35,9 @@
                   <input type="checkbox" data-rowtoggle="{{.Name}}" {{if not .Disabled}}checked{{end}}>
                   <span class="toggle-track"></span>
                 </label>
-                <button type="button" class="gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-modonly="{{.ModOnly}}" data-channels="{{joinOr .AllowedChannels "," ""}}" data-roles="{{joinOr .AllowedRoles "," ""}}" aria-label="Configure {{.Name}}">⚙</button>
+                <button type="button" class="gear-btn" data-name="{{.Name}}" data-guild="{{$.Content.guild}}" data-modonly="{{.ModOnly}}" data-channels="{{joinOr .AllowedChannels "," ""}}" data-roles="{{joinOr .AllowedRoles "," ""}}" aria-label="Configure {{.Name}}">
+                  <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M20 7h-9"/><path d="M14 17h5"/><circle cx="17" cy="7" r="2"/><circle cx="7" cy="17" r="2"/></svg>
+                </button>
                 {{end}}
               </div>
             </div>
@@ -54,23 +56,23 @@
           <div class="gear-panel" role="dialog" aria-modal="true" aria-label="Command configuration">
             <div class="gear-head">
               <h4>Configure <code id="gear-cmd-name"></code></h4>
-              <button type="button" class="gear-close" id="gear-close" aria-label="Close">✕</button>
+              <button type="button" class="gear-close" id="gear-close" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
             </div>
             <div class="gear-body">
               <label class="toggle"><input type="checkbox" id="gear-modonly-toggle"><span class="toggle-track"></span><span class="toggle-label">Staff (manage-messages) only</span></label>
               <div class="gear-field">
                 <span class="field-label">Allowed channels</span>
                 <div class="multi" id="gear-channels">
-                  {{range .Content.channels}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}
+                  {{range .Content.channels}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"><span>{{.Name}}</span></label>{{end}}
                 </div>
               </div>
               <div class="gear-field">
                 <span class="field-label">Allowed roles</span>
                 <div class="multi" id="gear-roles">
-                  {{range .Content.roles}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"> <span>{{.Name}}</span></label>{{end}}
+                  {{range .Content.roles}}<label class="multi-item"><input type="checkbox" value="{{.ID}}"><span>{{.Name}}</span></label>{{end}}
                 </div>
               </div>
-              <p class="muted gear-hint" id="gear-hint">Changes save immediately.</p>
+              <p class="gear-hint" id="gear-hint">Changes save immediately</p>
             </div>
             <div class="gear-foot">
               <button type="button" class="btn btn-small btn-primary" id="gear-save">Save</button>

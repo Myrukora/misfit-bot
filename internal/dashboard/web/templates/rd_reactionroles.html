@@ -2,13 +2,13 @@
         <section class="card">
           <div class="rr-head">
             <div>
-              <h2 style="margin:0">Reaction roles</h2>
-              <p class="muted" style="margin:4px 0 0">React to get a role; removing the reaction removes it when enabled.</p>
+              <h2>Reaction roles</h2>
+              <p class="muted">React to get a role; removing the reaction removes it when enabled</p>
             </div>
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>reactionroles</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
+          <p class="note">The <strong>reactionroles</strong> module is not loaded — <a href="/config">enable it</a> and restart</p>
           {{else}}
           {{with .Content.configError}}<p class="rr-error">Config problem: {{.}}</p>{{end}}
           {{with .Content.lastError}}<p class="rr-error">Last error: {{.}}</p>{{end}}
@@ -22,7 +22,7 @@
               <span class="tag{{if .Enabled}} ok{{end}}">{{if .Enabled}}enabled{{else}}disabled{{end}}</span>
             </a>
             {{end}}
-            <a class="btn btn-small rr-new-panel" href="?panel=new">+ New panel</a>
+            <a class="btn btn-small rr-new-panel" href="?panel=new">New panel</a>
           </div>
 
           <div class="rr-editor">
@@ -41,12 +41,12 @@
                 <label class="field-label" for="rr-name">Panel name</label>
                 <input class="field-input" id="rr-name" maxlength="100" value="{{$panel.Name}}" placeholder="Pick your roles">
               </div>
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="rr-enabled" {{if $panel.Enabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Enabled (reactions grant roles)</span>
               </label>
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="rr-remove-on-unreact" {{if $panel.RemoveOnUnreact}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Remove role when the reaction is removed</span>
@@ -102,7 +102,7 @@
               <h4>Reactions</h4>
               <button type="button" class="btn btn-small" id="rr-add-mapping">Add reaction</button>
             </div>
-            <p class="muted rr-hint">Paste a Unicode emoji (👍) or pick a server emoji below. Custom emojis use <code>name:id</code>.</p>
+            <p class="muted rr-hint">Paste a Unicode emoji (👍) or pick a server emoji below; custom emojis use <code>name:id</code></p>
             <div class="rr-mappings" id="rr-mappings">
               {{range $m := $panel.Mappings}}
               <div class="rr-mapping" data-rr-mapping>

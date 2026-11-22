@@ -2,8 +2,8 @@
         <section class="card">
           <div class="mod-head">
             <div>
-              <h2 style="margin:0">Leveling</h2>
-              <p class="muted" style="margin:4px 0 0">Message/voice XP, role rewards, and offline catch-up.</p>
+              <h2>Leveling</h2>
+              <p class="muted">Message and voice XP, role rewards, offline catch-up</p>
             </div>
             {{if .Content.Admin}}
             <button type="button" class="btn {{if .Content.Config.Enabled}}btn-danger{{else}}btn-primary{{end}}" id="lvl-toggle" data-enabled="{{if .Content.Config.Enabled}}true{{else}}false{{end}}">
@@ -13,15 +13,15 @@
           </div>
 
           {{if .Content.Admin}}
-          <p style="margin:14px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-            <span class="lvl-pill{{if .Content.Config.Enabled}} ok{{end}}">{{if .Content.Config.Enabled}}Enabled{{else}}Disabled{{end}}</span>
-            <span class="muted">Last caught up: {{.Content.LastSeen}}</span>
+          <p class="lvl-state">
+            <span class="tag{{if .Content.Config.Enabled}} ok{{end}}">{{if .Content.Config.Enabled}}Enabled{{else}}Disabled{{end}}</span>
+            <span class="muted">Last caught up {{.Content.LastSeen}}</span>
             <span class="muted">{{.Content.Stats.Tracked}} tracked members · {{.Content.Stats.TotalXP}} XP awarded</span>
           </p>
           {{end}}
 
           {{if not .Content.Admin}}
-          <p class="muted" style="margin-top:16px">The <strong>leveling</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
+          <p class="note">The <strong>leveling</strong> module is not loaded — <a href="/config">enable it</a> and restart</p>
           {{else}}
           {{$c := .Content}}
           {{$cfg := $c.Config}}
@@ -31,12 +31,12 @@
           <div class="mod-section">
             <h3>Settings</h3>
             <div class="mod-grid">
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-enabled" {{if $cfg.Enabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Leveling enabled</span>
               </label>
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-msg-enabled" {{if $cfg.MessageEnabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Award XP for messages</span>
@@ -61,7 +61,7 @@
               </div>
             </div>
             <div class="mod-grid">
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-voice-enabled" {{if $cfg.VoiceEnabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Award XP for voice</span>
@@ -70,14 +70,14 @@
                 <label class="field-label" for="lvl-voice-xp">Voice XP per minute</label>
                 <input class="field-input" type="number" id="lvl-voice-xp" min="0" max="1000" step="1" value="{{$cfg.VoiceXPPerMinute}}">
               </div>
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-voice-others" {{if $cfg.VoiceRequireOthers}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Require another member in the channel</span>
               </label>
             </div>
             <div class="mod-grid">
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-catchup-enabled" {{if $cfg.CatchupEnabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Replay missed messages after downtime</span>
@@ -91,13 +91,13 @@
                 <input class="field-input" type="number" id="lvl-catchup-channels" min="1" max="500" step="1" value="{{$cfg.CatchupMaxChannels}}">
               </div>
             </div>
-            <p class="muted" style="margin:8px 0 0;font-size:13px">Replays offline messages with normal cooldowns, capped per channel.</p>
+            <p class="field-hint">Replays offline messages with normal cooldowns, capped per channel</p>
           </div>
 
           <div class="mod-section">
             <h3>Announcements</h3>
             <div class="mod-grid">
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="lvl-announce-enabled" {{if $cfg.AnnounceEnabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Announce level-ups</span>
@@ -111,10 +111,10 @@
                 </select>
               </div>
             </div>
-            <div class="field" style="margin-top:12px">
+            <div class="field">
               <label class="field-label" for="lvl-announce-message">Announcement message</label>
               <textarea class="field-input" id="lvl-announce-message" rows="2" maxlength="1000">{{$cfg.AnnounceMessage}}</textarea>
-              <p class="muted" style="margin:6px 0 0;font-size:13px">Placeholders: <code>{user}</code>, <code>{user.name}</code>, <code>{level}</code>, <code>{server}</code>.</p>
+              <p class="field-hint">Placeholders: <code>{user}</code>, <code>{user.name}</code>, <code>{level}</code>, <code>{server}</code></p>
             </div>
           </div>
 
@@ -122,7 +122,7 @@
             <div class="mod-section-head">
               <div>
                 <h3>Role rewards</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">Rewards stack; roles are removed only when XP is reset here.</p>
+                <p class="field-hint">Rewards stack; roles are removed only when XP is reset here</p>
               </div>
               <button type="button" class="btn btn-small" id="lvl-add-reward">Add reward</button>
             </div>
@@ -145,8 +145,8 @@
               </div>
               {{end}}
             </div>
-            {{if not $cfg.Rewards}}<p class="muted mod-rules-empty" id="lvl-rewards-empty" style="margin:8px 0 0;font-size:13px">No reward roles configured.</p>{{end}}
-            <div class="lvl-actions" style="margin-top:12px">
+            {{if not $cfg.Rewards}}<p class="field-hint" id="lvl-rewards-empty">No reward roles configured</p>{{end}}
+            <div class="lvl-actions">
               <button type="button" class="btn btn-small" id="lvl-sync">Sync reward roles</button>
               <span class="muted" id="lvl-sync-status" role="status" aria-live="polite"></span>
             </div>
@@ -154,7 +154,7 @@
 
           <div class="mod-section">
             <h3>Ignored channels and roles</h3>
-            <p class="muted" style="margin:4px 0 12px;font-size:13px">Ignored channels and roles earn no XP.</p>
+            <p class="field-hint">Ignored channels and roles earn no XP</p>
             <div class="mod-grid">
               <div class="field">
                 <label class="field-label" for="lvl-ignore-channels">Ignored channels</label>
@@ -182,7 +182,7 @@
             <div class="mod-filter-head">
               <div>
                 <h3>Leaderboard</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">{{if $c.FilterUser}}One member{{else}}Top 100 members{{end}} by XP.</p>
+                <p class="field-hint">{{if $c.FilterUser}}One member{{else}}Top 100 members{{end}} by XP</p>
               </div>
               <form method="get" class="mod-filter">
                 <input name="user" class="field-input" placeholder="Member ID" value="{{$c.FilterUser}}" aria-label="Member ID">
@@ -190,26 +190,29 @@
                 {{if $c.FilterUser}}<a class="btn btn-small" href="/g/{{$c.Guild}}/leveling">Clear</a>{{end}}
               </form>
             </div>
-            <p class="muted" id="lvl-catchup-status" style="margin:8px 0 0;font-size:13px">{{$c.StatsText}}</p>
+            <p class="field-hint" id="lvl-catchup-status">{{$c.StatsText}}</p>
             {{if $c.Rows}}
+            {{$max := (index $c.Rows 0).XP}}
             <div class="mod-table-wrap">
               <table class="tbl">
                 <thead>
-                  <tr><th>Rank</th><th>Member</th><th>Level</th><th>XP</th><th>Messages</th><th>Voice</th><th>Updated (UTC)</th><th></th></tr>
+                  <tr>
+                    <th class="num">Rank</th><th>Member</th><th class="num">Level</th><th class="num">XP</th><th class="num">Messages</th><th class="num">Voice</th><th class="num">Updated (UTC)</th><th></th>
+                  </tr>
                 </thead>
                 <tbody>
                   {{range $c.Rows}}
                   <tr>
-                    <td>#{{.Rank}}</td>
+                    <td class="num">#{{.Rank}}</td>
                     <td class="lvl-member">
                       {{if .Avatar}}<img src="{{.Avatar}}" alt="" class="lvl-avatar">{{else}}<span class="lvl-avatar lvl-avatar-fallback">{{initial .Name}}</span>{{end}}
                       <span>{{.Name}}<br><span class="muted">{{.UserID}}</span></span>
                     </td>
-                    <td>{{.Level}}</td>
-                    <td>{{.XP}}</td>
-                    <td>{{.Messages}}</td>
-                    <td>{{.Voice}}</td>
-                    <td>{{.Updated}}</td>
+                    <td class="num">{{.Level}}</td>
+                    <td class="lvl-xp num">{{.XP}}<span class="bar{{if eq .Rank 1}} lead{{end}}" style="width:{{pctOf .XP $max}}%"></span></td>
+                    <td class="num">{{.Messages}}</td>
+                    <td class="num">{{.Voice}}</td>
+                    <td class="num">{{.Updated}}</td>
                     <td class="lvl-actions">
                       <button type="button" class="btn btn-small" data-lvl-edit="{{.UserID}}" data-xp="{{.XP}}">Edit XP</button>
                       <button type="button" class="btn btn-small" data-lvl-reset="{{.UserID}}">Reset</button>
@@ -219,7 +222,7 @@
                 </tbody>
               </table>
             </div>
-            {{else}}<p class="muted" style="margin-top:12px">{{if $c.FilterUser}}No XP recorded for that member.{{else}}No XP yet.{{end}}</p>{{end}}
+            {{else}}<p class="note">{{if $c.FilterUser}}No XP recorded for that member{{else}}No XP yet{{end}}</p>{{end}}
           </div>
           {{end}}
         </section>

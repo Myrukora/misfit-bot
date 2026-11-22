@@ -127,7 +127,7 @@ func TestImageFilterProvisioningRenders(t *testing.T) {
 		t.Fatalf("render rd_imagefilter: %v", err)
 	}
 	out := sb.String()
-	for _, want := range []string{"preparing model…", "Model setup failed: network down", `data-provisioning="true"`} {
+	for _, want := range []string{"preparing model", `class="dot dot-warn"`, "Model setup failed: network down", `data-provisioning="true"`} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered page missing %q", want)
 		}

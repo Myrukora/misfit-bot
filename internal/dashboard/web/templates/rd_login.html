@@ -6,7 +6,7 @@
 <title>{{.Bot}} — Sign in</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Cookie&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/style.css?v={{.AssetVersion}}">
 </head>
 <body class="login-page">
@@ -18,13 +18,13 @@
       <p class="login-sub muted">Bot dashboard</p>
     </div>
     <form class="login-form" action="/login" method="post">
-      <button type="submit" class="btn login-btn">
-        <img src="/static/discord.svg" width="22" height="22" alt="" aria-hidden="true">
+      <button type="submit" class="btn btn-primary login-btn">
+        <img src="/static/discord.svg" width="16" height="16" alt="" aria-hidden="true">
         Sign in with Discord
       </button>
     </form>
     <p class="muted login-hint">
-      Access is limited to members of a shared server.
+      Access is limited to members of a shared server
     </p>
   </div>
   {{template "legal_links" .}}

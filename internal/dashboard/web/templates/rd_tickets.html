@@ -6,7 +6,7 @@
   </button>
   <div class="picker-panel" hidden>
     <div class="picker-search-wrap">
-      <input type="search" class="picker-search field-input" placeholder="Search roles…" autocomplete="off">
+      <input type="search" class="picker-search field-input" placeholder="Search roles" autocomplete="off">
     </div>
     <div class="picker-list" role="listbox" aria-multiselectable="true">
       {{range .Roles}}<label class="picker-option"><input type="checkbox" value="{{.ID}}"><span>{{.Name}}</span></label>{{end}}
@@ -57,7 +57,7 @@
   {{end}}
 </div>
 {{else}}
-<p class="muted">No open tickets 🎉</p>
+<p class="muted">No open tickets</p>
 {{end}}
 {{end}}
 
@@ -81,7 +81,7 @@
   </table>
 </div>
 {{else}}
-<p class="muted">Nothing archived yet.</p>
+<p class="muted">Nothing archived yet</p>
 {{end}}
 {{end}}
 
@@ -95,7 +95,7 @@
           <p class="muted">Close notices and transcripts post here. Retention is global.</p>
           <div class="field">
             <label class="field-label" for="tk-log-channel">Log channel</label>
-            <p class="muted field-help">Empty = dashboard only.</p>
+            <p class="muted field-help">Empty = dashboard only</p>
             <select class="field-input" id="tk-log-channel">
               <option value="">— none —</option>
               {{$log := .Content.Settings.LogChannel}}
@@ -108,7 +108,7 @@
         <!-- ===== Ticket types ===== -->
         <section class="card" id="tickets-types" data-guild="{{.Content.GuildID}}">
           <h2>Ticket types</h2>
-          <p class="muted">Defines ticket creation, access, and the panel button.</p>
+          <p class="muted">Defines ticket creation, access, and the panel button</p>
           {{if .Content.TypeDetails}}
           <div class="tbl-wrap">
             <table class="tbl">
@@ -131,7 +131,7 @@
             </table>
           </div>
           {{else}}
-          <p class="muted">No ticket types yet — create one to get started.</p>
+          <p class="muted">No ticket types yet — create one to get started</p>
           {{end}}
           <button type="button" class="btn btn-primary" id="tk-type-add">Add type</button>
         </section>
@@ -139,7 +139,7 @@
         <!-- ===== Panels ===== -->
         <section class="card" id="tickets-panels" data-guild="{{.Content.GuildID}}">
           <h2>Panels</h2>
-          <p class="muted">Posted embed with an Open button for one ticket type.</p>
+          <p class="muted">Posted embed with an Open button for one ticket type</p>
           {{if .Content.Panels}}
           <div class="tbl-wrap">
             <table class="tbl">
@@ -168,7 +168,7 @@
             </table>
           </div>
           {{else}}
-          <p class="muted">No panels yet — add one once a type exists.</p>
+          <p class="muted">No panels yet — add one once a type exists</p>
           {{end}}
           <button type="button" class="btn btn-primary" id="tk-panel-add">Add panel</button>
           <p class="muted" id="tickets-panels-msg" hidden></p>
@@ -192,7 +192,7 @@
           <div class="gear-panel gear-panel-wide" role="dialog" aria-modal="true" aria-label="Ticket type editor">
             <div class="gear-head">
               <h4 id="tk-type-heading">New ticket type</h4>
-              <button type="button" class="gear-close" id="tk-type-close" aria-label="Close">✕</button>
+              <button type="button" class="gear-close" id="tk-type-close" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
             </div>
             <div class="gear-body">
               <h5 class="gear-section-title">Basics</h5>
@@ -211,7 +211,7 @@
                   <option value="">— none —</option>
                   {{range .Content.Categories}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
                 </select>
-                <p class="muted field-help">Tickets of this type are created as channels inside this category.</p>
+                <p class="muted field-help">Tickets of this type are created as channels inside this category</p>
               </div>
               <div class="field">
                 <label class="field-label" for="tk-type-channel">Channel name</label>
@@ -223,12 +223,12 @@
               <div class="field">
                 <span class="field-label">Ping roles</span>
                 {{template "tk_role_picker" (dict "ID" "tk-type-ping" "Roles" .Content.Roles)}}
-                <p class="muted field-help">Roles pinged when a ticket of this type opens.</p>
+                <p class="muted field-help">Roles pinged when a ticket of this type opens</p>
               </div>
               <div class="field">
                 <span class="field-label">Helper roles</span>
                 {{template "tk_role_picker" (dict "ID" "tk-type-helper" "Roles" .Content.Roles)}}
-                <p class="muted field-help">Helpers can close, rename, and add members, and always see the ticket.</p>
+                <p class="muted field-help">Helpers can close, rename, and add members, and always see the ticket</p>
               </div>
               <div class="field">
                 <span class="field-label">Access roles</span>
@@ -285,7 +285,7 @@
           <div class="gear-panel gear-panel-wide" role="dialog" aria-modal="true" aria-label="Panel editor">
             <div class="gear-head">
               <h4 id="tk-panel-heading">New panel</h4>
-              <button type="button" class="gear-close" id="tk-panel-close" aria-label="Close">✕</button>
+              <button type="button" class="gear-close" id="tk-panel-close" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
             </div>
             <div class="gear-body">
               <div class="field-grid">
@@ -324,7 +324,7 @@
                 <div class="tk-qrows" id="tk-panel-questions"></div>
                 <button type="button" class="btn btn-small" id="tk-panel-qadd">Add question</button>
               </div>
-              <p class="muted gear-hint" id="tk-panel-hint">Panels post immediately and update in place when saved.</p>
+              <p class="muted gear-hint" id="tk-panel-hint">Panels post immediately and update in place when saved</p>
             </div>
             <div class="gear-foot">
               <button type="button" class="btn btn-small btn-primary" id="tk-panel-save">Save panel</button>
@@ -346,7 +346,7 @@
           </div>
         </template>
         {{else}}
-        <section class="card"><p class="muted">No manageable servers found.</p></section>
+        <section class="card"><p class="muted">No manageable servers found</p></section>
         {{end}}
 {{template "tk_lightbox"}}
 {{template "rd_footer" .}}{{end}}

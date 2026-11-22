@@ -1,12 +1,22 @@
 {{define "tk_player_bar"}}
   <div class="player-bar">
-    <button type="button" class="player-btn player-play" aria-label="Play or pause">▶</button>
+    <button type="button" class="player-btn player-play" aria-label="Play or pause">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" data-state="play"><path d="M8 5.5 19 12 8 18.5z"/></svg>
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" data-state="pause" hidden><path d="M9 5v14M15 5v14"/></svg>
+    </button>
     <input type="range" class="player-seek" min="0" max="1000" step="1" value="0" aria-label="Seek">
     <span class="player-time">0:00</span>
     <input type="range" class="player-vol" min="0" max="100" step="1" value="100" aria-label="Volume">
-    <button type="button" class="player-btn player-mute" aria-label="Mute">🔊</button>
-    <button type="button" class="player-btn player-full" aria-label="Fullscreen">⛶</button>
-    <a class="player-btn player-download" href="{{.Src}}" download aria-label="Download">⬇</a>
+    <button type="button" class="player-btn player-mute" aria-label="Mute">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" data-state="unmuted"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a4 4 0 0 1 0 7"/></svg>
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" data-state="muted" hidden><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m17 9 5 5M22 9l-5 5"/></svg>
+    </button>
+    <button type="button" class="player-btn player-full" aria-label="Fullscreen">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+    </button>
+    <a class="player-btn player-download" href="{{.Src}}" download aria-label="Download">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+    </a>
   </div>
 {{end}}
 
@@ -20,8 +30,8 @@
 {{define "tk_lightbox"}}
 <div id="lightbox" role="dialog" aria-modal="true" tabindex="-1">
   <div class="lb-tools">
-    <a id="lightbox-download" class="btn btn-small" href="#" download>⬇ Download</a>
-    <button type="button" id="lightbox-close" class="btn btn-small" aria-label="Close">✕</button>
+    <a id="lightbox-download" class="btn btn-small" href="#" download><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>Download</a>
+    <button type="button" id="lightbox-close" class="btn btn-small" aria-label="Close"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
   </div>
   <img id="lightbox-img" alt="">
   <div class="player lb-player" id="lightbox-player" data-player hidden>

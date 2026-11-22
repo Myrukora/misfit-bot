@@ -2,8 +2,8 @@
         <section class="card welcome-card">
           <div class="welcome-head">
             <div>
-              <h2 style="margin:0">Welcome message</h2>
-              <p class="muted" style="margin:4px 0 0">Join and leave messages with variables.</p>
+              <h2>Welcome message</h2>
+              <p class="muted">Join and leave messages with variables</p>
             </div>
             {{if .Content.admin}}
             <div class="cmd-tabs" role="tablist" aria-label="Event">
@@ -13,28 +13,28 @@
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>welcome</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
+          <p class="note">The <strong>welcome</strong> module is not loaded — <a href="/config">enable it</a> and restart</p>
           {{else}}
           {{with .Content.configError}}<p class="welcome-error">{{.}}</p>{{end}}
 
           <details class="welcome-vars-doc">
             <summary>Variable reference</summary>
             <div class="welcome-vars-grid">
-              <code>{mention}</code><span>Mentions the member.</span>
-              <code>{user}</code><span>Display name (server nickname, then global name, then username).</span>
-              <code>{user(proper)}</code><span>Account name incl. the legacy four-digit tag when one exists.</span>
-              <code>{user(id)}</code><span>User ID.</span>
-              <code>{username}</code><span>Discord username, without nickname.</span>
-              <code>{nickname}</code><span>Server nickname (empty when none).</span>
-              <code>{user(avatar)}</code><span>Avatar URL.</span>
-              <code>{user(created)}</code><span>Account creation date (Discord timestamp).</span>
-              <code>{user(joined)}</code><span>Server join date (Discord timestamp).</span>
-              <code>{server}</code><span>Server name.</span>
-              <code>{server(id)}</code><span>Server ID.</span>
-              <code>{server(members)}</code><span>Member count after this event.</span>
-              <code>{server(icon)}</code><span>Server icon URL.</span>
+              <code>{mention}</code><span>Mentions the member</span>
+              <code>{user}</code><span>Display name (server nickname, then global name, then username)</span>
+              <code>{user(proper)}</code><span>Account name including the legacy four-digit tag when one exists</span>
+              <code>{user(id)}</code><span>User ID</span>
+              <code>{username}</code><span>Discord username, without nickname</span>
+              <code>{nickname}</code><span>Server nickname (empty when none)</span>
+              <code>{user(avatar)}</code><span>Avatar URL</span>
+              <code>{user(created)}</code><span>Account creation date (Discord timestamp)</span>
+              <code>{user(joined)}</code><span>Server join date (Discord timestamp)</span>
+              <code>{server}</code><span>Server name</span>
+              <code>{server(id)}</code><span>Server ID</span>
+              <code>{server(members)}</code><span>Member count after this event</span>
+              <code>{server(icon)}</code><span>Server icon URL</span>
               <code>{ord:{server(members)}}</code><span>Ordinal form: 82nd, 1,024th, …</span>
-              <code>{random: one, two, three}</code><span>Picks one item at random.</span>
+              <code>{random: one, two, three}</code><span>Picks one item at random</span>
             </div>
           </details>
 
@@ -67,7 +67,7 @@
                 <label class="field-label">Message</label>
                 <span class="welcome-counter" data-welcome-count>0/2000</span>
               </div>
-              <textarea class="field-input welcome-message" data-welcome-message rows="6" maxlength="2000" placeholder="{{if eq $p.Event "join"}}Welcome {mention} to {server}!{{else}}Goodbye {user}, we'll miss you.{{end}}"></textarea>
+              <textarea class="field-input welcome-message" data-welcome-message rows="6" maxlength="2000" placeholder="{{if eq $p.Event "join"}}Welcome {mention} to {server}!{{else}}Goodbye {user}, we'll miss you{{end}}"></textarea>
             </div>
 
             <div class="welcome-vars">
@@ -208,9 +208,9 @@
               <span class="toggle-label">Inline</span>
             </label>
             <div class="welcome-field-actions">
-              <button type="button" class="btn btn-small" data-field-up title="Move up">↑</button>
-              <button type="button" class="btn btn-small" data-field-down title="Move down">↓</button>
-              <button type="button" class="btn btn-small" data-field-remove title="Remove field">✕</button>
+              <button type="button" class="btn btn-small" data-field-up title="Move up"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="m5 12 7-7 7 7"/></svg></button>
+              <button type="button" class="btn btn-small" data-field-down title="Move down"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></button>
+              <button type="button" class="btn btn-small" data-field-remove title="Remove field"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
             </div>
           </div>
         </template>

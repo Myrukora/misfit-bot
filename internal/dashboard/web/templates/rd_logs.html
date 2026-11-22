@@ -1,7 +1,7 @@
 {{define "rd_logs"}}{{template "rd_header" .}}
         <section class="card">
           <h2>Bot logs</h2>
-          <p class="muted">{{if .Content.note}}{{.Content.note}}{{else}}Last 200 lines from <code>{{.Content.path}}</code>.{{end}}</p>
+          <p class="muted">{{if .Content.note}}{{.Content.note}}{{else}}Last 200 lines from <code>{{.Content.path}}</code>{{end}}</p>
 
           <!-- Toolbar: level filter + search -->
           <div class="log-toolbar">
@@ -17,7 +17,7 @@
             </div>
             <div class="field">
               <label class="field-label">Search</label>
-              <input class="field-input" type="search" id="log-search" placeholder="Filter log lines…">
+              <input class="field-input" type="search" id="log-search" placeholder="Filter log lines">
             </div>
           </div>
 

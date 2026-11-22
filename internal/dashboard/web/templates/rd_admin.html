@@ -4,11 +4,11 @@
         {{if .sections}}
         <section class="card">
           <h2>Core configuration</h2>
-          <p class="muted">Bot-wide settings.</p>
+          <p class="muted">Bot-wide settings</p>
           {{range .sections}}
           <div class="config-section">
             <h3>{{.Title}}</h3>
-            {{if .Help}}<p class="muted" style="font-size:13px;margin:2px 0 8px">{{.Help}}</p>{{end}}
+            {{if .Help}}<p class="section-help">{{.Help}}</p>{{end}}
             {{range .Fields}}{{template "rd_field" .}}{{end}}
             <button class="btn btn-primary save-section" data-section="{{.Title}}">Save {{.Title}}</button>
           </div>
@@ -19,7 +19,7 @@
         {{range .moduleViews}}
         <section class="card">
           <h2>{{.Name}} — global settings</h2>
-          <p class="muted">Bot-wide {{.Name}} settings.</p>
+          <p class="muted">Bot-wide {{.Name}} settings</p>
           <form class="module-cfg" data-module="{{.Name}}" data-guild="">
             {{range .Fields}}{{template "rd_field" .}}{{end}}
             <button type="button" class="btn btn-primary save-module">Save changes</button>
@@ -31,11 +31,11 @@
         {{if .isOwner}}
         <section class="card">
           <h2>Rate limiting</h2>
-          <p class="muted">Check or reset a user's rate limit.</p>
+          <p class="muted">Check or reset a user's rate limit</p>
           <div class="add-row">
-            <div class="field" style="flex:3">
+            <div class="field">
               <label class="field-label" for="rl-user">User ID</label>
-              <input class="field-input" id="rl-user" type="text" inputmode="numeric" placeholder="123456789012345678">
+              <input class="field-input" id="rl-user" type="text" inputmode="numeric" placeholder="218863282423689216">
             </div>
             <button type="button" class="btn btn-small" id="rl-check">Check status</button>
             <button type="button" class="btn btn-small btn-danger" id="rl-reset">Reset</button>
@@ -47,7 +47,7 @@
         <!-- ===== Bot control (owner + elevated) ===== -->
         <section class="card">
           <h2>Bot control</h2>
-          <p class="muted">Restart or shut down the bot.</p>
+          <p class="muted">Restart or shut down the bot</p>
           <div class="add-row">
             <button type="button" class="btn btn-small" id="bot-restart">Restart bot</button>
             <button type="button" class="btn btn-small btn-danger" id="bot-shutdown">Shut down</button>
@@ -58,8 +58,8 @@
         {{if .isOwner}}
         <section class="card">
           <h2>Updater</h2>
-          <p class="muted">Updater status and actions.</p>
-          <div class="updater-status" id="updater-status">Loading…</div>
+          <p class="muted">Updater status and actions</p>
+          <div class="updater-status" id="updater-status">Loading</div>
           <div class="add-row">
             <button type="button" class="btn btn-small" id="upd-check">Check now</button>
             <button type="button" class="btn btn-small" id="upd-apply">Update now</button>
@@ -74,8 +74,8 @@
         {{if .Content.isOwner}}
         <section class="card">
           <h2>Image filter model</h2>
-          <p class="muted">CLIP model variant. Switching reloads the model.</p>
-          <div class="field" style="max-width:320px">
+          <p class="muted">CLIP model variant — switching reloads the model</p>
+          <div class="field field-narrow">
             <label class="field-label">Variant</label>
             <select class="field-input" id="clip-variant">
               {{range .Content.variants}}<option value="{{.}}" {{if eq . $.Content.variant}}selected{{end}}>{{.}}</option>{{end}}

@@ -2,13 +2,13 @@
         <section class="card">
           <div class="mod-head">
             <div>
-              <h2 style="margin:0">Moderation</h2>
-              <p class="muted" style="margin:4px 0 0">Ban, kick, timeout and warn. Actions are audited.</p>
+              <h2>Moderation</h2>
+              <p class="muted">Ban, kick, timeout and warn — every action is audited</p>
             </div>
           </div>
 
           {{if not .Content.admin}}
-          <p class="muted" style="margin-top:16px">The <strong>moderation</strong> module is not loaded. <a href="/config">Enable it</a> and restart.</p>
+          <p class="note">The <strong>moderation</strong> module is not loaded — <a href="/config">enable it</a> and restart</p>
           {{else}}
           {{$cfg := .Content.config}}
           {{with .Content.configError}}<p class="mod-error">Config problem: {{.}}</p>{{end}}
@@ -17,7 +17,7 @@
           <div class="mod-section">
             <h3>Settings</h3>
             <div class="mod-grid">
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="mod-enabled" {{if $cfg.Enabled}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Moderation commands enabled</span>
@@ -48,20 +48,20 @@
                   {{with .Content.staleWarn}}<option value="{{.ID}}" selected>Unknown channel ({{.ID}})</option>{{end}}
                 </select>
               </div>
-              <label class="toggle" style="margin-top:0">
+              <label class="toggle">
                 <input type="checkbox" id="mod-warn-notify" {{if $cfg.WarnNotify}}checked{{end}}>
                 <span class="toggle-track"></span>
                 <span class="toggle-label">Post warn notifications</span>
               </label>
             </div>
-            <p class="muted" style="margin:8px 0 0;font-size:13px">Channels or threads.</p>
+            <p class="field-hint">Channels or threads</p>
           </div>
 
           <div class="mod-section">
             <div class="mod-section-head">
               <div>
                 <h3>Automatic escalation</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">At exactly N active warnings, apply this action automatically.</p>
+                <p class="field-hint">At exactly N active warnings, apply this action automatically</p>
               </div>
               <button type="button" class="btn btn-small" id="mod-add-rule">Add rule</button>
             </div>
@@ -88,7 +88,7 @@
               </div>
               {{end}}
             </div>
-            {{if not $cfg.Rules}}<p class="muted mod-rules-empty" id="mod-rules-empty" style="margin:8px 0 0;font-size:13px">No escalation rules configured.</p>{{end}}
+            {{if not $cfg.Rules}}<p class="field-hint" id="mod-rules-empty">No escalation rules configured</p>{{end}}
           </div>
 
           <div class="mod-actions">
@@ -100,7 +100,7 @@
             <div class="mod-filter-head">
               <div>
                 <h3>Audit log</h3>
-                <p class="muted" style="margin:4px 0 0;font-size:13px">Recent 100 cases{{if or .Content.filterType .Content.filterUser}} (filtered){{end}}.</p>
+                <p class="field-hint">Recent 100 cases{{if or .Content.filterType .Content.filterUser}} (filtered){{end}}</p>
               </div>
               <form method="get" class="mod-filter">
                 <select name="type" class="field-input" aria-label="Case type">
@@ -121,17 +121,17 @@
             <div class="mod-table-wrap">
               <table class="tbl">
                 <thead>
-                  <tr><th>Case</th><th>Type</th><th>Target</th><th>Moderator</th><th>Reason</th><th>Created (UTC)</th><th>Status</th><th></th></tr>
+                  <tr><th class="num">Case</th><th>Type</th><th>Target</th><th>Moderator</th><th>Reason</th><th class="num">Created (UTC)</th><th>Status</th><th></th></tr>
                 </thead>
                 <tbody>
                   {{range .Content.cases}}
                   <tr>
-                    <td>#{{.ID}}</td>
+                    <td class="num">#{{.ID}}</td>
                     <td>{{.TypeLabel}}{{if .Automated}} <span class="tag">auto</span>{{end}}</td>
                     <td>{{.Target}}<br><span class="muted">{{.TargetID}}</span></td>
                     <td>{{.Moderator}}<br><span class="muted">{{.ModeratorID}}</span></td>
                     <td>{{.Reason}}</td>
-                    <td>{{.Created}}</td>
+                    <td class="num">{{.Created}}</td>
                     <td><span class="tag{{if eq .Status "Active"}} ok{{end}}">{{.Status}}</span></td>
                     <td>{{if .CanRemove}}<button type="button" class="btn btn-small" data-mod-unwarn="{{.ID}}">Remove</button>{{end}}</td>
                   </tr>
@@ -139,7 +139,7 @@
                 </tbody>
               </table>
             </div>
-            {{else}}<p class="muted" style="margin-top:12px">No cases yet.</p>{{end}}
+            {{else}}<p class="note">No cases yet</p>{{end}}
           </div>
           {{end}}
         </section>

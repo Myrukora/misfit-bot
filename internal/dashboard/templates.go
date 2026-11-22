@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"math"
 	"strings"
 	"time"
 )
@@ -80,6 +81,13 @@ var tmplFuncs = template.FuncMap{
 	"fileBase":     fileBase,
 	"hasSuffix":    strings.HasSuffix,
 	"versionLabel": versionLabel,
+	// Leaderboard bars: width as a share of the largest value in the set.
+	"pctOf": func(v, max int64) int {
+		if max <= 0 {
+			return 0
+		}
+		return int(math.Round(float64(v) / float64(max) * 100))
+	},
 }
 
 // dateHuman renders a time in a short human format for tables/transcripts.
